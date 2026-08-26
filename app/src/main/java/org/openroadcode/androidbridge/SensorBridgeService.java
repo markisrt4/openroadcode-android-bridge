@@ -47,12 +47,18 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        Sensor gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
-        if (accelerometer != null) sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
-        if (gyroscope != null) sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+        registerSensor(Sensor.TYPE_ACCELEROMETER, SensorManager.SENSOR_DELAY_GAME);
+        registerSensor(Sensor.TYPE_LINEAR_ACCELERATION, SensorManager.SENSOR_DELAY_GAME);
+        registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
+        registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
+        registerSensor(Sensor.TYPE_PRESSURE, SensorManager.SENSOR_DELAY_NORMAL);
         serverThread = new Thread(this::runServer, "orc-sensor-http");
         serverThread.start();
+    }
+
+    private void registerSensor(int sensorType, int delay) {
+        Sensor sensor = sensorManager.getDefaultSensor(sensorType);
+        if (sensor != null) sensorManager.registerListener(this, sensor, delay);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }
@@ -69,12 +75,29 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     @Override
     public void onSensorChanged(SensorEvent event) {
         Sample next = sample.get().copy();
-        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            next.ax = event.values[0]; next.ay = event.values[1]; next.az = event.values[2];
-            next.accelTimestampNs = event.timestamp; next.hasAccel = true; next.accelCount++;
-        } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
-            next.gx = event.values[0]; next.gy = event.values[1]; next.gz = event.values[2];
-            next.gyroTimestampNs = event.timestamp; next.hasGyro = true; next.gyroCount++;
+        switch (event.sensor.getType()) {
+            case Sensor.TYPE_ACCELEROMETER:
+                next.ax = event.values[0]; next.ay = event.values[1]; next.az = event.values[2];
+                next.accelTimestampNs = event.timestamp; next.hasAccel = true; next.accelCount++;
+                break;
+            case Sensor.TYPE_LINEAR_ACCELERATION:
+                next.lax = event.values[0]; next.lay = event.values[1]; next.laz = event.values[2];
+                next.linearAccelTimestampNs = event.timestamp; next.hasLinearAccel = true; next.linearAccelCount++;
+                break;
+            case Sensor.TYPE_GYROSCOPE:
+                next.gx = event.values[0]; next.gy = event.values[1]; next.gz = event.values[2];
+                next.gyroTimestampNs = event.timestamp; next.hasGyro = true; next.gyroCount++;
+                break;
+            case Sensor.TYPE_MAGNETIC_FIELD:
+                next.mx = event.values[0]; next.my = event.values[1]; next.mz = event.values[2];
+                next.magTimestampNs = event.timestamp; next.hasMag = true; next.magCount++;
+                break;
+            case Sensor.TYPE_PRESSURE:
+                next.pressureHpa = event.values[0];
+                next.pressureTimestampNs = event.timestamp; next.hasPressure = true; next.pressureCount++;
+                break;
+            default:
+                return;
         }
         sample.set(next);
     }
@@ -124,19 +147,30 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         }
     }
 
+    private static JSONObject vector(float x, float y, float z) throws JSONException {
+        JSONObject result = new JSONObject();
+        result.put("x", x); result.put("y", y); result.put("z", z);
+        return result;
+    }
+
     private String sampleJson() {
         Sample current = sample.get();
         try {
             JSONObject root = new JSONObject();
             root.put("ready", current.hasAccel && current.hasGyro);
-            JSONObject acceleration = new JSONObject();
-            acceleration.put("x", current.ax); acceleration.put("y", current.ay); acceleration.put("z", current.az);
-            root.put("acceleration_mps2", acceleration);
-            JSONObject angularVelocity = new JSONObject();
-            angularVelocity.put("x", current.gx); angularVelocity.put("y", current.gy); angularVelocity.put("z", current.gz);
-            root.put("angular_velocity_rad_s", angularVelocity);
+            root.put("acceleration_mps2", vector(current.ax, current.ay, current.az));
+            root.put("linear_acceleration_mps2", vector(current.lax, current.lay, current.laz));
+            root.put("angular_velocity_rad_s", vector(current.gx, current.gy, current.gz));
+            root.put("magnetic_field_uT", vector(current.mx, current.my, current.mz));
+            root.put("pressure_hpa", current.pressureHpa);
             root.put("accelerometer_timestamp_ns", current.accelTimestampNs);
+            root.put("linear_acceleration_timestamp_ns", current.linearAccelTimestampNs);
             root.put("gyroscope_timestamp_ns", current.gyroTimestampNs);
+            root.put("magnetometer_timestamp_ns", current.magTimestampNs);
+            root.put("pressure_timestamp_ns", current.pressureTimestampNs);
+            root.put("linear_acceleration_available", current.hasLinearAccel);
+            root.put("magnetometer_available", current.hasMag);
+            root.put("pressure_available", current.hasPressure);
             return root.toString();
         } catch (JSONException e) { return "{\"error\":\"failed to encode sensor sample\"}"; }
     }
@@ -150,9 +184,15 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("status", current.hasAccel && current.hasGyro ? "ready" : "starting");
             root.put("uptime_ms", uptimeMs);
             root.put("accelerometer_samples", current.accelCount);
+            root.put("linear_acceleration_samples", current.linearAccelCount);
             root.put("gyroscope_samples", current.gyroCount);
+            root.put("magnetometer_samples", current.magCount);
+            root.put("pressure_samples", current.pressureCount);
             root.put("accelerometer_rate_hz", current.accelCount / uptimeSeconds);
+            root.put("linear_acceleration_rate_hz", current.linearAccelCount / uptimeSeconds);
             root.put("gyroscope_rate_hz", current.gyroCount / uptimeSeconds);
+            root.put("magnetometer_rate_hz", current.magCount / uptimeSeconds);
+            root.put("pressure_rate_hz", current.pressureCount / uptimeSeconds);
             return root.toString();
         } catch (JSONException e) { return "{\"error\":\"failed to encode health status\"}"; }
     }
@@ -165,20 +205,26 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private Notification buildNotification() {
         return new Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("OpenRoadCode Sensor Bridge")
-                .setContentText("Accelerometer and gyroscope bridge is running")
+                .setContentText("Navigation sensors are being bridged locally")
                 .setSmallIcon(R.drawable.ic_openroadcode_notification)
                 .build();
     }
 
     private static final class Sample {
-        float ax, ay, az, gx, gy, gz;
-        long accelTimestampNs, gyroTimestampNs, accelCount, gyroCount;
-        boolean hasAccel, hasGyro;
+        float ax, ay, az, lax, lay, laz, gx, gy, gz, mx, my, mz, pressureHpa;
+        long accelTimestampNs, linearAccelTimestampNs, gyroTimestampNs, magTimestampNs, pressureTimestampNs;
+        long accelCount, linearAccelCount, gyroCount, magCount, pressureCount;
+        boolean hasAccel, hasLinearAccel, hasGyro, hasMag, hasPressure;
+
         Sample copy() {
             Sample r = new Sample();
-            r.ax=ax; r.ay=ay; r.az=az; r.gx=gx; r.gy=gy; r.gz=gz;
-            r.accelTimestampNs=accelTimestampNs; r.gyroTimestampNs=gyroTimestampNs;
-            r.accelCount=accelCount; r.gyroCount=gyroCount; r.hasAccel=hasAccel; r.hasGyro=hasGyro;
+            r.ax=ax; r.ay=ay; r.az=az; r.lax=lax; r.lay=lay; r.laz=laz;
+            r.gx=gx; r.gy=gy; r.gz=gz; r.mx=mx; r.my=my; r.mz=mz; r.pressureHpa=pressureHpa;
+            r.accelTimestampNs=accelTimestampNs; r.linearAccelTimestampNs=linearAccelTimestampNs;
+            r.gyroTimestampNs=gyroTimestampNs; r.magTimestampNs=magTimestampNs; r.pressureTimestampNs=pressureTimestampNs;
+            r.accelCount=accelCount; r.linearAccelCount=linearAccelCount; r.gyroCount=gyroCount;
+            r.magCount=magCount; r.pressureCount=pressureCount;
+            r.hasAccel=hasAccel; r.hasLinearAccel=hasLinearAccel; r.hasGyro=hasGyro; r.hasMag=hasMag; r.hasPressure=hasPressure;
             return r;
         }
     }
