@@ -31,6 +31,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private static final int PORT = 8766;
     private static final String CHANNEL_ID = "sensor_bridge";
     private static final int NOTIFICATION_ID = 1;
+    private static final long STREAM_PERIOD_MS = 20;
 
     private SensorManager sensorManager;
     private ServerSocket serverSocket;
@@ -45,44 +46,24 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         startedElapsedRealtimeMs = SystemClock.elapsedRealtime();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
-
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         Sensor gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
-
-        if (accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
-        }
-        if (gyroscope != null) {
-            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
-        }
-
+        if (accelerometer != null) sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+        if (gyroscope != null) sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
         serverThread = new Thread(this::runServer, "orc-sensor-http");
         serverThread.start();
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_STICKY;
-    }
+    @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }
+    @Override public IBinder onBind(Intent intent) { return null; }
+    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { }
 
     @Override
     public void onDestroy() {
-        if (sensorManager != null) {
-            sensorManager.unregisterListener(this);
-        }
-        if (serverSocket != null) {
-            try {
-                serverSocket.close();
-            } catch (IOException ignored) {
-            }
-        }
+        if (sensorManager != null) sensorManager.unregisterListener(this);
+        if (serverSocket != null) try { serverSocket.close(); } catch (IOException ignored) { }
         super.onDestroy();
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
     }
 
     @Override
@@ -98,14 +79,19 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         sample.set(next);
     }
 
-    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { }
-
     private void runServer() {
         try {
             serverSocket = new ServerSocket(PORT, 8, InetAddress.getByName("127.0.0.1"));
             while (!serverSocket.isClosed()) {
-                try (Socket socket = serverSocket.accept()) { handleRequest(socket); }
-                catch (IOException e) { if (!serverSocket.isClosed()) e.printStackTrace(); }
+                try {
+                    Socket socket = serverSocket.accept();
+                    new Thread(() -> {
+                        try (Socket owned = socket) { handleRequest(owned); }
+                        catch (IOException ignored) { }
+                    }, "orc-sensor-http-client").start();
+                } catch (IOException e) {
+                    if (!serverSocket.isClosed()) e.printStackTrace();
+                }
             }
         } catch (IOException e) { e.printStackTrace(); }
     }
@@ -116,6 +102,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         if (requestLine == null) return;
         String[] parts = requestLine.split(" ");
         String path = parts.length >= 2 && "GET".equals(parts[0]) ? parts[1] : "";
+        if ("/stream/imu".equals(path)) { streamImu(socket); return; }
         boolean valid = "/imu".equals(path) || "/health".equals(path);
         String json = "/imu".equals(path) ? sampleJson() : "/health".equals(path) ? healthJson() : "{\"error\":\"not found\"}";
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
@@ -123,6 +110,18 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String headers = String.format(Locale.US, "HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", status, body.length);
         OutputStream output = socket.getOutputStream();
         output.write(headers.getBytes(StandardCharsets.US_ASCII)); output.write(body); output.flush();
+    }
+
+    private void streamImu(Socket socket) throws IOException {
+        OutputStream output = socket.getOutputStream();
+        String headers = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+        output.write(headers.getBytes(StandardCharsets.US_ASCII)); output.flush();
+        while (!socket.isClosed()) {
+            output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
+            output.flush();
+            try { Thread.sleep(STREAM_PERIOD_MS); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+        }
     }
 
     private String sampleJson() {
