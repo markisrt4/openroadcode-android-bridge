@@ -6,8 +6,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/openroadcode"
-        android:roundIcon="@drawable/openroadcode"
+        android:icon="@drawable/ic_openroadcode"
+        android:roundIcon="@drawable/ic_openroadcode"
         android:label="OpenRoadCode Sensor Bridge"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
@@ -26,7 +26,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Provides local accelerometer and gyroscope data to OpenRoadCode running on the same device." />
+                android:value="Provides local inertial, magnetic-field, and pressure sensor data to OpenRoadCode running on the same device." />
         </service>
     </application>
 </manifest>
