@@ -6,6 +6,8 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/ic_openroadcode"
+        android:roundIcon="@drawable/ic_openroadcode"
         android:label="OpenRoadCode Sensor Bridge"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
