@@ -166,7 +166,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         return new Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("OpenRoadCode Sensor Bridge")
                 .setContentText("Accelerometer and gyroscope bridge is running")
-                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setSmallIcon(R.drawable.ic_openroadcode_notification)
                 .build();
     }
 
