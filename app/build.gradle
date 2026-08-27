@@ -1,6 +1,17 @@
+import java.util.Base64
+
 plugins {
     id 'com.android.application'
 }
+
+// Development builds intentionally share one non-secret signing key so APKs
+// produced locally and by CI can update one another. Never use this key for a
+// production/release build.
+def developmentKeyBase64 = file('openroadcode-debug.keystore.b64')
+def developmentKey = layout.buildDirectory.file('signing/openroadcode-debug.keystore').get().asFile
+
+developmentKey.parentFile.mkdirs()
+developmentKey.bytes = Base64.mimeDecoder.decode(developmentKeyBase64.text)
 
 android {
     namespace 'org.openroadcode.androidbridge'
@@ -12,6 +23,21 @@ android {
         targetSdk 34
         versionCode 1
         versionName '0.1.0'
+    }
+
+    signingConfigs {
+        debug {
+            storeFile developmentKey
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
     }
 
     compileOptions {
