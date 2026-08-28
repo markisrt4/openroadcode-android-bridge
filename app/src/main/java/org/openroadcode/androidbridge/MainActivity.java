@@ -2,6 +2,9 @@ package org.openroadcode.androidbridge;
 
 import android.Manifest;
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
@@ -9,9 +12,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import org.json.JSONObject;
@@ -21,10 +26,13 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
+    private static final int BLUETOOTH_PERMISSION_REQUEST = 1002;
     private static final long DASHBOARD_PERIOD_MS = 500;
     private static final String IMU_URL = "http://127.0.0.1:8766/imu";
     private static final String LOCATION_URL = "http://127.0.0.1:8766/location";
@@ -33,8 +41,10 @@ public final class MainActivity extends Activity {
     private final Runnable dashboardRefresh = new Runnable() {
         @Override public void run() { refreshDashboard(); dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS); }
     };
+    private final List<BluetoothDevice> pairedDevices = new ArrayList<>();
 
-    private TextView status, accelerometerValue, linearAccelerationValue, gyroscopeValue, magnetometerValue, pressureValue, positionValue;
+    private TextView status, bluetoothStatus, accelerometerValue, linearAccelerationValue, gyroscopeValue, magnetometerValue, pressureValue, positionValue;
+    private Spinner bluetoothDeviceSpinner;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,7 +65,19 @@ public final class MainActivity extends Activity {
         Button start = new Button(this); start.setText("Start bridge"); start.setOnClickListener(v -> startBridge()); buttons.addView(start, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         Button stop = new Button(this); stop.setText("Stop bridge"); stop.setOnClickListener(v -> { stopService(new Intent(this, SensorBridgeService.class)); status.setText("Bridge stopped"); showUnavailable(); }); buttons.addView(stop, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         content.addView(buttons);
+
+        TextView bluetoothTitle = new TextView(this); bluetoothTitle.setText("Bluetooth SPP Bridge"); bluetoothTitle.setTextSize(20); bluetoothTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD); bluetoothTitle.setPadding(0, dp(24), 0, dp(6)); content.addView(bluetoothTitle);
+        bluetoothStatus = new TextView(this); bluetoothStatus.setText("Select a paired device"); bluetoothStatus.setTextSize(13); content.addView(bluetoothStatus);
+        bluetoothDeviceSpinner = new Spinner(this); content.addView(bluetoothDeviceSpinner);
+        LinearLayout bluetoothButtons = new LinearLayout(this); bluetoothButtons.setOrientation(LinearLayout.HORIZONTAL);
+        Button refreshBluetooth = new Button(this); refreshBluetooth.setText("Refresh devices"); refreshBluetooth.setOnClickListener(v -> loadPairedDevices()); bluetoothButtons.addView(refreshBluetooth, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button startBluetooth = new Button(this); startBluetooth.setText("Start SPP"); startBluetooth.setOnClickListener(v -> startBluetoothBridge()); bluetoothButtons.addView(startBluetooth, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        Button stopBluetooth = new Button(this); stopBluetooth.setText("Stop SPP"); stopBluetooth.setOnClickListener(v -> { stopService(new Intent(this, BluetoothSppBridgeService.class)); bluetoothStatus.setText("Bluetooth bridge stopped"); }); bluetoothButtons.addView(stopBluetooth, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        content.addView(bluetoothButtons);
+        TextView bluetoothHint = new TextView(this); bluetoothHint.setText("Paired classic Bluetooth → RFCOMM/SPP → TCP 127.0.0.1:35000"); bluetoothHint.setTextSize(12); bluetoothHint.setPadding(0, dp(4), 0, dp(8)); content.addView(bluetoothHint);
+
         ScrollView scrollView = new ScrollView(this); scrollView.addView(content); setContentView(scrollView);
+        ensureBluetoothPermissionAndLoad();
     }
 
     @Override protected void onResume() { super.onResume(); dashboardHandler.post(dashboardRefresh); }
@@ -115,11 +137,49 @@ public final class MainActivity extends Activity {
         startForegroundService(new Intent(this, SensorBridgeService.class)); status.setText("Bridge starting…");
     }
 
+    private void ensureBluetoothPermissionAndLoad() {
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, BLUETOOTH_PERMISSION_REQUEST);
+            return;
+        }
+        loadPairedDevices();
+    }
+
+    private void loadPairedDevices() {
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) { ensureBluetoothPermissionAndLoad(); return; }
+        BluetoothManager manager = getSystemService(BluetoothManager.class);
+        BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
+        pairedDevices.clear();
+        List<String> labels = new ArrayList<>();
+        if (adapter != null) {
+            for (BluetoothDevice device : adapter.getBondedDevices()) {
+                pairedDevices.add(device);
+                String name = device.getName();
+                labels.add((name == null ? "Unknown device" : name) + "  •  " + device.getAddress());
+            }
+        }
+        bluetoothDeviceSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+        bluetoothStatus.setText(labels.isEmpty() ? "No paired classic Bluetooth devices" : labels.size() + " paired device(s) available");
+    }
+
+    private void startBluetoothBridge() {
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) { ensureBluetoothPermissionAndLoad(); return; }
+        int position = bluetoothDeviceSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= pairedDevices.size()) { bluetoothStatus.setText("Select a paired Bluetooth device first"); return; }
+        BluetoothDevice device = pairedDevices.get(position);
+        Intent intent = new Intent(this, BluetoothSppBridgeService.class);
+        intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, device.getAddress());
+        startForegroundService(intent);
+        bluetoothStatus.setText("Connecting to " + (device.getName() == null ? device.getAddress() : device.getName()) + "…");
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST) {
             startForegroundService(new Intent(this, SensorBridgeService.class));
+        } else if (requestCode == BLUETOOTH_PERMISSION_REQUEST && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            loadPairedDevices();
         }
     }
 }
