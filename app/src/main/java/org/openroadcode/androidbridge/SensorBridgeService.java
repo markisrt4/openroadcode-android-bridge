@@ -1,15 +1,21 @@
 package org.openroadcode.androidbridge;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.SystemClock;
 
@@ -27,18 +33,23 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
-public final class SensorBridgeService extends Service implements SensorEventListener {
+public final class SensorBridgeService extends Service implements SensorEventListener, LocationListener {
     private static final int PORT = 8766;
     private static final String CHANNEL_ID = "sensor_bridge";
     private static final int NOTIFICATION_ID = 1;
     private static final long STREAM_PERIOD_MS = 20;
+    private static final long LOCATION_PERIOD_MS = 500;
 
     private SensorManager sensorManager;
+    private LocationManager locationManager;
     private ServerSocket serverSocket;
     private Thread serverThread;
     private long startedElapsedRealtimeMs;
 
     private final AtomicReference<Sample> sample = new AtomicReference<>(new Sample());
+    private final AtomicReference<Location> location = new AtomicReference<>();
+    private volatile long locationCount;
+    private volatile boolean locationProviderAvailable;
 
     @Override
     public void onCreate() {
@@ -52,6 +63,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
         registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
         registerSensor(Sensor.TYPE_PRESSURE, SensorManager.SENSOR_DELAY_NORMAL);
+        startLocationUpdates();
         serverThread = new Thread(this::runServer, "orc-sensor-http");
         serverThread.start();
     }
@@ -61,16 +73,55 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         if (sensor != null) sensorManager.registerListener(this, sensor, delay);
     }
 
-    @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void startLocationUpdates() {
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (locationManager == null || !hasLocationPermission()) return;
+        try {
+            locationProviderAvailable = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            if (locationProviderAvailable) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_PERIOD_MS, 0.0f, this);
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationProviderAvailable = true;
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_PERIOD_MS, 0.0f, this);
+            }
+        } catch (SecurityException ignored) {
+            locationProviderAvailable = false;
+        }
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (locationManager == null || (hasLocationPermission() && location.get() == null)) startLocationUpdates();
+        return START_STICKY;
+    }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) { }
 
     @Override
     public void onDestroy() {
         if (sensorManager != null) sensorManager.unregisterListener(this);
+        if (locationManager != null) {
+            try { locationManager.removeUpdates(this); } catch (SecurityException ignored) { }
+        }
         if (serverSocket != null) try { serverSocket.close(); } catch (IOException ignored) { }
         super.onDestroy();
     }
+
+    @Override
+    public void onLocationChanged(Location value) {
+        location.set(new Location(value));
+        locationCount++;
+        locationProviderAvailable = true;
+    }
+
+    @Override public void onProviderEnabled(String provider) { locationProviderAvailable = true; }
+    @Override public void onProviderDisabled(String provider) { }
+    @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
 
     @Override
     public void onSensorChanged(SensorEvent event) {
@@ -93,11 +144,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
                 next.magTimestampNs = event.timestamp; next.hasMag = true; next.magCount++;
                 break;
             case Sensor.TYPE_PRESSURE:
-                next.pressureHpa = event.values[0];
-                next.pressureTimestampNs = event.timestamp; next.hasPressure = true; next.pressureCount++;
+                next.pressureHpa = event.values[0]; next.pressureTimestampNs = event.timestamp;
+                next.hasPressure = true; next.pressureCount++;
                 break;
-            default:
-                return;
+            default: return;
         }
         sample.set(next);
     }
@@ -112,9 +162,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
                         try (Socket owned = socket) { handleRequest(owned); }
                         catch (IOException ignored) { }
                     }, "orc-sensor-http-client").start();
-                } catch (IOException e) {
-                    if (!serverSocket.isClosed()) e.printStackTrace();
-                }
+                } catch (IOException e) { if (!serverSocket.isClosed()) e.printStackTrace(); }
             }
         } catch (IOException e) { e.printStackTrace(); }
     }
@@ -126,8 +174,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String[] parts = requestLine.split(" ");
         String path = parts.length >= 2 && "GET".equals(parts[0]) ? parts[1] : "";
         if ("/stream/imu".equals(path)) { streamImu(socket); return; }
-        boolean valid = "/imu".equals(path) || "/health".equals(path);
-        String json = "/imu".equals(path) ? sampleJson() : "/health".equals(path) ? healthJson() : "{\"error\":\"not found\"}";
+        boolean valid = "/imu".equals(path) || "/location".equals(path) || "/health".equals(path);
+        String json = "/imu".equals(path) ? sampleJson()
+                : "/location".equals(path) ? locationJson()
+                : "/health".equals(path) ? healthJson() : "{\"error\":\"not found\"}";
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
         String status = valid ? "200 OK" : "404 Not Found";
         String headers = String.format(Locale.US, "HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", status, body.length);
@@ -137,20 +187,17 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     private void streamImu(Socket socket) throws IOException {
         OutputStream output = socket.getOutputStream();
-        String headers = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
-        output.write(headers.getBytes(StandardCharsets.US_ASCII)); output.flush();
+        output.write("HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+        output.flush();
         while (!socket.isClosed()) {
-            output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
-            output.flush();
+            output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8)); output.flush();
             try { Thread.sleep(STREAM_PERIOD_MS); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
         }
     }
 
     private static JSONObject vector(float x, float y, float z) throws JSONException {
-        JSONObject result = new JSONObject();
-        result.put("x", x); result.put("y", y); result.put("z", z);
-        return result;
+        JSONObject result = new JSONObject(); result.put("x", x); result.put("y", y); result.put("z", z); return result;
     }
 
     private String sampleJson() {
@@ -175,28 +222,46 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         } catch (JSONException e) { return "{\"error\":\"failed to encode sensor sample\"}"; }
     }
 
+    private String locationJson() {
+        Location current = location.get();
+        try {
+            JSONObject root = new JSONObject();
+            root.put("permission_granted", hasLocationPermission());
+            root.put("available", locationProviderAvailable);
+            root.put("ready", current != null);
+            if (current == null) return root.toString();
+            root.put("provider", current.getProvider());
+            root.put("latitude", current.getLatitude());
+            root.put("longitude", current.getLongitude());
+            root.put("altitude_m", current.hasAltitude() ? current.getAltitude() : JSONObject.NULL);
+            root.put("speed_mps", current.hasSpeed() ? current.getSpeed() : JSONObject.NULL);
+            root.put("bearing_deg", current.hasBearing() ? current.getBearing() : JSONObject.NULL);
+            root.put("horizontal_accuracy_m", current.hasAccuracy() ? current.getAccuracy() : JSONObject.NULL);
+            root.put("timestamp_ms", current.getTime());
+            root.put("elapsed_realtime_ns", current.getElapsedRealtimeNanos());
+            long ageNs = Math.max(0L, SystemClock.elapsedRealtimeNanos() - current.getElapsedRealtimeNanos());
+            root.put("age_ms", ageNs / 1_000_000L);
+            return root.toString();
+        } catch (JSONException e) { return "{\"error\":\"failed to encode location\"}"; }
+    }
+
     private String healthJson() {
         Sample current = sample.get();
+        Location currentLocation = location.get();
         long uptimeMs = SystemClock.elapsedRealtime() - startedElapsedRealtimeMs;
         double uptimeSeconds = Math.max(0.001, uptimeMs / 1000.0);
         try {
             JSONObject root = new JSONObject();
             root.put("status", current.hasAccel && current.hasGyro ? "ready" : "starting");
-            root.put("version_name", BuildConfig.VERSION_NAME);
-            root.put("version_code", BuildConfig.VERSION_CODE);
-            root.put("application_id", BuildConfig.APPLICATION_ID);
-            root.put("build_type", BuildConfig.BUILD_TYPE);
+            root.put("version_name", BuildConfig.VERSION_NAME); root.put("version_code", BuildConfig.VERSION_CODE);
+            root.put("application_id", BuildConfig.APPLICATION_ID); root.put("build_type", BuildConfig.BUILD_TYPE);
             root.put("uptime_ms", uptimeMs);
-            root.put("accelerometer_samples", current.accelCount);
-            root.put("linear_acceleration_samples", current.linearAccelCount);
-            root.put("gyroscope_samples", current.gyroCount);
-            root.put("magnetometer_samples", current.magCount);
-            root.put("pressure_samples", current.pressureCount);
-            root.put("accelerometer_rate_hz", current.accelCount / uptimeSeconds);
-            root.put("linear_acceleration_rate_hz", current.linearAccelCount / uptimeSeconds);
-            root.put("gyroscope_rate_hz", current.gyroCount / uptimeSeconds);
-            root.put("magnetometer_rate_hz", current.magCount / uptimeSeconds);
-            root.put("pressure_rate_hz", current.pressureCount / uptimeSeconds);
+            root.put("accelerometer_samples", current.accelCount); root.put("linear_acceleration_samples", current.linearAccelCount);
+            root.put("gyroscope_samples", current.gyroCount); root.put("magnetometer_samples", current.magCount); root.put("pressure_samples", current.pressureCount);
+            root.put("accelerometer_rate_hz", current.accelCount / uptimeSeconds); root.put("linear_acceleration_rate_hz", current.linearAccelCount / uptimeSeconds);
+            root.put("gyroscope_rate_hz", current.gyroCount / uptimeSeconds); root.put("magnetometer_rate_hz", current.magCount / uptimeSeconds); root.put("pressure_rate_hz", current.pressureCount / uptimeSeconds);
+            root.put("location_permission_granted", hasLocationPermission()); root.put("location_provider_available", locationProviderAvailable);
+            root.put("location_ready", currentLocation != null); root.put("location_samples", locationCount);
             return root.toString();
         } catch (JSONException e) { return "{\"error\":\"failed to encode health status\"}"; }
     }
@@ -207,11 +272,9 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     }
 
     private Notification buildNotification() {
-        return new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("OpenRoadCode Sensor Bridge")
-                .setContentText("Device sensors are being bridged locally")
-                .setSmallIcon(R.drawable.ic_openroadcode_notification)
-                .build();
+        return new Notification.Builder(this, CHANNEL_ID).setContentTitle("OpenRoadCode Sensor Bridge")
+                .setContentText("Device sensors and position are being bridged locally")
+                .setSmallIcon(R.drawable.ic_openroadcode_notification).build();
     }
 
     private static final class Sample {
@@ -219,17 +282,12 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         long accelTimestampNs, linearAccelTimestampNs, gyroTimestampNs, magTimestampNs, pressureTimestampNs;
         long accelCount, linearAccelCount, gyroCount, magCount, pressureCount;
         boolean hasAccel, hasLinearAccel, hasGyro, hasMag, hasPressure;
-
         Sample copy() {
             Sample r = new Sample();
-            r.ax=ax; r.ay=ay; r.az=az; r.lax=lax; r.lay=lay; r.laz=laz;
-            r.gx=gx; r.gy=gy; r.gz=gz; r.mx=mx; r.my=my; r.mz=mz; r.pressureHpa=pressureHpa;
-            r.accelTimestampNs=accelTimestampNs; r.linearAccelTimestampNs=linearAccelTimestampNs;
-            r.gyroTimestampNs=gyroTimestampNs; r.magTimestampNs=magTimestampNs; r.pressureTimestampNs=pressureTimestampNs;
-            r.accelCount=accelCount; r.linearAccelCount=linearAccelCount; r.gyroCount=gyroCount;
-            r.magCount=magCount; r.pressureCount=pressureCount;
-            r.hasAccel=hasAccel; r.hasLinearAccel=hasLinearAccel; r.hasGyro=hasGyro; r.hasMag=hasMag; r.hasPressure=hasPressure;
-            return r;
+            r.ax=ax; r.ay=ay; r.az=az; r.lax=lax; r.lay=lay; r.laz=laz; r.gx=gx; r.gy=gy; r.gz=gz; r.mx=mx; r.my=my; r.mz=mz; r.pressureHpa=pressureHpa;
+            r.accelTimestampNs=accelTimestampNs; r.linearAccelTimestampNs=linearAccelTimestampNs; r.gyroTimestampNs=gyroTimestampNs; r.magTimestampNs=magTimestampNs; r.pressureTimestampNs=pressureTimestampNs;
+            r.accelCount=accelCount; r.linearAccelCount=linearAccelCount; r.gyroCount=gyroCount; r.magCount=magCount; r.pressureCount=pressureCount;
+            r.hasAccel=hasAccel; r.hasLinearAccel=hasLinearAccel; r.hasGyro=hasGyro; r.hasMag=hasMag; r.hasPressure=hasPressure; return r;
         }
     }
 }
