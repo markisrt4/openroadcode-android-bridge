@@ -1,9 +1,7 @@
 package org.openroadcode.androidbridge;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
@@ -24,7 +22,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
-    private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final long DASHBOARD_PERIOD_MS = 500;
     private static final String IMU_URL = "http://127.0.0.1:8766/imu";
 
@@ -57,6 +54,12 @@ public final class MainActivity extends Activity {
         title.setTextSize(24);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         content.addView(title);
+
+        TextView version = new TextView(this);
+        version.setText(String.format(Locale.US, "Version %s (%d)", BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE));
+        version.setTextSize(12);
+        version.setPadding(0, dp(2), 0, dp(2));
+        content.addView(version);
 
         status = new TextView(this);
         status.setText("Bridge stopped");
@@ -199,25 +202,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startBridge() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[] {
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-            }, LOCATION_PERMISSION_REQUEST);
-            return;
-        }
         startForegroundService(new Intent(this, SensorBridgeService.class));
         status.setText("Bridge starting…");
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != LOCATION_PERMISSION_REQUEST) return;
-        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startBridge();
-        } else {
-            status.setText("Location permission is required for the navigation bridge.");
-        }
     }
 }

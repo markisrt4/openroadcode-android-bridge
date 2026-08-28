@@ -28,7 +28,20 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Verify debug APK
+      - name: Verify APK metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
+          test -n "$AAPT"
+          BADGING="$($AAPT dump badging "$APK")"
+          printf '%s\n' "$BADGING"
+          grep -q "package: name='org.openroadcode.androidbridge' versionCode='2' versionName='0.2.0'" <<<"$BADGING"
+          grep -q "sdkVersion:'26'" <<<"$BADGING"
+          grep -q "targetSdkVersion:'34'" <<<"$BADGING"
+
+      - name: Verify debug APK signature
         shell: bash
         run: |
           set -euo pipefail
