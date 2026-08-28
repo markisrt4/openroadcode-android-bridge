@@ -182,6 +182,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         try {
             JSONObject root = new JSONObject();
             root.put("status", current.hasAccel && current.hasGyro ? "ready" : "starting");
+            root.put("version_name", BuildConfig.VERSION_NAME);
+            root.put("version_code", BuildConfig.VERSION_CODE);
+            root.put("application_id", BuildConfig.APPLICATION_ID);
+            root.put("build_type", BuildConfig.BUILD_TYPE);
             root.put("uptime_ms", uptimeMs);
             root.put("accelerometer_samples", current.accelCount);
             root.put("linear_acceleration_samples", current.linearAccelCount);
@@ -205,7 +209,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private Notification buildNotification() {
         return new Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("OpenRoadCode Sensor Bridge")
-                .setContentText("Navigation sensors are being bridged locally")
+                .setContentText("Device sensors are being bridged locally")
                 .setSmallIcon(R.drawable.ic_openroadcode_notification)
                 .build();
     }
