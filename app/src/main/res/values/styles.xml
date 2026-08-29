@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/orc_background</item>
+        <item name="android:colorAccent">@color/orc_green</item>
+        <item name="android:navigationBarColor">@color/orc_background</item>
+        <item name="android:statusBarColor">@color/orc_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/orc_text</item>
+        <item name="android:textColorSecondary">@color/orc_muted</item>
     </style>
 </resources>
