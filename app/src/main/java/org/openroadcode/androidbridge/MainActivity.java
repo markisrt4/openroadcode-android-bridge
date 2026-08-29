@@ -56,7 +56,7 @@ public final class MainActivity extends Activity {
     };
     private final List<BluetoothDevice> pairedDevices = new ArrayList<>();
 
-    private TextView status, bluetoothStatus, accelerometerValue, linearAccelerationValue, gyroscopeValue, magnetometerValue, pressureValue, positionValue;
+    private TextView status, bluetoothStatus, accelerometerValue, linearAccelerationValue, gyroscopeValue, magnetometerValue, pressureValue, ambientLightValue, positionValue;
     private Spinner bluetoothDeviceSpinner;
 
     @Override
@@ -82,6 +82,7 @@ public final class MainActivity extends Activity {
         gyroscopeValue = addSensorRow(sensorCard, "↻", "Gyroscope", "rad/s", RED);
         magnetometerValue = addSensorRow(sensorCard, "⌖", "Magnetometer", "µT", BLUE);
         pressureValue = addSensorRow(sensorCard, "◉", "Barometer", "hPa", GREEN);
+        ambientLightValue = addSensorRow(sensorCard, "☀", "Ambient light", "lux", BLUE);
         positionValue = addSensorRow(sensorCard, "◎", "Position", "lat / lon • accuracy", RED);
         sensorCard.addView(buttonRow(
                 actionButton("START BRIDGE", GREEN, v -> startBridge()),
@@ -277,6 +278,7 @@ public final class MainActivity extends Activity {
         gyroscopeValue.setText(vectorText(root.optJSONObject("angular_velocity_rad_s")));
         magnetometerValue.setText(root.optBoolean("magnetometer_available") ? vectorText(root.optJSONObject("magnetic_field_uT")) : "Not available");
         pressureValue.setText(root.optBoolean("pressure_available") ? String.format(Locale.US, "%.2f", root.optDouble("pressure_hpa")) : "Not available");
+        ambientLightValue.setText(root.optBoolean("ambient_light_available") ? String.format(Locale.US, "%.1f", root.optDouble("ambient_light_lux")) : "Not available");
     }
 
     private void displayPosition(JSONObject root) {
@@ -288,7 +290,7 @@ public final class MainActivity extends Activity {
     }
 
     private String vectorText(JSONObject vector) { if (vector == null) return "—"; return String.format(Locale.US, "x %+.2f  y %+.2f  z %+.2f", vector.optDouble("x"), vector.optDouble("y"), vector.optDouble("z")); }
-    private void showUnavailable() { accelerometerValue.setText("—"); linearAccelerationValue.setText("—"); gyroscopeValue.setText("—"); magnetometerValue.setText("—"); pressureValue.setText("—"); positionValue.setText("—"); }
+    private void showUnavailable() { accelerometerValue.setText("—"); linearAccelerationValue.setText("—"); gyroscopeValue.setText("—"); magnetometerValue.setText("—"); pressureValue.setText("—"); ambientLightValue.setText("—"); positionValue.setText("—"); }
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
 
     private void startBridge() {
