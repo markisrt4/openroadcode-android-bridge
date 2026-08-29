@@ -20,6 +20,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import org.json.JSONObject;
@@ -27,9 +28,12 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.Inet4Address;
+import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -56,8 +60,11 @@ public final class MainActivity extends Activity {
     };
     private final List<BluetoothDevice> pairedDevices = new ArrayList<>();
 
-    private TextView status, bluetoothStatus, accelerometerValue, linearAccelerationValue, gyroscopeValue, magnetometerValue, pressureValue, ambientLightValue, positionValue;
+    private TextView status, remoteAccessStatus, bluetoothStatus;
+    private TextView accelerometerValue, linearAccelerationValue, gyroscopeValue;
+    private TextView magnetometerValue, pressureValue, ambientLightValue, positionValue;
     private Spinner bluetoothDeviceSpinner;
+    private Switch remoteAccessSwitch;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,7 +81,7 @@ public final class MainActivity extends Activity {
         addBrandHeader(content);
 
         LinearLayout sensorCard = card();
-        addSectionHeading(sensorCard, "SENSOR BRIDGE", BLUE, "Phone telemetry • localhost 8766");
+        addSectionHeading(sensorCard, "SENSOR BRIDGE", BLUE, "Phone telemetry • HTTP 8766");
         status = statusPill("Bridge stopped", MUTED);
         sensorCard.addView(status);
         accelerometerValue = addSensorRow(sensorCard, "↗", "Accelerometer", "m/s²", BLUE);
@@ -85,10 +92,27 @@ public final class MainActivity extends Activity {
         ambientLightValue = addSensorRow(sensorCard, "☀", "Ambient light", "lux", BLUE);
         positionValue = addSensorRow(sensorCard, "◎", "Position", "lat / lon • accuracy", RED);
         sensorCard.addView(buttonRow(
-                actionButton("START BRIDGE", GREEN, v -> startBridge()),
-                actionButton("STOP", SURFACE_RAISED, v -> { stopService(new Intent(this, SensorBridgeService.class)); status.setText("Bridge stopped"); showUnavailable(); })
+                actionButton("START BRIDGE", BLUE, v -> startBridge()),
+                actionButton("STOP", SURFACE_RAISED, v -> stopBridge())
         ));
         content.addView(sensorCard, cardParams());
+
+        LinearLayout networkCard = card();
+        addSectionHeading(networkCard, "REMOTE SENSOR ACCESS", BLUE, "Share sensor telemetry with devices on this network");
+        remoteAccessSwitch = new Switch(this);
+        remoteAccessSwitch.setText("Allow network clients");
+        remoteAccessSwitch.setTextColor(TEXT);
+        remoteAccessSwitch.setTextSize(15);
+        remoteAccessSwitch.setPadding(dp(4), dp(4), dp(4), dp(8));
+        boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+                .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
+        remoteAccessSwitch.setChecked(remoteEnabled);
+        networkCard.addView(remoteAccessSwitch);
+        remoteAccessStatus = statusPill("", remoteEnabled ? GREEN : MUTED);
+        networkCard.addView(remoteAccessStatus);
+        updateRemoteAccessStatus();
+        remoteAccessSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> setRemoteAccess(isChecked));
+        content.addView(networkCard, cardParams());
 
         LinearLayout bluetoothCard = card();
         addSectionHeading(bluetoothCard, "BLUETOOTH SPP", GREEN, "Classic Bluetooth • RFCOMM transport");
@@ -97,11 +121,15 @@ public final class MainActivity extends Activity {
         bluetoothDeviceSpinner = new Spinner(this);
         bluetoothDeviceSpinner.setBackground(rounded(SURFACE_RAISED, BORDER, 10));
         bluetoothDeviceSpinner.setPadding(dp(10), 0, dp(10), 0);
-        bluetoothCard.addView(bluetoothDeviceSpinner, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
+        bluetoothCard.addView(bluetoothDeviceSpinner,
+                new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
         bluetoothCard.addView(buttonRow(
                 actionButton("REFRESH", BLUE, v -> loadPairedDevices()),
-                actionButton("START SPP", GREEN, v -> startBluetoothBridge()),
-                actionButton("STOP", SURFACE_RAISED, v -> { stopService(new Intent(this, BluetoothSppBridgeService.class)); bluetoothStatus.setText("Bluetooth bridge stopped"); })
+                actionButton("START SPP", BLUE, v -> startBluetoothBridge()),
+                actionButton("STOP", SURFACE_RAISED, v -> {
+                    stopService(new Intent(this, BluetoothSppBridgeService.class));
+                    bluetoothStatus.setText("●  Bluetooth bridge stopped");
+                })
         ));
         TextView bluetoothHint = text("TCP endpoint  127.0.0.1:35000", 12, MUTED);
         bluetoothHint.setTypeface(Typeface.MONOSPACE);
@@ -158,7 +186,8 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams cardParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, dp(14));
         return params;
     }
@@ -167,7 +196,6 @@ public final class MainActivity extends Activity {
         TextView heading = text(title, 18, TEXT);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         heading.setLetterSpacing(0.08f);
-        heading.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
         parent.addView(heading);
         TextView sub = text(subtitle, 12, accent);
         sub.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -180,7 +208,8 @@ public final class MainActivity extends Activity {
         view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         view.setPadding(dp(10), dp(8), dp(10), dp(8));
         view.setBackground(rounded(SURFACE_RAISED, BORDER, 9));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, dp(8));
         view.setLayoutParams(params);
         return view;
@@ -251,21 +280,43 @@ public final class MainActivity extends Activity {
         return drawable;
     }
 
-    @Override protected void onResume() { super.onResume(); dashboardHandler.post(dashboardRefresh); }
-    @Override protected void onPause() { dashboardHandler.removeCallbacks(dashboardRefresh); super.onPause(); }
+    @Override protected void onResume() {
+        super.onResume();
+        updateRemoteAccessStatus();
+        dashboardHandler.post(dashboardRefresh);
+    }
+
+    @Override protected void onPause() {
+        dashboardHandler.removeCallbacks(dashboardRefresh);
+        super.onPause();
+    }
 
     private JSONObject getJson(String url) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection(); connection.setConnectTimeout(250); connection.setReadTimeout(250); connection.setRequestMethod("GET");
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) { return new JSONObject(reader.readLine()); }
-        finally { connection.disconnect(); }
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(250);
+        connection.setReadTimeout(250);
+        connection.setRequestMethod("GET");
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                connection.getInputStream(), StandardCharsets.UTF_8))) {
+            return new JSONObject(reader.readLine());
+        } finally {
+            connection.disconnect();
+        }
     }
 
     private void refreshDashboard() {
         new Thread(() -> {
             try {
-                JSONObject imu = getJson(IMU_URL); JSONObject position = getJson(LOCATION_URL);
+                JSONObject imu = getJson(IMU_URL);
+                JSONObject position = getJson(LOCATION_URL);
                 runOnUiThread(() -> { displaySample(imu); displayPosition(position); });
-            } catch (Exception ignored) { runOnUiThread(() -> { status.setText("●  Bridge stopped or starting…"); status.setTextColor(MUTED); showUnavailable(); }); }
+            } catch (Exception ignored) {
+                runOnUiThread(() -> {
+                    status.setText("●  Bridge stopped or starting…");
+                    status.setTextColor(MUTED);
+                    showUnavailable();
+                });
+            }
         }, "orc-dashboard-refresh").start();
     }
 
@@ -274,31 +325,104 @@ public final class MainActivity extends Activity {
         status.setText(ready ? "●  Bridge running • IMU ready" : "●  Bridge running • waiting for sensors");
         status.setTextColor(ready ? GREEN : BLUE);
         accelerometerValue.setText(vectorText(root.optJSONObject("acceleration_mps2")));
-        linearAccelerationValue.setText(root.optBoolean("linear_acceleration_available") ? vectorText(root.optJSONObject("linear_acceleration_mps2")) : "Not available");
+        linearAccelerationValue.setText(root.optBoolean("linear_acceleration_available")
+                ? vectorText(root.optJSONObject("linear_acceleration_mps2")) : "Not available");
         gyroscopeValue.setText(vectorText(root.optJSONObject("angular_velocity_rad_s")));
-        magnetometerValue.setText(root.optBoolean("magnetometer_available") ? vectorText(root.optJSONObject("magnetic_field_uT")) : "Not available");
-        pressureValue.setText(root.optBoolean("pressure_available") ? String.format(Locale.US, "%.2f", root.optDouble("pressure_hpa")) : "Not available");
-        ambientLightValue.setText(root.optBoolean("ambient_light_available") ? String.format(Locale.US, "%.1f", root.optDouble("ambient_light_lux")) : "Not available");
+        magnetometerValue.setText(root.optBoolean("magnetometer_available")
+                ? vectorText(root.optJSONObject("magnetic_field_uT")) : "Not available");
+        pressureValue.setText(root.optBoolean("pressure_available")
+                ? String.format(Locale.US, "%.2f", root.optDouble("pressure_hpa")) : "Not available");
+        ambientLightValue.setText(root.optBoolean("ambient_light_available")
+                ? String.format(Locale.US, "%.1f", root.optDouble("ambient_light_lux")) : "Not available");
     }
 
     private void displayPosition(JSONObject root) {
         if (!root.optBoolean("permission_granted")) { positionValue.setText("Permission required"); return; }
-        if (!root.optBoolean("ready")) { positionValue.setText(root.optBoolean("available") ? "Waiting for fix" : "Provider unavailable"); return; }
+        if (!root.optBoolean("ready")) {
+            positionValue.setText(root.optBoolean("available") ? "Waiting for fix" : "Provider unavailable");
+            return;
+        }
         double accuracy = root.optDouble("horizontal_accuracy_m", Double.NaN);
-        positionValue.setText(String.format(Locale.US, "%.6f, %.6f\n%s  %s", root.optDouble("latitude"), root.optDouble("longitude"),
-                Double.isNaN(accuracy) ? "accuracy —" : String.format(Locale.US, "±%.1f m", accuracy), root.optString("provider", "")));
+        positionValue.setText(String.format(Locale.US, "%.6f, %.6f\n%s  %s",
+                root.optDouble("latitude"), root.optDouble("longitude"),
+                Double.isNaN(accuracy) ? "accuracy —" : String.format(Locale.US, "±%.1f m", accuracy),
+                root.optString("provider", "")));
     }
 
-    private String vectorText(JSONObject vector) { if (vector == null) return "—"; return String.format(Locale.US, "x %+.2f  y %+.2f  z %+.2f", vector.optDouble("x"), vector.optDouble("y"), vector.optDouble("z")); }
-    private void showUnavailable() { accelerometerValue.setText("—"); linearAccelerationValue.setText("—"); gyroscopeValue.setText("—"); magnetometerValue.setText("—"); pressureValue.setText("—"); ambientLightValue.setText("—"); positionValue.setText("—"); }
-    private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
+    private String vectorText(JSONObject vector) {
+        if (vector == null) return "—";
+        return String.format(Locale.US, "x %+.2f  y %+.2f  z %+.2f",
+                vector.optDouble("x"), vector.optDouble("y"), vector.optDouble("z"));
+    }
+
+    private void showUnavailable() {
+        accelerometerValue.setText("—"); linearAccelerationValue.setText("—");
+        gyroscopeValue.setText("—"); magnetometerValue.setText("—"); pressureValue.setText("—");
+        ambientLightValue.setText("—"); positionValue.setText("—");
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
 
     private void startBridge() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
         }
-        startForegroundService(new Intent(this, SensorBridgeService.class)); status.setText("●  Bridge starting…"); status.setTextColor(BLUE);
+        startForegroundService(new Intent(this, SensorBridgeService.class));
+        status.setText("●  Bridge starting…");
+        status.setTextColor(BLUE);
+    }
+
+    private void stopBridge() {
+        stopService(new Intent(this, SensorBridgeService.class));
+        status.setText("●  Bridge stopped");
+        status.setTextColor(MUTED);
+        showUnavailable();
+    }
+
+    private void setRemoteAccess(boolean enabled) {
+        getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+                .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
+        updateRemoteAccessStatus();
+
+        // Restarting applies the new bind address immediately if the bridge is running.
+        stopService(new Intent(this, SensorBridgeService.class));
+        startForegroundService(new Intent(this, SensorBridgeService.class));
+        status.setText("●  Bridge restarting for network change…");
+        status.setTextColor(BLUE);
+    }
+
+    private void updateRemoteAccessStatus() {
+        if (remoteAccessStatus == null) return;
+        boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+                .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
+        if (!enabled) {
+            remoteAccessStatus.setText("●  Disabled • localhost only • 127.0.0.1:" + SensorBridgeService.PORT);
+            remoteAccessStatus.setTextColor(MUTED);
+            return;
+        }
+        String address = findLanAddress();
+        remoteAccessStatus.setText(address == null
+                ? "●  Enabled • waiting for a network address • port " + SensorBridgeService.PORT
+                : "●  Enabled • http://" + address + ":" + SensorBridgeService.PORT);
+        remoteAccessStatus.setTextColor(address == null ? BLUE : GREEN);
+    }
+
+    private String findLanAddress() {
+        try {
+            for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!network.isUp() || network.isLoopback()) continue;
+                for (java.net.InetAddress address : Collections.list(network.getInetAddresses())) {
+                    if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        return null;
     }
 
     private void ensureBluetoothPermissionAndLoad() {
@@ -310,7 +434,9 @@ public final class MainActivity extends Activity {
     }
 
     private void loadPairedDevices() {
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) { ensureBluetoothPermissionAndLoad(); return; }
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            ensureBluetoothPermissionAndLoad(); return;
+        }
         BluetoothManager manager = getSystemService(BluetoothManager.class);
         BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
         pairedDevices.clear();
@@ -322,30 +448,41 @@ public final class MainActivity extends Activity {
                 labels.add((name == null ? "Unknown device" : name) + "  •  " + device.getAddress());
             }
         }
-        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, labels) {
+        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<String>(
+                this, android.R.layout.simple_spinner_dropdown_item, labels) {
             @Override public View getView(int position, View convertView, android.view.ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
                 view.setTextColor(TEXT); view.setTextSize(13); return view;
             }
             @Override public View getDropDownView(int position, View convertView, android.view.ViewGroup parent) {
                 TextView view = (TextView) super.getDropDownView(position, convertView, parent);
-                view.setTextColor(TEXT); view.setBackgroundColor(SURFACE_RAISED); view.setPadding(dp(12), dp(12), dp(12), dp(12)); return view;
+                view.setTextColor(TEXT); view.setBackgroundColor(SURFACE_RAISED);
+                view.setPadding(dp(12), dp(12), dp(12), dp(12)); return view;
             }
         };
         bluetoothDeviceSpinner.setAdapter(spinnerAdapter);
-        bluetoothStatus.setText(labels.isEmpty() ? "●  No paired classic Bluetooth devices" : "●  " + labels.size() + " paired device(s) available");
+        bluetoothStatus.setText(labels.isEmpty()
+                ? "●  No paired classic Bluetooth devices"
+                : "●  " + labels.size() + " paired device(s) available");
         bluetoothStatus.setTextColor(labels.isEmpty() ? RED : GREEN);
     }
 
     private void startBluetoothBridge() {
-        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) { ensureBluetoothPermissionAndLoad(); return; }
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            ensureBluetoothPermissionAndLoad(); return;
+        }
         int position = bluetoothDeviceSpinner.getSelectedItemPosition();
-        if (position < 0 || position >= pairedDevices.size()) { bluetoothStatus.setText("●  Select a paired Bluetooth device first"); bluetoothStatus.setTextColor(RED); return; }
+        if (position < 0 || position >= pairedDevices.size()) {
+            bluetoothStatus.setText("●  Select a paired Bluetooth device first");
+            bluetoothStatus.setTextColor(RED);
+            return;
+        }
         BluetoothDevice device = pairedDevices.get(position);
         Intent intent = new Intent(this, BluetoothSppBridgeService.class);
         intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, device.getAddress());
         startForegroundService(intent);
-        bluetoothStatus.setText("●  Connecting to " + (device.getName() == null ? device.getAddress() : device.getName()) + "…");
+        bluetoothStatus.setText("●  Connecting to "
+                + (device.getName() == null ? device.getAddress() : device.getName()) + "…");
         bluetoothStatus.setTextColor(BLUE);
     }
 
@@ -354,7 +491,8 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST) {
             startForegroundService(new Intent(this, SensorBridgeService.class));
-        } else if (requestCode == BLUETOOTH_PERMISSION_REQUEST && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        } else if (requestCode == BLUETOOTH_PERMISSION_REQUEST
+                && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             loadPairedDevices();
         }
     }
