@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="orc_background">#061018</color>
+    <color name="orc_surface">#0B1821</color>
+    <color name="orc_surface_raised">#10222E</color>
+    <color name="orc_border">#24404F</color>
+    <color name="orc_text">#F3F7F9</color>
+    <color name="orc_muted">#93A4AE</color>
+    <color name="orc_blue">#168BD1</color>
+    <color name="orc_green">#84CE1F</color>
+    <color name="orc_red">#F15A16</color>
+</resources>
