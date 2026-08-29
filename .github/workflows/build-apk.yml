@@ -37,7 +37,7 @@ jobs:
           test -n "$AAPT"
           BADGING="$($AAPT dump badging "$APK")"
           printf '%s\n' "$BADGING"
-          grep -q "package: name='org.openroadcode.androidbridge' versionCode='2' versionName='0.2.0'" <<<"$BADGING"
+          grep -q "package: name='org.openroadcode.androidbridge' versionCode='3' versionName='0.3.0'" <<<"$BADGING"
           grep -q "sdkVersion:'26'" <<<"$BADGING"
           grep -q "targetSdkVersion:'34'" <<<"$BADGING"
 
