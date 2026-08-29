@@ -63,6 +63,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
         registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
         registerSensor(Sensor.TYPE_PRESSURE, SensorManager.SENSOR_DELAY_NORMAL);
+        registerSensor(Sensor.TYPE_LIGHT, SensorManager.SENSOR_DELAY_NORMAL);
         startLocationUpdates();
         serverThread = new Thread(this::runServer, "orc-sensor-http");
         serverThread.start();
@@ -147,6 +148,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
                 next.pressureHpa = event.values[0]; next.pressureTimestampNs = event.timestamp;
                 next.hasPressure = true; next.pressureCount++;
                 break;
+            case Sensor.TYPE_LIGHT:
+                next.ambientLightLux = event.values[0]; next.lightTimestampNs = event.timestamp;
+                next.hasLight = true; next.lightCount++;
+                break;
             default: return;
         }
         sample.set(next);
@@ -210,14 +215,17 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("angular_velocity_rad_s", vector(current.gx, current.gy, current.gz));
             root.put("magnetic_field_uT", vector(current.mx, current.my, current.mz));
             root.put("pressure_hpa", current.pressureHpa);
+            root.put("ambient_light_lux", current.ambientLightLux);
             root.put("accelerometer_timestamp_ns", current.accelTimestampNs);
             root.put("linear_acceleration_timestamp_ns", current.linearAccelTimestampNs);
             root.put("gyroscope_timestamp_ns", current.gyroTimestampNs);
             root.put("magnetometer_timestamp_ns", current.magTimestampNs);
             root.put("pressure_timestamp_ns", current.pressureTimestampNs);
+            root.put("ambient_light_timestamp_ns", current.lightTimestampNs);
             root.put("linear_acceleration_available", current.hasLinearAccel);
             root.put("magnetometer_available", current.hasMag);
             root.put("pressure_available", current.hasPressure);
+            root.put("ambient_light_available", current.hasLight);
             return root.toString();
         } catch (JSONException e) { return "{\"error\":\"failed to encode sensor sample\"}"; }
     }
@@ -257,9 +265,9 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("application_id", BuildConfig.APPLICATION_ID); root.put("build_type", BuildConfig.BUILD_TYPE);
             root.put("uptime_ms", uptimeMs);
             root.put("accelerometer_samples", current.accelCount); root.put("linear_acceleration_samples", current.linearAccelCount);
-            root.put("gyroscope_samples", current.gyroCount); root.put("magnetometer_samples", current.magCount); root.put("pressure_samples", current.pressureCount);
+            root.put("gyroscope_samples", current.gyroCount); root.put("magnetometer_samples", current.magCount); root.put("pressure_samples", current.pressureCount); root.put("ambient_light_samples", current.lightCount);
             root.put("accelerometer_rate_hz", current.accelCount / uptimeSeconds); root.put("linear_acceleration_rate_hz", current.linearAccelCount / uptimeSeconds);
-            root.put("gyroscope_rate_hz", current.gyroCount / uptimeSeconds); root.put("magnetometer_rate_hz", current.magCount / uptimeSeconds); root.put("pressure_rate_hz", current.pressureCount / uptimeSeconds);
+            root.put("gyroscope_rate_hz", current.gyroCount / uptimeSeconds); root.put("magnetometer_rate_hz", current.magCount / uptimeSeconds); root.put("pressure_rate_hz", current.pressureCount / uptimeSeconds); root.put("ambient_light_rate_hz", current.lightCount / uptimeSeconds);
             root.put("location_permission_granted", hasLocationPermission()); root.put("location_provider_available", locationProviderAvailable);
             root.put("location_ready", currentLocation != null); root.put("location_samples", locationCount);
             return root.toString();
@@ -278,16 +286,16 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     }
 
     private static final class Sample {
-        float ax, ay, az, lax, lay, laz, gx, gy, gz, mx, my, mz, pressureHpa;
-        long accelTimestampNs, linearAccelTimestampNs, gyroTimestampNs, magTimestampNs, pressureTimestampNs;
-        long accelCount, linearAccelCount, gyroCount, magCount, pressureCount;
-        boolean hasAccel, hasLinearAccel, hasGyro, hasMag, hasPressure;
+        float ax, ay, az, lax, lay, laz, gx, gy, gz, mx, my, mz, pressureHpa, ambientLightLux;
+        long accelTimestampNs, linearAccelTimestampNs, gyroTimestampNs, magTimestampNs, pressureTimestampNs, lightTimestampNs;
+        long accelCount, linearAccelCount, gyroCount, magCount, pressureCount, lightCount;
+        boolean hasAccel, hasLinearAccel, hasGyro, hasMag, hasPressure, hasLight;
         Sample copy() {
             Sample r = new Sample();
-            r.ax=ax; r.ay=ay; r.az=az; r.lax=lax; r.lay=lay; r.laz=laz; r.gx=gx; r.gy=gy; r.gz=gz; r.mx=mx; r.my=my; r.mz=mz; r.pressureHpa=pressureHpa;
-            r.accelTimestampNs=accelTimestampNs; r.linearAccelTimestampNs=linearAccelTimestampNs; r.gyroTimestampNs=gyroTimestampNs; r.magTimestampNs=magTimestampNs; r.pressureTimestampNs=pressureTimestampNs;
-            r.accelCount=accelCount; r.linearAccelCount=linearAccelCount; r.gyroCount=gyroCount; r.magCount=magCount; r.pressureCount=pressureCount;
-            r.hasAccel=hasAccel; r.hasLinearAccel=hasLinearAccel; r.hasGyro=hasGyro; r.hasMag=hasMag; r.hasPressure=hasPressure; return r;
+            r.ax=ax; r.ay=ay; r.az=az; r.lax=lax; r.lay=lay; r.laz=laz; r.gx=gx; r.gy=gy; r.gz=gz; r.mx=mx; r.my=my; r.mz=mz; r.pressureHpa=pressureHpa; r.ambientLightLux=ambientLightLux;
+            r.accelTimestampNs=accelTimestampNs; r.linearAccelTimestampNs=linearAccelTimestampNs; r.gyroTimestampNs=gyroTimestampNs; r.magTimestampNs=magTimestampNs; r.pressureTimestampNs=pressureTimestampNs; r.lightTimestampNs=lightTimestampNs;
+            r.accelCount=accelCount; r.linearAccelCount=linearAccelCount; r.gyroCount=gyroCount; r.magCount=magCount; r.pressureCount=pressureCount; r.lightCount=lightCount;
+            r.hasAccel=hasAccel; r.hasLinearAccel=hasLinearAccel; r.hasGyro=hasGyro; r.hasMag=hasMag; r.hasPressure=hasPressure; r.hasLight=hasLight; return r;
         }
     }
 }

@@ -2,7 +2,7 @@
 
 A minimal Android hardware bridge for OpenRoadCode running on the same phone.
 
-The foreground service samples the phone's inertial, magnetic-field, and pressure sensors and exposes them through a localhost-only HTTP API. OpenRoadCode running in Termux consumes this hardware-facing API and publishes normalized application contracts over ZeroMQ.
+The foreground service samples the phone's inertial, magnetic-field, pressure, and ambient-light sensors and exposes them through a localhost-only HTTP API. OpenRoadCode running in Termux consumes this hardware-facing API and publishes normalized application contracts over ZeroMQ.
 
 ## Architecture
 
@@ -39,6 +39,7 @@ The sensor payload can contain:
 - angular velocity in rad/s
 - magnetic field in µT
 - barometric pressure in hPa
+- ambient light in lux
 - Android monotonic sensor timestamps
 - per-sensor availability flags
 
