@@ -5,7 +5,10 @@ import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -65,6 +68,40 @@ public final class MainActivity extends Activity {
     private TextView magnetometerValue, pressureValue, ambientLightValue, positionValue;
     private Spinner bluetoothDeviceSpinner;
     private Switch remoteAccessSwitch;
+    private Button bridgeStartButton, bridgeStopButton, bluetoothStartButton, bluetoothStopButton;
+    private boolean bridgeRequestedRunning;
+    private boolean bluetoothRequestedRunning;
+
+    private final BroadcastReceiver bluetoothStatusReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!BluetoothSppBridgeService.ACTION_STATUS.equals(intent.getAction())) return;
+            String state = intent.getStringExtra(BluetoothSppBridgeService.EXTRA_STATUS);
+            String message = intent.getStringExtra(BluetoothSppBridgeService.EXTRA_MESSAGE);
+            if (message == null || message.isEmpty()) message = "Bluetooth bridge status unavailable";
+
+            if (BluetoothSppBridgeService.STATUS_CONNECTING.equals(state)) {
+                bluetoothRequestedRunning = true;
+                updateBluetoothButtons(true, false);
+                bluetoothStatus.setText("●  " + message);
+                bluetoothStatus.setTextColor(BLUE);
+            } else if (BluetoothSppBridgeService.STATUS_CONNECTED.equals(state)) {
+                bluetoothRequestedRunning = true;
+                updateBluetoothButtons(true, true);
+                bluetoothStatus.setText("●  " + message);
+                bluetoothStatus.setTextColor(GREEN);
+            } else if (BluetoothSppBridgeService.STATUS_ERROR.equals(state)) {
+                bluetoothRequestedRunning = false;
+                updateBluetoothButtons(false, false);
+                bluetoothStatus.setText("●  " + message);
+                bluetoothStatus.setTextColor(RED);
+            } else if (BluetoothSppBridgeService.STATUS_STOPPED.equals(state)) {
+                bluetoothRequestedRunning = false;
+                updateBluetoothButtons(false, false);
+                bluetoothStatus.setText("●  " + message);
+                bluetoothStatus.setTextColor(MUTED);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,10 +128,9 @@ public final class MainActivity extends Activity {
         pressureValue = addSensorRow(sensorCard, "◉", "Barometer", "hPa", GREEN);
         ambientLightValue = addSensorRow(sensorCard, "☀", "Ambient light", "lux", BLUE);
         positionValue = addSensorRow(sensorCard, "◎", "Position", "lat / lon • accuracy", RED);
-        sensorCard.addView(buttonRow(
-                actionButton("START BRIDGE", BLUE, v -> startBridge()),
-                actionButton("STOP", SURFACE_RAISED, v -> stopBridge())
-        ));
+        bridgeStartButton = actionButton("START BRIDGE", BLUE, v -> startBridge());
+        bridgeStopButton = actionButton("STOP", SURFACE_RAISED, v -> stopBridge());
+        sensorCard.addView(buttonRow(bridgeStartButton, bridgeStopButton));
         content.addView(sensorCard, cardParams());
 
         LinearLayout networkCard = card();
@@ -123,13 +159,12 @@ public final class MainActivity extends Activity {
         bluetoothDeviceSpinner.setPadding(dp(10), 0, dp(10), 0);
         bluetoothCard.addView(bluetoothDeviceSpinner,
                 new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
+        bluetoothStartButton = actionButton("START SPP", BLUE, v -> startBluetoothBridge());
+        bluetoothStopButton = actionButton("STOP", SURFACE_RAISED, v -> stopBluetoothBridge());
         bluetoothCard.addView(buttonRow(
                 actionButton("REFRESH", BLUE, v -> loadPairedDevices()),
-                actionButton("START SPP", BLUE, v -> startBluetoothBridge()),
-                actionButton("STOP", SURFACE_RAISED, v -> {
-                    stopService(new Intent(this, BluetoothSppBridgeService.class));
-                    bluetoothStatus.setText("●  Bluetooth bridge stopped");
-                })
+                bluetoothStartButton,
+                bluetoothStopButton
         ));
         TextView bluetoothHint = text("TCP endpoint  127.0.0.1:35000", 12, MUTED);
         bluetoothHint.setTypeface(Typeface.MONOSPACE);
@@ -145,6 +180,8 @@ public final class MainActivity extends Activity {
 
         scrollView.addView(content);
         setContentView(scrollView);
+        registerReceiver(bluetoothStatusReceiver,
+                new IntentFilter(BluetoothSppBridgeService.ACTION_STATUS), Context.RECEIVER_NOT_EXPORTED);
         ensureBluetoothPermissionAndLoad();
     }
 
@@ -153,12 +190,10 @@ public final class MainActivity extends Activity {
         brand.setOrientation(LinearLayout.HORIZONTAL);
         brand.setGravity(Gravity.CENTER_VERTICAL);
         brand.setPadding(dp(2), dp(4), dp(2), dp(18));
-
         TextView mark = text("△", 38, GREEN);
         mark.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         mark.setGravity(Gravity.CENTER);
         brand.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
-
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
         TextView title = text("OPEN ROAD CODE", 24, TEXT);
@@ -170,7 +205,6 @@ public final class MainActivity extends Activity {
         subtitle.setLetterSpacing(0.18f);
         words.addView(subtitle);
         brand.addView(words, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
         TextView version = text("v" + BuildConfig.VERSION_NAME, 11, MUTED);
         version.setTypeface(Typeface.MONOSPACE);
         brand.addView(version);
@@ -246,9 +280,25 @@ public final class MainActivity extends Activity {
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setLetterSpacing(0.08f);
         button.setAllCaps(false);
-        button.setBackground(rounded(color, color, 9));
+        setButtonColor(button, color);
         button.setOnClickListener(listener);
         return button;
+    }
+
+    private void setButtonColor(Button button, int color) {
+        button.setBackground(rounded(color, color, 9));
+    }
+
+    private void updateBridgeButtons(boolean running) {
+        bridgeStartButton.setText(running ? "RUNNING" : "START BRIDGE");
+        setButtonColor(bridgeStartButton, running ? SURFACE_RAISED : BLUE);
+        setButtonColor(bridgeStopButton, running ? RED : SURFACE_RAISED);
+    }
+
+    private void updateBluetoothButtons(boolean running, boolean connected) {
+        bluetoothStartButton.setText(running ? (connected ? "RUNNING" : "CONNECTING") : "START SPP");
+        setButtonColor(bluetoothStartButton, running ? SURFACE_RAISED : BLUE);
+        setButtonColor(bluetoothStopButton, running ? RED : SURFACE_RAISED);
     }
 
     private LinearLayout buttonRow(Button... buttons) {
@@ -291,6 +341,11 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
+    @Override protected void onDestroy() {
+        unregisterReceiver(bluetoothStatusReceiver);
+        super.onDestroy();
+    }
+
     private JSONObject getJson(String url) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(250);
@@ -312,8 +367,13 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> { displaySample(imu); displayPosition(position); });
             } catch (Exception ignored) {
                 runOnUiThread(() -> {
-                    status.setText("●  Bridge stopped or starting…");
-                    status.setTextColor(MUTED);
+                    if (bridgeRequestedRunning) {
+                        status.setText("●  Bridge starting…");
+                        status.setTextColor(BLUE);
+                    } else {
+                        status.setText("●  Bridge stopped");
+                        status.setTextColor(MUTED);
+                    }
                     showUnavailable();
                 });
             }
@@ -321,6 +381,8 @@ public final class MainActivity extends Activity {
     }
 
     private void displaySample(JSONObject root) {
+        bridgeRequestedRunning = true;
+        updateBridgeButtons(true);
         boolean ready = root.optBoolean("ready");
         status.setText(ready ? "●  Bridge running • IMU ready" : "●  Bridge running • waiting for sensors");
         status.setTextColor(ready ? GREEN : BLUE);
@@ -366,17 +428,21 @@ public final class MainActivity extends Activity {
     }
 
     private void startBridge() {
+        bridgeRequestedRunning = true;
+        updateBridgeButtons(true);
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
         }
         startForegroundService(new Intent(this, SensorBridgeService.class));
-        status.setText("●  Bridge starting…");
-        status.setTextColor(BLUE);
+        status.setText("●  Bridge running");
+        status.setTextColor(GREEN);
     }
 
     private void stopBridge() {
+        bridgeRequestedRunning = false;
+        updateBridgeButtons(false);
         stopService(new Intent(this, SensorBridgeService.class));
         status.setText("●  Bridge stopped");
         status.setTextColor(MUTED);
@@ -387,9 +453,9 @@ public final class MainActivity extends Activity {
         getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
                 .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
         updateRemoteAccessStatus();
-
-        // Restarting applies the new bind address immediately if the bridge is running.
         stopService(new Intent(this, SensorBridgeService.class));
+        bridgeRequestedRunning = true;
+        updateBridgeButtons(true);
         startForegroundService(new Intent(this, SensorBridgeService.class));
         status.setText("●  Bridge restarting for network change…");
         status.setTextColor(BLUE);
@@ -461,10 +527,12 @@ public final class MainActivity extends Activity {
             }
         };
         bluetoothDeviceSpinner.setAdapter(spinnerAdapter);
-        bluetoothStatus.setText(labels.isEmpty()
-                ? "●  No paired classic Bluetooth devices"
-                : "●  " + labels.size() + " paired device(s) available");
-        bluetoothStatus.setTextColor(labels.isEmpty() ? RED : GREEN);
+        if (!bluetoothRequestedRunning) {
+            bluetoothStatus.setText(labels.isEmpty()
+                    ? "●  No paired classic Bluetooth devices"
+                    : "●  " + labels.size() + " paired device(s) available");
+            bluetoothStatus.setTextColor(labels.isEmpty() ? RED : GREEN);
+        }
     }
 
     private void startBluetoothBridge() {
@@ -480,16 +548,28 @@ public final class MainActivity extends Activity {
         BluetoothDevice device = pairedDevices.get(position);
         Intent intent = new Intent(this, BluetoothSppBridgeService.class);
         intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, device.getAddress());
+        bluetoothRequestedRunning = true;
+        updateBluetoothButtons(true, false);
         startForegroundService(intent);
         bluetoothStatus.setText("●  Connecting to "
                 + (device.getName() == null ? device.getAddress() : device.getName()) + "…");
         bluetoothStatus.setTextColor(BLUE);
     }
 
+    private void stopBluetoothBridge() {
+        bluetoothRequestedRunning = false;
+        updateBluetoothButtons(false, false);
+        stopService(new Intent(this, BluetoothSppBridgeService.class));
+        bluetoothStatus.setText("●  Bluetooth bridge stopped");
+        bluetoothStatus.setTextColor(MUTED);
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            bridgeRequestedRunning = true;
+            updateBridgeButtons(true);
             startForegroundService(new Intent(this, SensorBridgeService.class));
         } else if (requestCode == BLUETOOTH_PERMISSION_REQUEST
                 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
