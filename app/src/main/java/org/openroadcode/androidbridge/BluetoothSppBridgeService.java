@@ -44,6 +44,7 @@ public final class BluetoothSppBridgeService extends Service {
     private static final long TOTAL_CONNECT_TIMEOUT_MS = CONNECT_ATTEMPT_TIMEOUT_MS * 2L;
 
     private volatile boolean running;
+    private volatile boolean errorReported;
     private Thread worker;
     private ServerSocket serverSocket;
     private BluetoothSocket bluetoothSocket;
@@ -62,9 +63,10 @@ public final class BluetoothSppBridgeService extends Service {
         if (worker != null && worker.isAlive()) return START_STICKY;
         String address = intent == null ? null : intent.getStringExtra(EXTRA_DEVICE_ADDRESS);
         running = true;
+        errorReported = false;
         worker = new Thread(() -> runBridge(address), "orc-bluetooth-spp");
         worker.start();
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void runBridge(String requestedAddress) {
@@ -85,8 +87,10 @@ public final class BluetoothSppBridgeService extends Service {
             String deviceName = safeName(device);
             reportStatus(STATUS_CONNECTING, "Connecting to " + deviceName + "…");
             updateNotification("Connecting to " + deviceName);
-            adapter.cancelDiscovery();
 
+            // Do not call BluetoothAdapter.cancelDiscovery() here. On Android 12+
+            // that operation requires BLUETOOTH_SCAN, while this bridge only needs
+            // BLUETOOTH_CONNECT because it operates on already-paired devices.
             bluetoothSocket = connectDevice(device);
             connected = true;
             String connectedMessage = "Connected to " + deviceName + " • TCP 127.0.0.1:" + TCP_PORT;
@@ -109,12 +113,15 @@ public final class BluetoothSppBridgeService extends Service {
                 String display = connected
                         ? "Bluetooth bridge error: " + message
                         : "Unable to connect: " + message;
+                errorReported = true;
                 reportStatus(STATUS_ERROR, display);
                 updateNotification(display);
             }
         } finally {
             closeResources();
-            if (!running) reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
+            if (!running && !errorReported) {
+                reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
+            }
             running = false;
             stopSelf();
         }
@@ -236,7 +243,9 @@ public final class BluetoothSppBridgeService extends Service {
     public void onDestroy() {
         running = false;
         closeResources();
-        reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
+        if (!errorReported) {
+            reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
+        }
         super.onDestroy();
     }
 
