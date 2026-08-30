@@ -22,6 +22,8 @@ if (!gitSha) {
     }
 }
 def shortGitSha = gitSha ? gitSha.take(7) : 'unknown'
+def baseVersion = '0.5.0'
+def isTagBuild = System.getenv('GITHUB_REF_TYPE') == 'tag'
 
 android {
     namespace 'org.openroadcode.androidbridge'
@@ -32,8 +34,9 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 8
-        versionName "0.5.0+${shortGitSha}"
+        versionName isTagBuild ? baseVersion : "${baseVersion}+${shortGitSha}"
         buildConfigField 'String', 'GIT_SHA', '"' + shortGitSha + '"'
+        buildConfigField 'String', 'BASE_VERSION', '"' + baseVersion + '"'
     }
 
     signingConfigs {
