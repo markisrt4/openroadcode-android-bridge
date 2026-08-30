@@ -40,9 +40,11 @@ import java.util.Locale;
 public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final int BLUETOOTH_PERMISSION_REQUEST = 1002;
+    private static final int CAMERA_PERMISSION_REQUEST = 1003;
     private static final long DASHBOARD_PERIOD_MS = 500;
     private static final String IMU_URL = "http://127.0.0.1:8766/imu";
     private static final String LOCATION_URL = "http://127.0.0.1:8766/location";
+    private static final String CAMERA_STATUS_URL = "http://127.0.0.1:8767/status";
 
     private static final int BG = Color.rgb(6, 16, 24);
     private static final int SURFACE = Color.rgb(11, 24, 33);
@@ -56,11 +58,16 @@ public final class MainActivity extends Activity {
 
     private final Handler dashboardHandler = new Handler(Looper.getMainLooper());
     private final Runnable dashboardRefresh = new Runnable() {
-        @Override public void run() { refreshDashboard(); dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS); }
+        @Override public void run() {
+            refreshDashboard();
+            refreshCameraStatus();
+            dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
+        }
     };
     private final List<BluetoothDevice> pairedDevices = new ArrayList<>();
 
     private TextView status, remoteAccessStatus, bluetoothStatus;
+    private TextView cameraStatus, cameraDetails, cameraEndpoint;
     private TextView accelerometerValue, linearAccelerationValue, gyroscopeValue;
     private TextView magnetometerValue, pressureValue, ambientLightValue, positionValue;
     private Spinner bluetoothDeviceSpinner;
@@ -82,7 +89,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout sensorCard = card();
         addSectionHeading(sensorCard, "SENSOR BRIDGE", BLUE, "Phone telemetry • HTTP 8766");
-        status = statusPill("Bridge stopped", MUTED);
+        status = statusPill("Data bridge stopped", MUTED);
         sensorCard.addView(status);
         accelerometerValue = addSensorRow(sensorCard, "↗", "Accelerometer", "m/s²", BLUE);
         linearAccelerationValue = addSensorRow(sensorCard, "⇢", "Linear acceleration", "m/s²", GREEN);
@@ -98,7 +105,8 @@ public final class MainActivity extends Activity {
         content.addView(sensorCard, cardParams());
 
         LinearLayout networkCard = card();
-        addSectionHeading(networkCard, "REMOTE SENSOR ACCESS", BLUE, "Share sensor telemetry with devices on this network");
+        addSectionHeading(networkCard, "REMOTE SENSOR ACCESS", BLUE,
+                "Share sensor telemetry with devices on this network");
         remoteAccessSwitch = new Switch(this);
         remoteAccessSwitch.setText("Allow network clients");
         remoteAccessSwitch.setTextColor(TEXT);
@@ -114,8 +122,29 @@ public final class MainActivity extends Activity {
         remoteAccessSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> setRemoteAccess(isChecked));
         content.addView(networkCard, cardParams());
 
+        LinearLayout cameraCard = card();
+        addSectionHeading(cameraCard, "CAMERA STREAM", RED,
+                "Rear camera • H.264 • 1280×720 • 30 FPS • HTTP 8767");
+        cameraStatus = statusPill("Camera stopped", MUTED);
+        cameraCard.addView(cameraStatus);
+        cameraDetails = text("Frames  —    Viewer  —", 13, TEXT);
+        cameraDetails.setTypeface(Typeface.MONOSPACE);
+        cameraDetails.setPadding(dp(2), dp(5), 0, dp(4));
+        cameraCard.addView(cameraDetails);
+        cameraEndpoint = text("Video endpoint  waiting for network", 12, MUTED);
+        cameraEndpoint.setTypeface(Typeface.MONOSPACE);
+        cameraEndpoint.setPadding(dp(2), dp(2), 0, dp(4));
+        cameraCard.addView(cameraEndpoint);
+        updateCameraEndpoint();
+        cameraCard.addView(buttonRow(
+                actionButton("START CAMERA", RED, v -> startCamera()),
+                actionButton("STOP", SURFACE_RAISED, v -> stopCamera())
+        ));
+        content.addView(cameraCard, cardParams());
+
         LinearLayout bluetoothCard = card();
-        addSectionHeading(bluetoothCard, "BLUETOOTH SPP", GREEN, "Classic Bluetooth • RFCOMM transport");
+        addSectionHeading(bluetoothCard, "BLUETOOTH SPP", GREEN,
+                "Classic Bluetooth • RFCOMM transport");
         bluetoothStatus = statusPill("Select a paired device", MUTED);
         bluetoothCard.addView(bluetoothStatus);
         bluetoothDeviceSpinner = new Spinner(this);
@@ -129,6 +158,7 @@ public final class MainActivity extends Activity {
                 actionButton("STOP", SURFACE_RAISED, v -> {
                     stopService(new Intent(this, BluetoothSppBridgeService.class));
                     bluetoothStatus.setText("●  Bluetooth bridge stopped");
+                    bluetoothStatus.setTextColor(MUTED);
                 })
         ));
         TextView bluetoothHint = text("TCP endpoint  127.0.0.1:35000", 12, MUTED);
@@ -283,6 +313,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         updateRemoteAccessStatus();
+        updateCameraEndpoint();
         dashboardHandler.post(dashboardRefresh);
     }
 
@@ -312,7 +343,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> { displaySample(imu); displayPosition(position); });
             } catch (Exception ignored) {
                 runOnUiThread(() -> {
-                    status.setText("●  Bridge stopped or starting…");
+                    status.setText("●  Data bridge stopped or starting…");
                     status.setTextColor(MUTED);
                     showUnavailable();
                 });
@@ -320,9 +351,26 @@ public final class MainActivity extends Activity {
         }, "orc-dashboard-refresh").start();
     }
 
+    private void refreshCameraStatus() {
+        new Thread(() -> {
+            try {
+                JSONObject camera = getJson(CAMERA_STATUS_URL);
+                runOnUiThread(() -> displayCameraStatus(camera));
+            } catch (Exception ignored) {
+                runOnUiThread(() -> {
+                    cameraStatus.setText("●  Camera stopped");
+                    cameraStatus.setTextColor(MUTED);
+                    cameraDetails.setText("Frames  —    Viewer  —");
+                });
+            }
+        }, "orc-camera-status-refresh").start();
+    }
+
     private void displaySample(JSONObject root) {
         boolean ready = root.optBoolean("ready");
-        status.setText(ready ? "●  Bridge running • IMU ready" : "●  Bridge running • waiting for sensors");
+        status.setText(ready
+                ? "●  Data bridge running • IMU ready"
+                : "●  Data bridge running • waiting for sensors");
         status.setTextColor(ready ? GREEN : BLUE);
         accelerometerValue.setText(vectorText(root.optJSONObject("acceleration_mps2")));
         linearAccelerationValue.setText(root.optBoolean("linear_acceleration_available")
@@ -349,6 +397,31 @@ public final class MainActivity extends Activity {
                 root.optString("provider", "")));
     }
 
+    private void displayCameraStatus(JSONObject root) {
+        String state = root.optString("state", "unknown");
+        String error = root.optString("error", "");
+        boolean clientConnected = root.optBoolean("client_connected", false);
+        long frames = root.optLong("encoded_frames", 0);
+
+        if ("streaming".equals(state)) {
+            cameraStatus.setText("●  Camera streaming • 720p30");
+            cameraStatus.setTextColor(GREEN);
+        } else if ("starting".equals(state)) {
+            cameraStatus.setText("●  Camera starting…");
+            cameraStatus.setTextColor(BLUE);
+        } else if ("error".equals(state)) {
+            cameraStatus.setText("●  Camera error • " + (error.isEmpty() ? "unknown error" : error));
+            cameraStatus.setTextColor(RED);
+        } else {
+            cameraStatus.setText("●  Camera " + state);
+            cameraStatus.setTextColor(MUTED);
+        }
+
+        cameraDetails.setText(String.format(Locale.US, "Frames  %,d    Viewer  %s",
+                frames, clientConnected ? "connected" : "none"));
+        updateCameraEndpoint();
+    }
+
     private String vectorText(JSONObject vector) {
         if (vector == null) return "—";
         return String.format(Locale.US, "x %+.2f  y %+.2f  z %+.2f",
@@ -372,15 +445,41 @@ public final class MainActivity extends Activity {
                     Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
         }
         startForegroundService(new Intent(this, SensorBridgeService.class));
-        status.setText("●  Bridge starting…");
+        status.setText("●  Data bridge starting…");
         status.setTextColor(BLUE);
     }
 
     private void stopBridge() {
         stopService(new Intent(this, SensorBridgeService.class));
-        status.setText("●  Bridge stopped");
+        status.setText("●  Data bridge stopped");
         status.setTextColor(MUTED);
         showUnavailable();
+    }
+
+    private void startCamera() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
+            return;
+        }
+        startForegroundService(new Intent(this, CameraStreamService.class));
+        cameraStatus.setText("●  Camera starting…");
+        cameraStatus.setTextColor(BLUE);
+    }
+
+    private void stopCamera() {
+        stopService(new Intent(this, CameraStreamService.class));
+        cameraStatus.setText("●  Camera stopped");
+        cameraStatus.setTextColor(MUTED);
+        cameraDetails.setText("Frames  —    Viewer  —");
+    }
+
+    private void updateCameraEndpoint() {
+        if (cameraEndpoint == null) return;
+        String address = findLanAddress();
+        cameraEndpoint.setText(address == null
+                ? "Video endpoint  waiting for network • port " + CameraStreamService.PORT
+                : "Video  http://" + address + ":" + CameraStreamService.PORT + "/video");
+        cameraEndpoint.setTextColor(address == null ? MUTED : GREEN);
     }
 
     private void setRemoteAccess(boolean enabled) {
@@ -388,10 +487,9 @@ public final class MainActivity extends Activity {
                 .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
         updateRemoteAccessStatus();
 
-        // Restarting applies the new bind address immediately if the bridge is running.
         stopService(new Intent(this, SensorBridgeService.class));
         startForegroundService(new Intent(this, SensorBridgeService.class));
-        status.setText("●  Bridge restarting for network change…");
+        status.setText("●  Data bridge restarting for network change…");
         status.setTextColor(BLUE);
     }
 
@@ -494,6 +592,13 @@ public final class MainActivity extends Activity {
         } else if (requestCode == BLUETOOTH_PERMISSION_REQUEST
                 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             loadPairedDevices();
+        } else if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startCamera();
+            } else {
+                cameraStatus.setText("●  Camera permission required");
+                cameraStatus.setTextColor(RED);
+            }
         }
     }
 }
