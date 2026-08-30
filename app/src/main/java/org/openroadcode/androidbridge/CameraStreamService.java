@@ -44,7 +44,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class CameraStreamService extends Service {
@@ -63,6 +64,9 @@ public final class CameraStreamService extends Service {
     private static final String CHANNEL_ID = "openroadcode_camera_stream";
     private static final int NOTIFICATION_ID = 4103;
     private static final String MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_AVC;
+    private static final Object PREVIEW_LOCK = new Object();
+    private static volatile CameraStreamService activeInstance;
+    private static Surface requestedPreviewSurface;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Object clientLock = new Object();
@@ -72,6 +76,7 @@ public final class CameraStreamService extends Service {
     private CameraCaptureSession captureSession;
     private MediaCodec encoder;
     private Surface encoderSurface;
+    private Surface previewSurface;
     private Thread encoderDrainThread;
     private Thread serverThread;
     private ServerSocket serverSocket;
@@ -87,7 +92,27 @@ public final class CameraStreamService extends Service {
     private volatile String interfaceMode = INTERFACE_WIFI;
     private volatile String bindAddress = "";
 
-    @Override public void onCreate() { super.onCreate(); createNotificationChannel(); }
+    public static void setPreviewSurface(Surface surface) {
+        synchronized (PREVIEW_LOCK) {
+            requestedPreviewSurface = surface != null && surface.isValid() ? surface : null;
+            CameraStreamService service = activeInstance;
+            if (service != null) service.onPreviewSurfaceChanged();
+        }
+    }
+
+    public static void clearPreviewSurface(Surface surface) {
+        synchronized (PREVIEW_LOCK) {
+            if (requestedPreviewSurface == surface) requestedPreviewSurface = null;
+            CameraStreamService service = activeInstance;
+            if (service != null) service.onPreviewSurfaceChanged();
+        }
+    }
+
+    @Override public void onCreate() {
+        super.onCreate();
+        synchronized (PREVIEW_LOCK) { activeInstance = this; }
+        createNotificationChannel();
+    }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIFICATION_ID, notification("Starting rear camera stream"));
@@ -100,14 +125,28 @@ public final class CameraStreamService extends Service {
     }
 
     @Override public void onDestroy() {
+        synchronized (PREVIEW_LOCK) { if (activeInstance == this) activeInstance = null; }
         running.set(false); state = "stopped"; closeVideoClient(); closeServer(); stopCameraPipeline();
         stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 
+    private void onPreviewSurfaceChanged() {
+        Handler handler = cameraHandler;
+        if (handler == null) return;
+        handler.post(() -> {
+            Surface desired;
+            synchronized (PREVIEW_LOCK) { desired = requestedPreviewSurface; }
+            if (previewSurface == desired) return;
+            previewSurface = desired;
+            if (cameraDevice != null && encoderSurface != null && running.get()) createCaptureSession(cameraDevice);
+        });
+    }
+
     private void startCameraPipeline() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) { fail("Camera permission not granted"); return; }
         cameraThread = new HandlerThread("orc-camera"); cameraThread.start(); cameraHandler = new Handler(cameraThread.getLooper());
+        synchronized (PREVIEW_LOCK) { previewSurface = requestedPreviewSurface; }
         try {
             configureEncoder(); CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             cameraId = findRearCamera(manager); if (cameraId == null) { fail("No rear-facing camera found"); return; }
@@ -140,22 +179,32 @@ public final class CameraStreamService extends Service {
     };
 
     private void createCaptureSession(CameraDevice camera) {
+        CameraCaptureSession previous = captureSession;
+        captureSession = null;
+        if (previous != null) { try { previous.stopRepeating(); } catch (Exception ignored) { } previous.close(); }
+        List<Surface> outputs = new ArrayList<>();
+        outputs.add(encoderSurface);
+        Surface currentPreview = previewSurface;
+        if (currentPreview != null && currentPreview.isValid()) outputs.add(currentPreview);
         try {
-            camera.createCaptureSession(Collections.singletonList(encoderSurface), new CameraCaptureSession.StateCallback() {
+            camera.createCaptureSession(outputs, new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(CameraCaptureSession session) {
                     if (!running.get()) { session.close(); return; }
                     captureSession = session;
                     try {
                         CaptureRequest.Builder request = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-                        request.addTarget(encoderSurface); request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
+                        request.addTarget(encoderSurface);
+                        Surface activePreview = previewSurface;
+                        if (activePreview != null && activePreview.isValid()) request.addTarget(activePreview);
+                        request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
                         request.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(FPS, FPS));
                         session.setRepeatingRequest(request.build(), null, cameraHandler); state = "streaming";
                         updateNotification("Rear camera streaming • MPEG-TS • " + interfaceMode + " • port " + PORT);
-                    } catch (CameraAccessException e) { fail("Unable to start capture: " + message(e)); }
+                    } catch (CameraAccessException | IllegalArgumentException e) { fail("Unable to start capture: " + message(e)); }
                 }
                 @Override public void onConfigureFailed(CameraCaptureSession session) { fail("Camera capture session configuration failed"); }
             }, cameraHandler);
-        } catch (CameraAccessException e) { fail("Unable to configure camera: " + message(e)); }
+        } catch (CameraAccessException | IllegalArgumentException e) { fail("Unable to configure camera: " + message(e)); }
     }
 
     private void drainEncoder() {
@@ -277,7 +326,8 @@ public final class CameraStreamService extends Service {
             json.put("state", state); json.put("camera_id", cameraId); json.put("width", WIDTH); json.put("height", HEIGHT);
             json.put("fps", FPS); json.put("bitrate_bps", BITRATE_BPS); json.put("codec", "h264"); json.put("container", "mpegts");
             json.put("encoded_frames", encodedFrames); json.put("client_connected", videoOutput != null); json.put("client_connections", connectedClients);
-            json.put("interface", interfaceMode); json.put("bind_address", bindAddress); json.put("error", errorMessage);
+            json.put("interface", interfaceMode); json.put("bind_address", bindAddress); json.put("preview_attached", previewSurface != null && previewSurface.isValid());
+            json.put("error", errorMessage);
         } catch (Exception ignored) { }
         byte[] body = json.toString().getBytes(StandardCharsets.UTF_8); OutputStream output = client.getOutputStream();
         output.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " + body.length
@@ -295,6 +345,7 @@ public final class CameraStreamService extends Service {
         if (cameraDevice != null) { cameraDevice.close(); cameraDevice = null; }
         if (encoder != null) { try { encoder.signalEndOfInputStream(); } catch (Exception ignored) { } try { encoder.stop(); } catch (Exception ignored) { } try { encoder.release(); } catch (Exception ignored) { } encoder = null; }
         if (encoderSurface != null) { encoderSurface.release(); encoderSurface = null; }
+        previewSurface = null;
         if (cameraThread != null) { cameraThread.quitSafely(); cameraThread = null; cameraHandler = null; }
     }
     private void closeServer() { if (serverSocket != null) { try { serverSocket.close(); } catch (IOException ignored) { } serverSocket = null; } }
