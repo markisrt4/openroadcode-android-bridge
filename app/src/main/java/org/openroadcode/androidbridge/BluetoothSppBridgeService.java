@@ -12,6 +12,7 @@ import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.IBinder;
+import android.util.Log;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +23,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class BluetoothSppBridgeService extends Service {
@@ -37,12 +39,15 @@ public final class BluetoothSppBridgeService extends Service {
     public static final String STATUS_ERROR = "error";
     public static final String STATUS_STOPPED = "stopped";
 
+    private static final String TAG = "OpenRoadCodeSPP";
     private static final String CHANNEL_ID = "openroadcode-bluetooth-spp";
     private static final int NOTIFICATION_ID = 35000;
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
     private static final long CONNECT_ATTEMPT_TIMEOUT_MS = 8000L;
     private static final long TOTAL_CONNECT_TIMEOUT_MS = CONNECT_ATTEMPT_TIMEOUT_MS * 2L;
 
+    private final AtomicLong tcpToSppBytes = new AtomicLong();
+    private final AtomicLong sppToTcpBytes = new AtomicLong();
     private volatile boolean running;
     private volatile boolean errorReported;
     private Thread worker;
@@ -64,6 +69,8 @@ public final class BluetoothSppBridgeService extends Service {
         String address = intent == null ? null : intent.getStringExtra(EXTRA_DEVICE_ADDRESS);
         running = true;
         errorReported = false;
+        tcpToSppBytes.set(0L);
+        sppToTcpBytes.set(0L);
         worker = new Thread(() -> runBridge(address), "orc-bluetooth-spp");
         worker.start();
         return START_NOT_STICKY;
@@ -88,22 +95,21 @@ public final class BluetoothSppBridgeService extends Service {
             reportStatus(STATUS_CONNECTING, "Connecting to " + deviceName + "…");
             updateNotification("Connecting to " + deviceName);
 
-            // Do not call BluetoothAdapter.cancelDiscovery() here. On Android 12+
-            // that operation requires BLUETOOTH_SCAN, while this bridge only needs
-            // BLUETOOTH_CONNECT because it operates on already-paired devices.
             bluetoothSocket = connectDevice(device);
             connected = true;
-            String connectedMessage = "Connected to " + deviceName + " • TCP 127.0.0.1:" + TCP_PORT;
+            String connectedMessage = "Connected to " + deviceName + " • TCP localhost:" + TCP_PORT;
             reportStatus(STATUS_CONNECTED, connectedMessage);
             updateNotification(connectedMessage);
 
-            serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("127.0.0.1"));
+            serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("localhost"));
             while (running) {
                 Socket client = serverSocket.accept();
+                Log.i(TAG, "TCP client connected: " + client.getRemoteSocketAddress());
                 try {
                     bridgeClient(client, bluetoothSocket);
                 } finally {
                     try { client.close(); } catch (IOException ignored) { }
+                    Log.i(TAG, "TCP client disconnected");
                 }
             }
         } catch (Exception exception) {
@@ -114,6 +120,7 @@ public final class BluetoothSppBridgeService extends Service {
                         ? "Bluetooth bridge error: " + message
                         : "Unable to connect: " + message;
                 errorReported = true;
+                Log.e(TAG, display, exception);
                 reportStatus(STATUS_ERROR, display);
                 updateNotification(display);
             }
@@ -177,6 +184,7 @@ public final class BluetoothSppBridgeService extends Service {
             try { socket.close(); } catch (IOException ignored) { }
             throw connectFailure;
         }
+        Log.i(TAG, "Bluetooth SPP connected using " + (insecure ? "insecure" : "secure") + " RFCOMM");
         return socket;
     }
 
@@ -193,24 +201,52 @@ public final class BluetoothSppBridgeService extends Service {
         OutputStream tcpOut = client.getOutputStream();
         InputStream btIn = bluetooth.getInputStream();
         OutputStream btOut = bluetooth.getOutputStream();
+        AtomicReference<IOException> tcpToSppFailure = new AtomicReference<>();
 
-        Thread tcpToBt = new Thread(() -> copy(tcpIn, btOut), "orc-tcp-to-spp");
+        Thread tcpToBt = new Thread(
+                () -> copy(tcpIn, btOut, "TCP→SPP", tcpToSppBytes, tcpToSppFailure),
+                "orc-tcp-to-spp");
         tcpToBt.start();
-        copy(btIn, tcpOut);
+        AtomicReference<IOException> sppToTcpFailure = new AtomicReference<>();
+        copy(btIn, tcpOut, "SPP→TCP", sppToTcpBytes, sppToTcpFailure);
+
+        IOException failure = sppToTcpFailure.get();
+        if (failure == null) failure = tcpToSppFailure.get();
+        if (failure != null && running) throw failure;
+
         try { client.shutdownInput(); } catch (IOException ignored) { }
         try { client.shutdownOutput(); } catch (IOException ignored) { }
         tcpToBt.interrupt();
     }
 
-    private void copy(InputStream input, OutputStream output) {
+    private void copy(
+            InputStream input,
+            OutputStream output,
+            String direction,
+            AtomicLong byteCounter,
+            AtomicReference<IOException> failure) {
         byte[] buffer = new byte[1024];
         try {
             int count;
             while (running && (count = input.read(buffer)) >= 0) {
                 output.write(buffer, 0, count);
                 output.flush();
+                long total = byteCounter.addAndGet(count);
+                String traffic = direction + " " + count + " bytes (total " + total + ")";
+                Log.i(TAG, traffic);
+                reportTrafficStatus();
             }
-        } catch (IOException ignored) { }
+        } catch (IOException exception) {
+            failure.set(exception);
+            Log.e(TAG, direction + " I/O failure", exception);
+        }
+    }
+
+    private void reportTrafficStatus() {
+        String message = "Connected • TCP→SPP " + tcpToSppBytes.get()
+                + " B • SPP→TCP " + sppToTcpBytes.get() + " B";
+        reportStatus(STATUS_CONNECTED, message);
+        updateNotification(message);
     }
 
     private String safeName(BluetoothDevice device) {
