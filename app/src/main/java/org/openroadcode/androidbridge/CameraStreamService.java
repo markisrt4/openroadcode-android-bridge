@@ -18,10 +18,10 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.LinkAddress;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -77,6 +77,7 @@ public final class CameraStreamService extends Service {
     private ServerSocket serverSocket;
     private Socket videoClient;
     private OutputStream videoOutput;
+    private MpegTsMuxer videoMuxer;
     private volatile String state = "stopped";
     private volatile String errorMessage = "";
     private volatile String cameraId = "";
@@ -88,17 +89,12 @@ public final class CameraStreamService extends Service {
 
     @Override public void onCreate() { super.onCreate(); createNotificationChannel(); }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIFICATION_ID, notification("Starting rear camera stream"));
         if (running.compareAndSet(false, true)) {
-            state = "starting";
-            errorMessage = "";
-            encodedFrames = 0;
-            interfaceMode = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-                    .getString(PREF_INTERFACE, INTERFACE_WIFI);
-            startServer();
-            startCameraPipeline();
+            state = "starting"; errorMessage = ""; encodedFrames = 0;
+            interfaceMode = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PREF_INTERFACE, INTERFACE_WIFI);
+            startServer(); startCameraPipeline();
         }
         return START_NOT_STICKY;
     }
@@ -113,10 +109,8 @@ public final class CameraStreamService extends Service {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) { fail("Camera permission not granted"); return; }
         cameraThread = new HandlerThread("orc-camera"); cameraThread.start(); cameraHandler = new Handler(cameraThread.getLooper());
         try {
-            configureEncoder();
-            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-            cameraId = findRearCamera(manager);
-            if (cameraId == null) { fail("No rear-facing camera found"); return; }
+            configureEncoder(); CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            cameraId = findRearCamera(manager); if (cameraId == null) { fail("No rear-facing camera found"); return; }
             manager.openCamera(cameraId, cameraStateCallback, cameraHandler);
         } catch (Exception e) { fail("Unable to start camera: " + message(e)); }
     }
@@ -156,7 +150,7 @@ public final class CameraStreamService extends Service {
                         request.addTarget(encoderSurface); request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
                         request.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(FPS, FPS));
                         session.setRepeatingRequest(request.build(), null, cameraHandler); state = "streaming";
-                        updateNotification("Rear camera streaming • " + interfaceMode + " • port " + PORT);
+                        updateNotification("Rear camera streaming • MPEG-TS • " + interfaceMode + " • port " + PORT);
                     } catch (CameraAccessException e) { fail("Unable to start capture: " + message(e)); }
                 }
                 @Override public void onConfigureFailed(CameraCaptureSession session) { fail("Camera capture session configuration failed"); }
@@ -176,7 +170,11 @@ public final class CameraStreamService extends Service {
                     buffer.position(info.offset); buffer.limit(info.offset + info.size); byte[] encoded = new byte[info.size]; buffer.get(encoded);
                     byte[] annexB = toAnnexB(encoded);
                     if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) codecConfig = annexB;
-                    else { encodedFrames++; writeVideoFrame(annexB); }
+                    else {
+                        encodedFrames++;
+                        boolean keyFrame = (info.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
+                        writeVideoFrame(annexB, info.presentationTimeUs, keyFrame);
+                    }
                 }
                 encoder.releaseOutputBuffer(index, false);
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) break;
@@ -206,18 +204,27 @@ public final class CameraStreamService extends Service {
     private boolean startsWithStartCode(byte[] data) {
         return data.length >= 4 && data[0] == 0 && data[1] == 0 && ((data[2] == 1) || (data[2] == 0 && data[3] == 1));
     }
-    private void writeVideoFrame(byte[] frame) {
+
+    private void writeVideoFrame(byte[] frame, long presentationTimeUs, boolean keyFrame) {
         synchronized (clientLock) {
-            if (videoOutput == null) return;
-            try { videoOutput.write(frame); videoOutput.flush(); } catch (IOException e) { closeVideoClientLocked(); }
+            if (videoOutput == null || videoMuxer == null) return;
+            try {
+                byte[] payload = frame;
+                if (keyFrame && codecConfig.length > 0) {
+                    payload = new byte[codecConfig.length + frame.length];
+                    System.arraycopy(codecConfig, 0, payload, 0, codecConfig.length);
+                    System.arraycopy(frame, 0, payload, codecConfig.length, frame.length);
+                }
+                videoMuxer.writeVideo(videoOutput, payload, presentationTimeUs, keyFrame);
+                videoOutput.flush();
+            } catch (IOException e) { closeVideoClientLocked(); }
         }
     }
 
     private void startServer() {
         serverThread = new Thread(() -> {
             try (ServerSocket socket = new ServerSocket()) {
-                serverSocket = socket; socket.setReuseAddress(true);
-                InetAddress address = resolveBindAddress(interfaceMode);
+                serverSocket = socket; socket.setReuseAddress(true); InetAddress address = resolveBindAddress(interfaceMode);
                 if (address == null) throw new IOException(interfaceMode + " network is not available");
                 bindAddress = address.getHostAddress(); socket.bind(new InetSocketAddress(address, PORT));
                 while (running.get()) handleClient(socket.accept());
@@ -226,21 +233,14 @@ public final class CameraStreamService extends Service {
     }
 
     private InetAddress resolveBindAddress(String mode) {
-        if (INTERFACE_LOCALHOST.equals(mode)) {
-            try { return InetAddress.getByName("127.0.0.1"); }
-            catch (IOException e) { return null; }
-        }
-        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
-        if (cm == null) return null;
+        if (INTERFACE_LOCALHOST.equals(mode)) { try { return InetAddress.getByName("127.0.0.1"); } catch (IOException e) { return null; } }
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class); if (cm == null) return null;
         int transport = INTERFACE_CELLULAR.equals(mode) ? NetworkCapabilities.TRANSPORT_CELLULAR : NetworkCapabilities.TRANSPORT_WIFI;
         for (Network network : cm.getAllNetworks()) {
-            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
-            if (caps == null || !caps.hasTransport(transport)) continue;
-            LinkProperties props = cm.getLinkProperties(network);
-            if (props == null) continue;
+            NetworkCapabilities caps = cm.getNetworkCapabilities(network); if (caps == null || !caps.hasTransport(transport)) continue;
+            LinkProperties props = cm.getLinkProperties(network); if (props == null) continue;
             for (LinkAddress link : props.getLinkAddresses()) {
-                InetAddress address = link.getAddress();
-                if (address instanceof Inet4Address && !address.isLoopbackAddress()) return address;
+                InetAddress address = link.getAddress(); if (address instanceof Inet4Address && !address.isLoopbackAddress()) return address;
             }
         }
         return null;
@@ -254,25 +254,28 @@ public final class CameraStreamService extends Service {
             if (requestLine.startsWith("GET /status ")) writeStatus(client); else if (requestLine.startsWith("GET /video ")) attachVideoClient(client); else writeNotFound(client);
         } catch (IOException e) { closeQuietly(client); }
     }
+
     private void attachVideoClient(Socket client) throws IOException {
         OutputStream output = client.getOutputStream();
-        output.write(("HTTP/1.1 200 OK\r\nContent-Type: video/h264\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
+        output.write(("HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
         synchronized (clientLock) {
-            closeVideoClientLocked(); videoClient = client; videoOutput = output; connectedClients++;
-            if (codecConfig.length > 0) { videoOutput.write(codecConfig); videoOutput.flush(); }
+            closeVideoClientLocked(); videoClient = client; videoOutput = output; videoMuxer = new MpegTsMuxer(); connectedClients++;
+            videoMuxer.writeHeaders(videoOutput); videoOutput.flush();
         }
         requestSyncFrame();
     }
+
     private void requestSyncFrame() {
         MediaCodec activeEncoder = encoder; if (activeEncoder == null) return;
         try { Bundle p = new Bundle(); p.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0); activeEncoder.setParameters(p); }
         catch (IllegalStateException e) { Log.w(TAG, "Unable to request sync frame for new viewer", e); }
     }
+
     private void writeStatus(Socket client) throws IOException {
         JSONObject json = new JSONObject();
         try {
             json.put("state", state); json.put("camera_id", cameraId); json.put("width", WIDTH); json.put("height", HEIGHT);
-            json.put("fps", FPS); json.put("bitrate_bps", BITRATE_BPS); json.put("codec", "h264");
+            json.put("fps", FPS); json.put("bitrate_bps", BITRATE_BPS); json.put("codec", "h264"); json.put("container", "mpegts");
             json.put("encoded_frames", encodedFrames); json.put("client_connected", videoOutput != null); json.put("client_connections", connectedClients);
             json.put("interface", interfaceMode); json.put("bind_address", bindAddress); json.put("error", errorMessage);
         } catch (Exception ignored) { }
@@ -297,6 +300,7 @@ public final class CameraStreamService extends Service {
     private void closeServer() { if (serverSocket != null) { try { serverSocket.close(); } catch (IOException ignored) { } serverSocket = null; } }
     private void closeVideoClient() { synchronized (clientLock) { closeVideoClientLocked(); } }
     private void closeVideoClientLocked() {
+        videoMuxer = null;
         if (videoOutput != null) { try { videoOutput.close(); } catch (IOException ignored) { } videoOutput = null; }
         if (videoClient != null) { closeQuietly(videoClient); videoClient = null; }
     }
