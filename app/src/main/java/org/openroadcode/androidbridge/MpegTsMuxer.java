@@ -11,21 +11,25 @@ final class MpegTsMuxer {
     private static final int PMT_PID = 0x1000;
     private static final int VIDEO_PID = 0x0100;
     private static final long PTS_HZ = 90_000L;
+    private static final long PTS_MASK = 0x1ffffffffL;
 
     private int patContinuity;
     private int pmtContinuity;
     private int videoContinuity;
+    private long firstPresentationTimeUs = Long.MIN_VALUE;
 
     void writeHeaders(OutputStream out) throws IOException {
-        writePsi(out, PAT_PID, buildPat(), true);
-        writePsi(out, PMT_PID, buildPmt(), true);
+        writePsi(out, PAT_PID, buildPat());
+        writePsi(out, PMT_PID, buildPmt());
     }
 
     void writeVideo(OutputStream out, byte[] annexB, long presentationTimeUs, boolean keyFrame) throws IOException {
         if (keyFrame) writeHeaders(out);
-        byte[] pes = buildPes(annexB, presentationTimeUs);
+        long pts90k = timestamp90k(presentationTimeUs);
+        byte[] pes = buildPes(annexB, pts90k);
         int offset = 0;
         boolean first = true;
+
         while (offset < pes.length) {
             byte[] packet = new byte[TS_SIZE];
             packet[0] = 0x47;
@@ -34,7 +38,24 @@ final class MpegTsMuxer {
             packet[2] = (byte) VIDEO_PID;
 
             int remaining = pes.length - offset;
-            if (remaining >= 184) {
+            if (first) {
+                // Every access unit begins with PCR so a live player has an explicit
+                // program clock immediately. Mark IDRs as random-access points too.
+                int minAdaptationLength = 7; // flags + 6-byte PCR
+                int payloadCapacity = 183 - minAdaptationLength;
+                int payloadBytes = Math.min(remaining, payloadCapacity);
+                int adaptationLength = 183 - payloadBytes;
+
+                packet[3] = (byte) (0x30 | (videoContinuity++ & 0x0f));
+                packet[4] = (byte) adaptationLength;
+                packet[5] = (byte) (0x10 | (keyFrame ? 0x40 : 0x00)); // PCR + optional random access
+                writePcr(packet, 6, pts90k);
+                for (int i = 12; i < 5 + adaptationLength; i++) packet[i] = (byte) 0xff;
+
+                int payloadStart = 5 + adaptationLength;
+                System.arraycopy(pes, offset, packet, payloadStart, payloadBytes);
+                offset += payloadBytes;
+            } else if (remaining >= 184) {
                 packet[3] = (byte) (0x10 | (videoContinuity++ & 0x0f));
                 System.arraycopy(pes, offset, packet, 4, 184);
                 offset += 184;
@@ -50,20 +71,28 @@ final class MpegTsMuxer {
                 System.arraycopy(pes, offset, packet, payloadStart, remaining);
                 offset += remaining;
             }
+
             out.write(packet);
             first = false;
         }
     }
 
-    private byte[] buildPes(byte[] annexB, long presentationTimeUs) {
+    private long timestamp90k(long presentationTimeUs) {
+        if (firstPresentationTimeUs == Long.MIN_VALUE) firstPresentationTimeUs = presentationTimeUs;
+        long relativeUs = Math.max(0L, presentationTimeUs - firstPresentationTimeUs);
+        // Start at one second instead of zero. Some live demuxers are happier with
+        // a non-zero initial clock, and it keeps PCR/PTS simple and monotonic.
+        return (PTS_HZ + relativeUs * PTS_HZ / 1_000_000L) & PTS_MASK;
+    }
+
+    private byte[] buildPes(byte[] annexB, long pts90k) {
         ByteArrayOutputStream out = new ByteArrayOutputStream(annexB.length + 32);
         out.write(0); out.write(0); out.write(1); out.write(0xe0);
         int pesLength = annexB.length + 8;
         if (pesLength > 0xffff) pesLength = 0;
         out.write((pesLength >> 8) & 0xff); out.write(pesLength & 0xff);
         out.write(0x80); out.write(0x80); out.write(5);
-        long pts = (presentationTimeUs * PTS_HZ / 1_000_000L) & 0x1ffffffffL;
-        writePts(out, pts);
+        writePts(out, pts90k);
         out.write(annexB, 0, annexB.length);
         return out.toByteArray();
     }
@@ -74,6 +103,16 @@ final class MpegTsMuxer {
         out.write((int) (0x01 | (((pts >> 15) & 0x7f) << 1)));
         out.write((int) ((pts >> 7) & 0xff));
         out.write((int) (0x01 | ((pts & 0x7f) << 1)));
+    }
+
+    private void writePcr(byte[] packet, int offset, long pcrBase) {
+        long base = pcrBase & PTS_MASK;
+        packet[offset] = (byte) (base >> 25);
+        packet[offset + 1] = (byte) (base >> 17);
+        packet[offset + 2] = (byte) (base >> 9);
+        packet[offset + 3] = (byte) (base >> 1);
+        packet[offset + 4] = (byte) (((base & 1) << 7) | 0x7e); // reserved bits, extension high bit = 0
+        packet[offset + 5] = 0; // PCR extension = 0
     }
 
     private byte[] buildPat() {
@@ -98,11 +137,10 @@ final class MpegTsMuxer {
         return s.toByteArray();
     }
 
-    private void writePsi(OutputStream out, int pid, byte[] section, boolean payloadStart) throws IOException {
+    private void writePsi(OutputStream out, int pid, byte[] section) throws IOException {
         byte[] packet = new byte[TS_SIZE];
         packet[0] = 0x47;
-        packet[1] = (byte) ((pid >> 8) & 0x1f);
-        if (payloadStart) packet[1] |= 0x40;
+        packet[1] = (byte) (0x40 | ((pid >> 8) & 0x1f));
         packet[2] = (byte) pid;
         int cc = pid == PAT_PID ? patContinuity++ : pmtContinuity++;
         packet[3] = (byte) (0x10 | (cc & 0x0f));
@@ -117,7 +155,9 @@ final class MpegTsMuxer {
         int crc = 0xffffffff;
         for (byte value : bytes) {
             crc ^= (value & 0xff) << 24;
-            for (int bit = 0; bit < 8; bit++) crc = (crc << 1) ^ ((crc & 0x80000000) != 0 ? 0x04c11db7 : 0);
+            for (int bit = 0; bit < 8; bit++) {
+                crc = (crc << 1) ^ ((crc & 0x80000000) != 0 ? 0x04c11db7 : 0);
+            }
         }
         section.write((crc >>> 24) & 0xff); section.write((crc >>> 16) & 0xff);
         section.write((crc >>> 8) & 0xff); section.write(crc & 0xff);
