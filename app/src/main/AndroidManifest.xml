@@ -30,11 +30,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".CameraStreamActivity"
-            android:exported="false"
-            android:label="ORC Camera Stream" />
-
         <service
             android:name=".SensorBridgeService"
             android:exported="false"
