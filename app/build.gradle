@@ -13,6 +13,16 @@ def developmentKey = layout.buildDirectory.file('signing/openroadcode-debug.keys
 developmentKey.parentFile.mkdirs()
 developmentKey.bytes = Base64.mimeDecoder.decode(developmentKeyBase64.text)
 
+def gitSha = System.getenv('GITHUB_SHA')
+if (!gitSha) {
+    try {
+        gitSha = ['git', 'rev-parse', 'HEAD'].execute(null, rootDir).text.trim()
+    } catch (Exception ignored) {
+        gitSha = 'unknown'
+    }
+}
+def shortGitSha = gitSha ? gitSha.take(7) : 'unknown'
+
 android {
     namespace 'org.openroadcode.androidbridge'
     compileSdk 34
@@ -23,6 +33,7 @@ android {
         targetSdk 34
         versionCode 8
         versionName '0.5.0'
+        buildConfigField 'String', 'GIT_SHA', '"' + shortGitSha + '"'
     }
 
     signingConfigs {
