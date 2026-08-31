@@ -28,7 +28,6 @@ final class CameraPreviewView extends LinearLayout {
     private static final int SURFACE_RAISED = Color.rgb(16, 34, 46);
 
     private final List<String> cameraIds = new ArrayList<>();
-    private boolean initializingSelection = true;
 
     CameraPreviewView(Context context) {
         super(context);
@@ -84,23 +83,26 @@ final class CameraPreviewView extends LinearLayout {
         int selectedIndex = cameraIds.indexOf(selected);
         if (selectedIndex < 0) selectedIndex = firstRearCamera(context);
         if (selectedIndex >= 0) selector.setSelection(selectedIndex, false);
-        final int initialIndex = selectedIndex;
 
         selector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            private boolean firstCallback = true;
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (position < 0 || position >= cameraIds.size()) return;
                 String cameraId = cameraIds.get(position);
+                String previous = context.getSharedPreferences(CameraStreamService.PREFERENCES, Context.MODE_PRIVATE)
+                        .getString(CameraStreamService.PREF_CAMERA_ID, "");
                 context.getSharedPreferences(CameraStreamService.PREFERENCES, Context.MODE_PRIVATE).edit()
                         .putString(CameraStreamService.PREF_CAMERA_ID, cameraId).apply();
-                if (initializingSelection) { initializingSelection = false; return; }
-                if (CameraStreamService.isActive()) {
+                if (firstCallback) { firstCallback = false; return; }
+                if (!cameraId.equals(previous)) {
+                    // A user camera change is an explicit request to view that camera. Restarting
+                    // the foreground service also rebuilds the encoder/capture surfaces cleanly.
                     context.stopService(new Intent(context, CameraStreamService.class));
                     context.startForegroundService(new Intent(context, CameraStreamService.class));
                 }
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
-        initializingSelection = false;
     }
 
     private int firstRearCamera(Context context) {
