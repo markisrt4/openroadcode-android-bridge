@@ -168,7 +168,7 @@ public final class RtlSdrUsbProxyService extends Service {
                         handleBulkTransfer(in, out, connection, device);
                         break;
                     case OP_RESET_DEVICE:
-                        writeResult(out, connection.resetDevice() ? RESULT_OK : RESULT_ERROR, null);
+                        handleReset(out, manager, claimed);
                         break;
                     case OP_CLOSE_CLIENT:
                         writeResult(out, RESULT_OK, null);
@@ -180,9 +180,39 @@ public final class RtlSdrUsbProxyService extends Service {
             }
         } finally {
             for (UsbInterface usbInterface : claimed.values()) {
-                try { connectionOrNull(manager).releaseInterface(usbInterface); } catch (Exception ignored) { }
+                try {
+                    UsbDeviceConnection connection = connectionOrNull(manager);
+                    if (connection != null) connection.releaseInterface(usbInterface);
+                } catch (Exception ignored) { }
             }
         }
+    }
+
+    private void handleReset(DataOutputStream out, RtlSdrUsbManager manager,
+                             Map<Integer, UsbInterface> claimed) throws IOException {
+        UsbDeviceConnection connection = manager.getConnection();
+        if (connection != null) {
+            for (UsbInterface usbInterface : claimed.values()) {
+                try { connection.releaseInterface(usbInterface); } catch (Exception ignored) { }
+            }
+        }
+        claimed.clear();
+
+        // Android's public UsbDeviceConnection API has no resetDevice().
+        // Reopen the device instead, which gives the proxy a fresh connection
+        // without relying on hidden/private Android USB APIs.
+        manager.close();
+        manager.refresh();
+        manager.open();
+        UsbDeviceConnection reopened;
+        try {
+            reopened = waitForConnection(manager);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            writeError(out, "Interrupted while reopening RTL-SDR USB device");
+            return;
+        }
+        writeResult(out, reopened != null ? RESULT_OK : RESULT_ERROR, null);
     }
 
     private void handleInfo(DataOutputStream out, UsbDevice device) throws IOException {
