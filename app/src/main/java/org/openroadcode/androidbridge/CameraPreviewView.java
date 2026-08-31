@@ -1,7 +1,6 @@
 package org.openroadcode.androidbridge;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
@@ -17,7 +16,7 @@ final class CameraPreviewView extends SurfaceView implements SurfaceHolder.Callb
 
     CameraPreviewView(Context context) {
         super(context);
-        setBackgroundColor(Color.BLACK);
+        getHolder().setFixedSize(CameraStreamService.WIDTH, CameraStreamService.HEIGHT);
         getHolder().addCallback(this);
     }
 
