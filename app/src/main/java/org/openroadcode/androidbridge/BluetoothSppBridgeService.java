@@ -114,9 +114,13 @@ public final class BluetoothSppBridgeService extends Service {
             while (running) {
                 Socket client = serverSocket.accept();
                 Log.i(TAG, "TCP client connected: " + client.getRemoteSocketAddress());
-                setActiveClient(client);
                 try {
+                    setActiveClient(client);
                     bridgeTcpToBluetooth(client, bluetoothSocket);
+                } catch (IOException clientFailure) {
+                    IOException readerFailure = bluetoothReaderFailure.get();
+                    if (readerFailure != null && running) throw readerFailure;
+                    if (running) Log.w(TAG, "TCP client I/O failure", clientFailure);
                 } finally {
                     clearActiveClient(client);
                     try { client.close(); } catch (IOException ignored) { }
