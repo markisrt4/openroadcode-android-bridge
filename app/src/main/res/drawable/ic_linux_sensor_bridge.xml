@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp"
+    android:height="44dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- compact penguin silhouette -->
+    <path android:fillColor="#D7DEE2" android:pathData="M24,11 C24,5 28,2 32,2 C36,2 40,5 40,11 L40,18 C45,22 48,29 48,38 C48,50 41,59 32,59 C23,59 16,50 16,38 C16,29 19,22 24,18 Z"/>
+    <path android:fillColor="#071018" android:pathData="M27,12 C27,9 29,7 32,7 C35,7 37,9 37,12 L37,20 C42,24 44,30 44,38 C44,47 39,54 32,54 C25,54 20,47 20,38 C20,30 22,24 27,20 Z"/>
+    <path android:fillColor="#F3F7F9" android:pathData="M25,30 C25,23 28,20 32,20 C36,20 39,23 39,30 L39,43 C39,49 36,52 32,52 C28,52 25,49 25,43 Z"/>
+    <path android:fillColor="#168BD1" android:pathData="M27,13 A2,2 0,1 0,31 13 A2,2 0,1 0,27 13 M33,13 A2,2 0,1 0,37 13 A2,2 0,1 0,33 13"/>
+    <path android:fillColor="#F15A16" android:pathData="M29,17 L35,17 L32,21 Z"/>
+    <!-- microchip -->
+    <path android:fillColor="#84CE1F" android:pathData="M40,35 L57,35 L57,52 L40,52 Z"/>
+    <path android:fillColor="#071018" android:pathData="M44,39 L53,39 L53,48 L44,48 Z"/>
+    <path android:strokeColor="#D7DEE2" android:strokeWidth="2" android:fillColor="#00000000" android:pathData="M43,32 L43,35 M48,32 L48,35 M53,32 L53,35 M43,52 L43,55 M48,52 L48,55 M53,52 L53,55 M37,38 L40,38 M37,43 L40,43 M37,48 L40,48 M57,38 L60,38 M57,43 L60,43 M57,48 L60,48"/>
+    <path android:fillColor="#168BD1" android:pathData="M47,42 L50,42 L50,45 L47,45 Z"/>
+    <path android:fillColor="#F15A16" android:pathData="M51,46 L53,46 L53,48 L51,48 Z"/>
+</vector>
