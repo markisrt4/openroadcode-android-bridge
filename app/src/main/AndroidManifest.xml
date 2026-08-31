@@ -47,6 +47,11 @@
             android:foregroundServiceType="connectedDevice" />
 
         <service
+            android:name=".RtlSdrUsbProxyService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <service
             android:name=".CameraStreamService"
             android:exported="false"
             android:foregroundServiceType="camera" />
