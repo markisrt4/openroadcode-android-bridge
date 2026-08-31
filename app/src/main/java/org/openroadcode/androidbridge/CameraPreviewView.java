@@ -3,10 +3,13 @@ package org.openroadcode.androidbridge;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.StreamConfigurationMap;
+import android.util.Size;
 import android.view.Gravity;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -28,12 +31,13 @@ final class CameraPreviewView extends LinearLayout {
     private static final int SURFACE_RAISED = Color.rgb(16, 34, 46);
 
     private final List<String> cameraIds = new ArrayList<>();
+    private final PreviewSurface preview;
 
     CameraPreviewView(Context context) {
         super(context);
         setOrientation(VERTICAL);
 
-        PreviewSurface preview = new PreviewSurface(context);
+        preview = new PreviewSurface(context);
         addView(preview, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
         TextView label = new TextView(context);
@@ -82,21 +86,23 @@ final class CameraPreviewView extends LinearLayout {
                 .getString(CameraStreamService.PREF_CAMERA_ID, "");
         int selectedIndex = cameraIds.indexOf(selected);
         if (selectedIndex < 0) selectedIndex = firstRearCamera(context);
-        if (selectedIndex >= 0) selector.setSelection(selectedIndex, false);
+        if (selectedIndex >= 0) {
+            selector.setSelection(selectedIndex, false);
+            preview.configureForCamera(context, cameraIds.get(selectedIndex));
+        }
 
         selector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             private boolean firstCallback = true;
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (position < 0 || position >= cameraIds.size()) return;
                 String cameraId = cameraIds.get(position);
+                preview.configureForCamera(context, cameraId);
                 String previous = context.getSharedPreferences(CameraStreamService.PREFERENCES, Context.MODE_PRIVATE)
                         .getString(CameraStreamService.PREF_CAMERA_ID, "");
                 context.getSharedPreferences(CameraStreamService.PREFERENCES, Context.MODE_PRIVATE).edit()
                         .putString(CameraStreamService.PREF_CAMERA_ID, cameraId).apply();
                 if (firstCallback) { firstCallback = false; return; }
                 if (!cameraId.equals(previous)) {
-                    // A user camera change is an explicit request to view that camera. Restarting
-                    // the foreground service also rebuilds the encoder/capture surfaces cleanly.
                     context.stopService(new Intent(context, CameraStreamService.class));
                     context.startForegroundService(new Intent(context, CameraStreamService.class));
                 }
@@ -130,16 +136,69 @@ final class CameraPreviewView extends LinearLayout {
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + .5f); }
 
     private static final class PreviewSurface extends SurfaceView implements SurfaceHolder.Callback {
+        private int aspectWidth = CameraStreamService.WIDTH;
+        private int aspectHeight = CameraStreamService.HEIGHT;
+
         PreviewSurface(Context context) {
             super(context);
-            getHolder().setFixedSize(CameraStreamService.WIDTH, CameraStreamService.HEIGHT);
+            getHolder().setFixedSize(aspectWidth, aspectHeight);
             getHolder().addCallback(this);
         }
+
+        void configureForCamera(Context context, String cameraId) {
+            try {
+                CameraManager manager = context.getSystemService(CameraManager.class);
+                if (manager == null) return;
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+                Size size = choosePreviewSize(characteristics);
+                if (size == null) return;
+                aspectWidth = size.getWidth();
+                aspectHeight = size.getHeight();
+                getHolder().setFixedSize(aspectWidth, aspectHeight);
+                requestLayout();
+            } catch (CameraAccessException ignored) { }
+        }
+
+        private Size choosePreviewSize(CameraCharacteristics characteristics) {
+            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            if (map == null) return null;
+            Size[] sizes = map.getOutputSizes(SurfaceHolder.class);
+            if (sizes == null || sizes.length == 0) return null;
+
+            Rect activeArray = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+            double targetAspect = activeArray != null && activeArray.height() > 0
+                    ? (double) activeArray.width() / activeArray.height()
+                    : (double) CameraStreamService.WIDTH / CameraStreamService.HEIGHT;
+            long targetPixels = (long) CameraStreamService.WIDTH * CameraStreamService.HEIGHT;
+
+            Size best = null;
+            double bestScore = Double.MAX_VALUE;
+            for (Size size : sizes) {
+                int width = size.getWidth();
+                int height = size.getHeight();
+                if (width <= 0 || height <= 0) continue;
+                if (width > 1920 || height > 1920) continue;
+                double aspect = (double) Math.max(width, height) / Math.min(width, height);
+                double normalizedTargetAspect = Math.max(targetAspect, 1.0 / targetAspect);
+                double aspectPenalty = Math.abs(aspect - normalizedTargetAspect) * 10.0;
+                long pixels = (long) width * height;
+                double sizePenalty = Math.abs(Math.log((double) pixels / targetPixels));
+                double score = aspectPenalty + sizePenalty;
+                if (score < bestScore) { bestScore = score; best = size; }
+            }
+            return best != null ? best : sizes[0];
+        }
+
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             int width = MeasureSpec.getSize(widthMeasureSpec);
-            if (width <= 0) { super.onMeasure(widthMeasureSpec, heightMeasureSpec); return; }
-            setMeasuredDimension(width, width * 9 / 16);
+            if (width <= 0 || aspectWidth <= 0 || aspectHeight <= 0) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                return;
+            }
+            double ratio = (double) Math.min(aspectWidth, aspectHeight) / Math.max(aspectWidth, aspectHeight);
+            setMeasuredDimension(width, Math.max(1, (int) Math.round(width * ratio)));
         }
+
         @Override public void surfaceCreated(SurfaceHolder holder) { CameraStreamService.setPreviewSurface(holder.getSurface()); }
         @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) { CameraStreamService.setPreviewSurface(holder.getSurface()); }
         @Override public void surfaceDestroyed(SurfaceHolder holder) { CameraStreamService.clearPreviewSurface(holder.getSurface()); }
