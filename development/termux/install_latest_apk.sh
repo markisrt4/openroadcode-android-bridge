@@ -16,13 +16,19 @@ fail_run() {
     local run_id="$1"
     local conclusion="$2"
     local run_url
+    local reply
     run_url="$(gh run view "$run_id" --repo "$REPO" --json url --jq '.url')"
     echo "ERROR: Build #$run_id completed with conclusion '$conclusion'." >&2
     echo "GitHub Actions: $run_url" >&2
+    echo
+    read -r -p "Open the failed GitHub Actions run? [Y/n] " reply
+    if [[ -z "$reply" || "$reply" =~ ^[Yy]$ ]]; then
+        termux-open-url "$run_url"
+    fi
     exit 1
 }
 
-for cmd in git gh termux-open; do
+for cmd in git gh termux-open termux-open-url; do
     command -v "$cmd" >/dev/null 2>&1 || fail "Required command '$cmd' is not installed."
 done
 
