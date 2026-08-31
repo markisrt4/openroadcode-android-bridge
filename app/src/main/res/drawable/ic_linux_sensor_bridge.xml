@@ -5,58 +5,59 @@
     android:viewportWidth="64"
     android:viewportHeight="64">
 
-    <!-- Tux-inspired Linux penguin. Kept as a compact vector so the bridge
-         status icon remains crisp at toolbar size without shipping a bitmap. -->
+    <!-- Tux-inspired Linux penguin with the original bridge microchip motif. -->
 
     <!-- feet -->
     <path
         android:fillColor="#F6C343"
-        android:pathData="M12,53 C17,49 22,49 27,53 C28,55 27,58 24,59 L14,59 C11,58 10,56 12,53 Z" />
+        android:pathData="M8,53 C13,49 18,49 23,53 C24,55 23,58 20,59 L10,59 C7,58 6,56 8,53 Z" />
     <path
         android:fillColor="#F6C343"
-        android:pathData="M37,53 C42,49 47,49 52,53 C54,56 52,58 49,59 L39,59 C36,58 35,55 37,53 Z" />
+        android:pathData="M33,53 C38,49 43,49 48,53 C50,56 48,58 45,59 L35,59 C32,58 31,55 33,53 Z" />
 
     <!-- black body/head -->
     <path
         android:fillColor="#111820"
-        android:pathData="M32,3 C23,3 18,10 18,20 C13,26 11,35 12,43 C13,52 21,57 32,57 C43,57 51,52 52,43 C53,35 51,26 46,20 C46,10 41,3 32,3 Z" />
+        android:pathData="M28,3 C19,3 14,10 14,20 C9,26 7,35 8,43 C9,52 17,57 28,57 C39,57 47,52 48,43 C49,35 47,26 42,20 C42,10 37,3 28,3 Z" />
 
     <!-- side flippers -->
     <path
         android:fillColor="#111820"
-        android:pathData="M18,24 C12,27 8,34 8,40 C8,44 10,46 13,45 C16,42 18,36 21,31 Z" />
+        android:pathData="M14,24 C8,27 4,34 4,40 C4,44 6,46 9,45 C12,42 14,36 17,31 Z" />
     <path
         android:fillColor="#111820"
-        android:pathData="M46,24 C52,27 56,34 56,40 C56,44 54,46 51,45 C48,42 46,36 43,31 Z" />
+        android:pathData="M42,24 C48,27 52,34 52,40 C52,44 50,46 47,45 C44,42 42,36 39,31 Z" />
 
     <!-- white face patches -->
     <path
         android:fillColor="#F4F6F8"
-        android:pathData="M22,17 C22,11 25,8 29,8 C32,8 34,10 34,14 C34,21 30,25 25,24 C23,23 22,20 22,17 Z" />
+        android:pathData="M18,17 C18,11 21,8 25,8 C28,8 30,10 30,14 C30,21 26,25 21,24 C19,23 18,20 18,17 Z" />
     <path
         android:fillColor="#F4F6F8"
-        android:pathData="M30,14 C30,10 32,8 35,8 C40,8 42,12 42,17 C42,20 41,23 39,24 C34,25 30,21 30,14 Z" />
+        android:pathData="M26,14 C26,10 28,8 31,8 C36,8 38,12 38,17 C38,20 37,23 35,24 C30,25 26,21 26,14 Z" />
 
     <!-- eyes -->
     <path
         android:fillColor="#071018"
-        android:pathData="M27,14 A1.8,2.2 0,1 0,30.6 14 A1.8,2.2 0,1 0,27 14" />
+        android:pathData="M23,14 A1.8,2.2 0,1 0,26.6 14 A1.8,2.2 0,1 0,23 14" />
     <path
         android:fillColor="#071018"
-        android:pathData="M34,14 A1.8,2.2 0,1 0,37.6 14 A1.8,2.2 0,1 0,34 14" />
+        android:pathData="M30,14 A1.8,2.2 0,1 0,33.6 14 A1.8,2.2 0,1 0,30 14" />
 
     <!-- beak -->
     <path
         android:fillColor="#F6C343"
-        android:pathData="M26,20 C28,18 30,17 32,17 C34,17 36,18 38,20 L32,25 Z" />
+        android:pathData="M22,20 C24,18 26,17 28,17 C30,17 32,18 34,20 L28,25 Z" />
 
     <!-- belly -->
     <path
         android:fillColor="#F4F6F8"
-        android:pathData="M22,28 C24,24 27,22 32,22 C37,22 40,24 42,28 C46,36 44,48 39,53 C37,55 34,56 32,56 C30,56 27,55 25,53 C20,48 18,36 22,28 Z" />
+        android:pathData="M18,28 C20,24 23,22 28,22 C33,22 36,24 38,28 C42,36 40,48 35,53 C33,55 30,56 28,56 C26,56 23,55 21,53 C16,48 14,36 18,28 Z" />
 
-    <!-- subtle ORC blue status mark -->
-    <path
-        android:fillColor="#168BD1"
-        android:pathData="M47,8 A3,3 0,1 0,53 8 A3,3 0,1 0,47 8" />
+    <!-- microchip -->
+    <path android:fillColor="#84CE1F" android:pathData="M43,35 L58,35 L58,50 L43,50 Z"/>
+    <path android:fillColor="#071018" android:pathData="M47,39 L54,39 L54,46 L47,46 Z"/>
+    <path android:strokeColor="#D7DEE2" android:strokeWidth="2" android:fillColor="#00000000" android:pathData="M46,32 L46,35 M51,32 L51,35 M56,32 L56,35 M46,50 L46,53 M51,50 L51,53 M56,50 L56,53 M40,38 L43,38 M40,43 L43,43 M40,48 L43,48 M58,38 L61,38 M58,43 L61,43 M58,48 L61,48"/>
+    <path android:fillColor="#168BD1" android:pathData="M49,41 L52,41 L52,44 L49,44 Z"/>
+    <path android:fillColor="#F15A16" android:pathData="M53,45 L55,45 L55,47 L53,47 Z"/>
 </vector>
