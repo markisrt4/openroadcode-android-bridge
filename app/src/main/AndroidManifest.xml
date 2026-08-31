@@ -13,8 +13,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <application
+        android:name=".OpenRoadCodeBridgeApplication"
         android:allowBackup="false"
         android:icon="@drawable/ic_openroadcode"
         android:roundIcon="@drawable/ic_openroadcode"
