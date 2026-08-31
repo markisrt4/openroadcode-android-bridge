@@ -12,6 +12,16 @@ fail() {
     exit 1
 }
 
+fail_run() {
+    local run_id="$1"
+    local conclusion="$2"
+    local run_url
+    run_url="$(gh run view "$run_id" --repo "$REPO" --json url --jq '.url')"
+    echo "ERROR: Build #$run_id completed with conclusion '$conclusion'." >&2
+    echo "GitHub Actions: $run_url" >&2
+    exit 1
+}
+
 for cmd in git gh termux-open; do
     command -v "$cmd" >/dev/null 2>&1 || fail "Required command '$cmd' is not installed."
 done
@@ -57,9 +67,12 @@ else
 
     if [[ "$STATUS" != "completed" ]]; then
         echo "Build #$RUN_ID is still running. Waiting for it..."
-        gh run watch "$RUN_ID" --repo "$REPO" --exit-status
+        if ! gh run watch "$RUN_ID" --repo "$REPO" --exit-status; then
+            CONCLUSION="$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion // "failure"')"
+            fail_run "$RUN_ID" "$CONCLUSION"
+        fi
     elif [[ "$CONCLUSION" != "success" ]]; then
-        fail "Build #$RUN_ID completed with conclusion '$CONCLUSION'."
+        fail_run "$RUN_ID" "$CONCLUSION"
     fi
 fi
 
