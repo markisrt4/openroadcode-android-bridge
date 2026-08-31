@@ -48,11 +48,16 @@ public final class BluetoothSppBridgeService extends Service {
 
     private final AtomicLong tcpToSppBytes = new AtomicLong();
     private final AtomicLong sppToTcpBytes = new AtomicLong();
+    private final AtomicReference<IOException> bluetoothReaderFailure = new AtomicReference<>();
+    private final Object clientLock = new Object();
     private volatile boolean running;
     private volatile boolean errorReported;
     private Thread worker;
+    private Thread bluetoothReader;
     private ServerSocket serverSocket;
     private BluetoothSocket bluetoothSocket;
+    private Socket activeClient;
+    private OutputStream activeTcpOutput;
 
     @Override
     public void onCreate() {
@@ -71,6 +76,7 @@ public final class BluetoothSppBridgeService extends Service {
         errorReported = false;
         tcpToSppBytes.set(0L);
         sppToTcpBytes.set(0L);
+        bluetoothReaderFailure.set(null);
         worker = new Thread(() -> runBridge(address), "orc-bluetooth-spp");
         worker.start();
         return START_NOT_STICKY;
@@ -97,22 +103,32 @@ public final class BluetoothSppBridgeService extends Service {
 
             bluetoothSocket = connectDevice(device);
             connected = true;
-            String connectedMessage = "Connected to " + deviceName + " • TCP localhost:" + TCP_PORT;
+
+            serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("127.0.0.1"));
+            startBluetoothReader(bluetoothSocket);
+
+            String connectedMessage = "Connected to " + deviceName + " • TCP 127.0.0.1:" + TCP_PORT;
             reportStatus(STATUS_CONNECTED, connectedMessage);
             updateNotification(connectedMessage);
 
-            serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("localhost"));
             while (running) {
                 Socket client = serverSocket.accept();
                 Log.i(TAG, "TCP client connected: " + client.getRemoteSocketAddress());
+                setActiveClient(client);
                 try {
-                    bridgeClient(client, bluetoothSocket);
+                    bridgeTcpToBluetooth(client, bluetoothSocket);
                 } finally {
+                    clearActiveClient(client);
                     try { client.close(); } catch (IOException ignored) { }
                     Log.i(TAG, "TCP client disconnected");
                 }
+
+                IOException readerFailure = bluetoothReaderFailure.get();
+                if (readerFailure != null && running) throw readerFailure;
             }
         } catch (Exception exception) {
+            IOException readerFailure = bluetoothReaderFailure.get();
+            if (readerFailure != null && running) exception = readerFailure;
             if (running) {
                 String message = exception.getMessage();
                 if (message == null || message.isEmpty()) message = exception.getClass().getSimpleName();
@@ -196,50 +212,82 @@ public final class BluetoothSppBridgeService extends Service {
         return null;
     }
 
-    private void bridgeClient(Socket client, BluetoothSocket bluetooth) throws Exception {
-        InputStream tcpIn = client.getInputStream();
-        OutputStream tcpOut = client.getOutputStream();
+    private void startBluetoothReader(BluetoothSocket bluetooth) throws IOException {
         InputStream btIn = bluetooth.getInputStream();
-        OutputStream btOut = bluetooth.getOutputStream();
-        AtomicReference<IOException> tcpToSppFailure = new AtomicReference<>();
+        bluetoothReader = new Thread(() -> {
+            byte[] buffer = new byte[1024];
+            try {
+                int count;
+                while (running && (count = btIn.read(buffer)) >= 0) {
+                    OutputStream tcpOut;
+                    Socket client;
+                    synchronized (clientLock) {
+                        tcpOut = activeTcpOutput;
+                        client = activeClient;
+                    }
+                    if (tcpOut == null || client == null) continue;
 
-        Thread tcpToBt = new Thread(
-                () -> copy(tcpIn, btOut, "TCP→SPP", tcpToSppBytes, tcpToSppFailure),
-                "orc-tcp-to-spp");
-        tcpToBt.start();
-        AtomicReference<IOException> sppToTcpFailure = new AtomicReference<>();
-        copy(btIn, tcpOut, "SPP→TCP", sppToTcpBytes, sppToTcpFailure);
-
-        IOException failure = sppToTcpFailure.get();
-        if (failure == null) failure = tcpToSppFailure.get();
-        if (failure != null && running) throw failure;
-
-        try { client.shutdownInput(); } catch (IOException ignored) { }
-        try { client.shutdownOutput(); } catch (IOException ignored) { }
-        tcpToBt.interrupt();
+                    try {
+                        tcpOut.write(buffer, 0, count);
+                        tcpOut.flush();
+                        long total = sppToTcpBytes.addAndGet(count);
+                        Log.i(TAG, "SPP→TCP " + count + " bytes (total " + total + ")");
+                        reportTrafficStatus();
+                    } catch (IOException clientFailure) {
+                        Log.w(TAG, "SPP→TCP client disconnected", clientFailure);
+                        closeActiveClient(client);
+                    }
+                }
+            } catch (IOException exception) {
+                if (running) {
+                    bluetoothReaderFailure.set(exception);
+                    Log.e(TAG, "SPP reader I/O failure", exception);
+                    try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
+                    closeActiveClient(null);
+                }
+            }
+        }, "orc-spp-reader");
+        bluetoothReader.start();
     }
 
-    private void copy(
-            InputStream input,
-            OutputStream output,
-            String direction,
-            AtomicLong byteCounter,
-            AtomicReference<IOException> failure) {
+    private void bridgeTcpToBluetooth(Socket client, BluetoothSocket bluetooth) throws IOException {
+        InputStream tcpIn = client.getInputStream();
+        OutputStream btOut = bluetooth.getOutputStream();
         byte[] buffer = new byte[1024];
-        try {
-            int count;
-            while (running && (count = input.read(buffer)) >= 0) {
-                output.write(buffer, 0, count);
-                output.flush();
-                long total = byteCounter.addAndGet(count);
-                String traffic = direction + " " + count + " bytes (total " + total + ")";
-                Log.i(TAG, traffic);
-                reportTrafficStatus();
-            }
-        } catch (IOException exception) {
-            failure.set(exception);
-            Log.e(TAG, direction + " I/O failure", exception);
+        int count;
+        while (running && (count = tcpIn.read(buffer)) >= 0) {
+            btOut.write(buffer, 0, count);
+            btOut.flush();
+            long total = tcpToSppBytes.addAndGet(count);
+            Log.i(TAG, "TCP→SPP " + count + " bytes (total " + total + ")");
+            reportTrafficStatus();
         }
+    }
+
+    private void setActiveClient(Socket client) throws IOException {
+        synchronized (clientLock) {
+            activeClient = client;
+            activeTcpOutput = client.getOutputStream();
+        }
+    }
+
+    private void clearActiveClient(Socket client) {
+        synchronized (clientLock) {
+            if (activeClient != client) return;
+            activeClient = null;
+            activeTcpOutput = null;
+        }
+    }
+
+    private void closeActiveClient(Socket expectedClient) {
+        Socket client;
+        synchronized (clientLock) {
+            client = activeClient;
+            if (client == null || (expectedClient != null && client != expectedClient)) return;
+            activeClient = null;
+            activeTcpOutput = null;
+        }
+        try { client.close(); } catch (IOException ignored) { }
     }
 
     private void reportTrafficStatus() {
@@ -286,6 +334,7 @@ public final class BluetoothSppBridgeService extends Service {
     }
 
     private void closeResources() {
+        closeActiveClient(null);
         try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
         try { if (bluetoothSocket != null) bluetoothSocket.close(); } catch (IOException ignored) { }
         serverSocket = null;
