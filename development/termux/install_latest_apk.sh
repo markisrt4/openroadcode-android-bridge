@@ -3,6 +3,7 @@ set -euo pipefail
 
 WORKFLOW="Build Android APK"
 ARTIFACT="openroadcode-android-bridge-debug"
+APK_MIME="application/vnd.android.package-archive"
 TMP_ROOT="${PREFIX:-/data/data/com.termux/files/usr}/tmp"
 DOWNLOAD_DIR="$TMP_ROOT/openroadcode-android-bridge-apk"
 
@@ -29,31 +30,30 @@ echo "Commit     : ${HEAD_SHA:0:12}"
 echo
 
 echo "Looking for a GitHub Actions build for this commit..."
-RUN_JSON="$(gh run list \
+RUN_ID="$(gh run list \
     --repo "$REPO" \
     --workflow "$WORKFLOW" \
     --branch "$BRANCH" \
     --commit "$HEAD_SHA" \
     --limit 1 \
-    --json databaseId,status,conclusion,displayTitle,headSha)"
-
-RUN_ID="$(printf '%s' "$RUN_JSON" | gh api --method GET /rate_limit >/dev/null 2>&1; printf '%s' "$RUN_JSON" | python -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["databaseId"] if d else "")')"
+    --json databaseId \
+    --jq '.[0].databaseId // empty')"
 
 if [[ -z "$RUN_ID" ]]; then
     echo "No build exists yet for ${HEAD_SHA:0:12}."
     echo "Falling back to the newest successful build on branch '$BRANCH'."
-    RUN_JSON="$(gh run list \
+    RUN_ID="$(gh run list \
         --repo "$REPO" \
         --workflow "$WORKFLOW" \
         --branch "$BRANCH" \
         --status success \
         --limit 1 \
-        --json databaseId,status,conclusion,displayTitle,headSha)"
-    RUN_ID="$(printf '%s' "$RUN_JSON" | python -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["databaseId"] if d else "")')"
+        --json databaseId \
+        --jq '.[0].databaseId // empty')"
     [[ -n "$RUN_ID" ]] || fail "No successful '$WORKFLOW' run found for branch '$BRANCH'."
 else
-    STATUS="$(printf '%s' "$RUN_JSON" | python -c 'import json,sys; print(json.load(sys.stdin)[0]["status"])')"
-    CONCLUSION="$(printf '%s' "$RUN_JSON" | python -c 'import json,sys; print(json.load(sys.stdin)[0].get("conclusion") or "")')"
+    STATUS="$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')"
+    CONCLUSION="$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion // ""')"
 
     if [[ "$STATUS" != "completed" ]]; then
         echo "Build #$RUN_ID is still running. Waiting for it..."
@@ -63,10 +63,9 @@ else
     fi
 fi
 
-RUN_INFO="$(gh run view "$RUN_ID" --repo "$REPO" --json displayTitle,headSha,conclusion,url)"
-RUN_TITLE="$(printf '%s' "$RUN_INFO" | python -c 'import json,sys; print(json.load(sys.stdin)["displayTitle"])')"
-RUN_SHA="$(printf '%s' "$RUN_INFO" | python -c 'import json,sys; print(json.load(sys.stdin)["headSha"])')"
-RUN_URL="$(printf '%s' "$RUN_INFO" | python -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+RUN_TITLE="$(gh run view "$RUN_ID" --repo "$REPO" --json displayTitle --jq '.displayTitle')"
+RUN_SHA="$(gh run view "$RUN_ID" --repo "$REPO" --json headSha --jq '.headSha')"
+RUN_URL="$(gh run view "$RUN_ID" --repo "$REPO" --json url --jq '.url')"
 
 echo
 echo "Using build: $RUN_TITLE"
@@ -93,7 +92,7 @@ APK="$(find "$DOWNLOAD_DIR" -type f -name '*.apk' -print -quit)"
 
 echo "APK        : $APK"
 echo "Opening Android package installer..."
-termux-open "$APK"
+termux-open --view --content-type "$APK_MIME" "$APK"
 
 echo
-echo "Package installer launched. Tap Update/Install on the Android prompt."
+echo "Android package installer should now be open. Tap Install/Update to continue."
