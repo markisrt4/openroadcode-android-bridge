@@ -140,7 +140,6 @@ public final class MainActivity extends Activity {
         addSectionHeading(cameraCard, "CAMERA STREAM", RED, "Rear camera • H.264 • 1280×720 • 30 FPS • HTTP 8767");
         cameraStatus = statusPill("Camera stopped", MUTED); cameraCard.addView(cameraStatus);
         CameraPreviewView cameraPreview = new CameraPreviewView(this);
-        cameraPreview.setBackground(rounded(Color.BLACK, BORDER, 10));
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         previewParams.setMargins(dp(2), dp(2), dp(2), dp(8)); cameraCard.addView(cameraPreview, previewParams);
         TextView routeLabel = text("VIDEO INTERFACE", 11, MUTED); routeLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD); routeLabel.setLetterSpacing(.10f);
@@ -179,7 +178,7 @@ public final class MainActivity extends Activity {
         addBrandWord(titleRow, "OPEN", BLUE); addBrandWord(titleRow, " ROAD", RED); addBrandWord(titleRow, " CODE", GREEN); words.addView(titleRow);
         TextView subtitle = text("ANDROID HARDWARE BRIDGE", 11, BLUE); subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD); subtitle.setLetterSpacing(0.14f); words.addView(subtitle);
         brand.addView(words, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        TextView version = text("v" + BuildConfig.VERSION_NAME, 11, MUTED); version.setTypeface(Typeface.MONOSPACE); brand.addView(version); parent.addView(brand);
+        parent.addView(brand);
     }
     private void addBrandWord(LinearLayout row, String value, int color) { TextView word = text(value, 21, color); word.setTypeface(Typeface.DEFAULT, Typeface.BOLD); word.setLetterSpacing(0.035f); row.addView(word); }
     private LinearLayout card() { LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL); card.setPadding(dp(12), dp(16), dp(12), dp(16)); card.setBackground(rounded(SURFACE, BORDER, 14)); return card; }
