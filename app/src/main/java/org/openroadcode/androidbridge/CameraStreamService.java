@@ -56,6 +56,7 @@ public final class CameraStreamService extends Service {
     public static final int BITRATE_BPS = 3_000_000;
     public static final String PREFERENCES = "camera_stream";
     public static final String PREF_INTERFACE = "interface";
+    public static final String PREF_CAMERA_ID = "camera_id";
     public static final String INTERFACE_LOCALHOST = "localhost";
     public static final String INTERFACE_WIFI = "wifi";
     public static final String INTERFACE_CELLULAR = "cellular";
@@ -115,7 +116,7 @@ public final class CameraStreamService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIFICATION_ID, notification("Starting rear camera stream"));
+        startForeground(NOTIFICATION_ID, notification("Starting camera stream"));
         if (running.compareAndSet(false, true)) {
             state = "starting"; errorMessage = ""; encodedFrames = 0;
             interfaceMode = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PREF_INTERFACE, INTERFACE_WIFI);
@@ -148,8 +149,11 @@ public final class CameraStreamService extends Service {
         cameraThread = new HandlerThread("orc-camera"); cameraThread.start(); cameraHandler = new Handler(cameraThread.getLooper());
         synchronized (PREVIEW_LOCK) { previewSurface = requestedPreviewSurface; }
         try {
-            configureEncoder(); CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-            cameraId = findRearCamera(manager); if (cameraId == null) { fail("No rear-facing camera found"); return; }
+            configureEncoder();
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            String preferredCamera = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PREF_CAMERA_ID, "");
+            cameraId = chooseCamera(manager, preferredCamera);
+            if (cameraId == null) { fail("No usable camera found"); return; }
             manager.openCamera(cameraId, cameraStateCallback, cameraHandler);
         } catch (Exception e) { fail("Unable to start camera: " + message(e)); }
     }
@@ -164,12 +168,16 @@ public final class CameraStreamService extends Service {
         encoderDrainThread = new Thread(this::drainEncoder, "orc-h264-drain"); encoderDrainThread.start();
     }
 
-    private String findRearCamera(CameraManager manager) throws CameraAccessException {
-        for (String id : manager.getCameraIdList()) {
+    private String chooseCamera(CameraManager manager, String preferredCamera) throws CameraAccessException {
+        String[] ids = manager.getCameraIdList();
+        if (preferredCamera != null && !preferredCamera.isEmpty()) {
+            for (String id : ids) if (preferredCamera.equals(id)) return id;
+        }
+        for (String id : ids) {
             CameraCharacteristics c = manager.getCameraCharacteristics(id); Integer facing = c.get(CameraCharacteristics.LENS_FACING);
             if (facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) return id;
         }
-        return null;
+        return ids.length == 0 ? null : ids[0];
     }
 
     private final CameraDevice.StateCallback cameraStateCallback = new CameraDevice.StateCallback() {
@@ -184,8 +192,8 @@ public final class CameraStreamService extends Service {
         if (previous != null) { try { previous.stopRepeating(); } catch (Exception ignored) { } previous.close(); }
         List<Surface> outputs = new ArrayList<>();
         outputs.add(encoderSurface);
-        Surface currentPreview = previewSurface;
-        if (currentPreview != null && currentPreview.isValid()) outputs.add(currentPreview);
+        final Surface sessionPreview = previewSurface != null && previewSurface.isValid() ? previewSurface : null;
+        if (sessionPreview != null) outputs.add(sessionPreview);
         try {
             camera.createCaptureSession(outputs, new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(CameraCaptureSession session) {
@@ -194,12 +202,11 @@ public final class CameraStreamService extends Service {
                     try {
                         CaptureRequest.Builder request = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
                         request.addTarget(encoderSurface);
-                        Surface activePreview = previewSurface;
-                        if (activePreview != null && activePreview.isValid()) request.addTarget(activePreview);
+                        if (sessionPreview != null && sessionPreview.isValid()) request.addTarget(sessionPreview);
                         request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
                         request.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(FPS, FPS));
                         session.setRepeatingRequest(request.build(), null, cameraHandler); state = "streaming";
-                        updateNotification("Rear camera streaming • MPEG-TS • " + interfaceMode + " • port " + PORT);
+                        updateNotification("Camera " + cameraId + " streaming • MPEG-TS • " + interfaceMode + " • port " + PORT);
                     } catch (CameraAccessException | IllegalArgumentException e) { fail("Unable to start capture: " + message(e)); }
                 }
                 @Override public void onConfigureFailed(CameraCaptureSession session) { fail("Camera capture session configuration failed"); }
