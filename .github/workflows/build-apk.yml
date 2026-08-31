@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, android-camera-streaming]
     tags:
       - 'v*'
   pull_request:
@@ -43,14 +43,20 @@ jobs:
           test -n "$AAPT"
 
           VERSION_CODE="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+).*/\1/p' "$GRADLE_FILE" | head -n 1)"
-          VERSION_NAME="$(sed -nE "s/^[[:space:]]*versionName[[:space:]]+'([^']+)'.*/\1/p" "$GRADLE_FILE" | head -n 1)"
+          BASE_VERSION="$(sed -nE "s/^[[:space:]]*def baseVersion = '([^']+)'.*/\1/p" "$GRADLE_FILE" | head -n 1)"
           MIN_SDK="$(sed -nE 's/^[[:space:]]*minSdk[[:space:]]+([0-9]+).*/\1/p' "$GRADLE_FILE" | head -n 1)"
           TARGET_SDK="$(sed -nE 's/^[[:space:]]*targetSdk[[:space:]]+([0-9]+).*/\1/p' "$GRADLE_FILE" | head -n 1)"
 
           test -n "$VERSION_CODE"
-          test -n "$VERSION_NAME"
+          test -n "$BASE_VERSION"
           test -n "$MIN_SDK"
           test -n "$TARGET_SDK"
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            VERSION_NAME="$BASE_VERSION"
+          else
+            VERSION_NAME="${BASE_VERSION}+${GITHUB_SHA:0:7}"
+          fi
 
           BADGING="$($AAPT dump badging "$APK")"
           printf '%s\n' "$BADGING"
@@ -59,9 +65,9 @@ jobs:
           grep -q "targetSdkVersion:'${TARGET_SDK}'" <<<"$BADGING"
 
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            EXPECTED_TAG="v${VERSION_NAME}"
+            EXPECTED_TAG="v${BASE_VERSION}"
             if [[ "$GITHUB_REF_NAME" != "$EXPECTED_TAG" ]]; then
-              echo "Release tag '$GITHUB_REF_NAME' does not match Gradle version '$VERSION_NAME' (expected '$EXPECTED_TAG')." >&2
+              echo "Release tag '$GITHUB_REF_NAME' does not match Gradle version '$BASE_VERSION' (expected '$EXPECTED_TAG')." >&2
               exit 1
             fi
           fi

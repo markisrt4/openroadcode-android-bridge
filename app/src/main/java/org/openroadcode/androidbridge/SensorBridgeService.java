@@ -12,6 +12,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -54,6 +55,19 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private final AtomicReference<Location> location = new AtomicReference<>();
     private volatile long locationCount;
     private volatile boolean locationProviderAvailable;
+    private volatile int satellitesVisible = -1;
+    private volatile int satellitesUsedInFix = -1;
+
+    private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
+        @Override public void onSatelliteStatusChanged(GnssStatus status) {
+            satellitesVisible = status.getSatelliteCount();
+            int used = 0;
+            for (int i = 0; i < status.getSatelliteCount(); i++) {
+                if (status.usedInFix(i)) used++;
+            }
+            satellitesUsedInFix = used;
+        }
+    };
 
     @Override
     public void onCreate() {
@@ -92,6 +106,9 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             locationProviderAvailable = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
             if (locationProviderAvailable) {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_PERIOD_MS, 0.0f, this);
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    locationManager.registerGnssStatusCallback(gnssStatusCallback);
+                }
             }
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationProviderAvailable = true;
@@ -114,7 +131,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     public void onDestroy() {
         if (sensorManager != null) sensorManager.unregisterListener(this);
         if (locationManager != null) {
-            try { locationManager.removeUpdates(this); } catch (SecurityException ignored) { }
+            try {
+                locationManager.removeUpdates(this);
+                locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
+            } catch (SecurityException ignored) { }
         }
         if (serverSocket != null) try { serverSocket.close(); } catch (IOException ignored) { }
         super.onDestroy();
@@ -260,6 +280,8 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("permission_granted", hasLocationPermission());
             root.put("available", locationProviderAvailable);
             root.put("ready", current != null);
+            root.put("satellites_visible", satellitesVisible);
+            root.put("satellites_used_in_fix", satellitesUsedInFix);
             if (current == null) return root.toString();
             root.put("provider", current.getProvider());
             root.put("latitude", current.getLatitude());
@@ -310,6 +332,8 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("location_provider_available", locationProviderAvailable);
             root.put("location_ready", currentLocation != null);
             root.put("location_samples", locationCount);
+            root.put("satellites_visible", satellitesVisible);
+            root.put("satellites_used_in_fix", satellitesUsedInFix);
             return root.toString();
         } catch (JSONException e) {
             return "{\"error\":\"failed to encode health status\"}";

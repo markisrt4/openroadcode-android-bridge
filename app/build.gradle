@@ -13,6 +13,18 @@ def developmentKey = layout.buildDirectory.file('signing/openroadcode-debug.keys
 developmentKey.parentFile.mkdirs()
 developmentKey.bytes = Base64.mimeDecoder.decode(developmentKeyBase64.text)
 
+def gitSha = System.getenv('GITHUB_SHA')
+if (!gitSha) {
+    try {
+        gitSha = ['git', 'rev-parse', 'HEAD'].execute(null, rootDir).text.trim()
+    } catch (Exception ignored) {
+        gitSha = 'unknown'
+    }
+}
+def shortGitSha = gitSha ? gitSha.take(7) : 'unknown'
+def baseVersion = '0.5.0'
+def isTagBuild = System.getenv('GITHUB_REF_TYPE') == 'tag'
+
 android {
     namespace 'org.openroadcode.androidbridge'
     compileSdk 34
@@ -21,8 +33,10 @@ android {
         applicationId 'org.openroadcode.androidbridge'
         minSdk 26
         targetSdk 34
-        versionCode 7
-        versionName '0.4.3'
+        versionCode 8
+        versionName isTagBuild ? baseVersion : "${baseVersion}+${shortGitSha}"
+        buildConfigField 'String', 'GIT_SHA', '"' + shortGitSha + '"'
+        buildConfigField 'String', 'BASE_VERSION', '"' + baseVersion + '"'
     }
 
     signingConfigs {
