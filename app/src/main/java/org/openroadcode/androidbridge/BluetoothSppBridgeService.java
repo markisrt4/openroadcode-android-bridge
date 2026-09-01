@@ -17,7 +17,9 @@ import android.util.Log;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.BindException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -45,11 +47,15 @@ public final class BluetoothSppBridgeService extends Service {
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
     private static final long CONNECT_ATTEMPT_TIMEOUT_MS = 8000L;
     private static final long TOTAL_CONNECT_TIMEOUT_MS = CONNECT_ATTEMPT_TIMEOUT_MS * 2L;
+    private static final int TCP_BIND_ATTEMPTS = 3;
+    private static final long TCP_BIND_RETRY_DELAY_MS = 250L;
+    private static final long WORKER_STOP_TIMEOUT_MS = 1500L;
 
     private final AtomicLong tcpToSppBytes = new AtomicLong();
     private final AtomicLong sppToTcpBytes = new AtomicLong();
     private final AtomicReference<IOException> bluetoothReaderFailure = new AtomicReference<>();
     private final Object clientLock = new Object();
+    private final Object lifecycleLock = new Object();
     private volatile boolean running;
     private volatile boolean errorReported;
     private Thread worker;
@@ -70,15 +76,25 @@ public final class BluetoothSppBridgeService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIFICATION_ID, notification("Bluetooth SPP bridge starting"));
-        if (worker != null && worker.isAlive()) return START_STICKY;
-        String address = intent == null ? null : intent.getStringExtra(EXTRA_DEVICE_ADDRESS);
-        running = true;
-        errorReported = false;
-        tcpToSppBytes.set(0L);
-        sppToTcpBytes.set(0L);
-        bluetoothReaderFailure.set(null);
-        worker = new Thread(() -> runBridge(address), "orc-bluetooth-spp");
-        worker.start();
+        synchronized (lifecycleLock) {
+            if (worker != null && worker.isAlive()) {
+                Log.i(TAG, "Start requested while Bluetooth SPP worker is already running");
+                return START_NOT_STICKY;
+            }
+
+            worker = null;
+            bluetoothReader = null;
+            closeResources();
+
+            String address = intent == null ? null : intent.getStringExtra(EXTRA_DEVICE_ADDRESS);
+            running = true;
+            errorReported = false;
+            tcpToSppBytes.set(0L);
+            sppToTcpBytes.set(0L);
+            bluetoothReaderFailure.set(null);
+            worker = new Thread(() -> runBridge(address), "orc-bluetooth-spp");
+            worker.start();
+        }
         return START_NOT_STICKY;
     }
 
@@ -104,7 +120,7 @@ public final class BluetoothSppBridgeService extends Service {
             bluetoothSocket = connectDevice(device);
             connected = true;
 
-            serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("127.0.0.1"));
+            serverSocket = bindTcpServerWithRetry();
             startBluetoothReader(bluetoothSocket);
 
             String connectedMessage = "Connected to " + deviceName + " • TCP 127.0.0.1:" + TCP_PORT;
@@ -146,12 +162,40 @@ public final class BluetoothSppBridgeService extends Service {
             }
         } finally {
             closeResources();
+            synchronized (lifecycleLock) {
+                if (Thread.currentThread() == worker) worker = null;
+            }
             if (!running && !errorReported) {
                 reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
             }
             running = false;
             stopSelf();
         }
+    }
+
+    private ServerSocket bindTcpServerWithRetry() throws IOException, InterruptedException {
+        BindException lastBindFailure = null;
+        for (int attempt = 1; attempt <= TCP_BIND_ATTEMPTS && running; attempt++) {
+            ServerSocket candidate = new ServerSocket();
+            candidate.setReuseAddress(true);
+            try {
+                candidate.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), TCP_PORT), 1);
+                Log.i(TAG, "TCP bridge listening on 127.0.0.1:" + TCP_PORT);
+                return candidate;
+            } catch (BindException exception) {
+                lastBindFailure = exception;
+                try { candidate.close(); } catch (IOException ignored) { }
+                Log.w(TAG, "TCP bind attempt " + attempt + " failed", exception);
+                if (attempt < TCP_BIND_ATTEMPTS) Thread.sleep(TCP_BIND_RETRY_DELAY_MS);
+            } catch (IOException exception) {
+                try { candidate.close(); } catch (IOException ignored) { }
+                throw exception;
+            }
+        }
+        if (!running) throw new IOException("Bluetooth bridge stopped while opening TCP endpoint");
+        throw lastBindFailure == null
+                ? new BindException("Unable to bind TCP endpoint 127.0.0.1:" + TCP_PORT)
+                : lastBindFailure;
     }
 
     private BluetoothSocket connectDevice(BluetoothDevice device) throws IOException, InterruptedException {
@@ -329,8 +373,29 @@ public final class BluetoothSppBridgeService extends Service {
 
     @Override
     public void onDestroy() {
-        running = false;
-        closeResources();
+        Thread workerToJoin;
+        synchronized (lifecycleLock) {
+            running = false;
+            closeResources();
+            workerToJoin = worker;
+            if (workerToJoin != null) workerToJoin.interrupt();
+        }
+
+        if (workerToJoin != null && workerToJoin != Thread.currentThread()) {
+            try {
+                workerToJoin.join(WORKER_STOP_TIMEOUT_MS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+            if (workerToJoin.isAlive()) {
+                Log.w(TAG, "Bluetooth SPP worker did not stop within timeout");
+            }
+        }
+
+        synchronized (lifecycleLock) {
+            if (worker == workerToJoin && (workerToJoin == null || !workerToJoin.isAlive())) worker = null;
+            bluetoothReader = null;
+        }
         if (!errorReported) {
             reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
         }
@@ -339,10 +404,12 @@ public final class BluetoothSppBridgeService extends Service {
 
     private void closeResources() {
         closeActiveClient(null);
-        try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
-        try { if (bluetoothSocket != null) bluetoothSocket.close(); } catch (IOException ignored) { }
+        ServerSocket tcpServer = serverSocket;
         serverSocket = null;
+        BluetoothSocket sppSocket = bluetoothSocket;
         bluetoothSocket = null;
+        try { if (tcpServer != null) tcpServer.close(); } catch (IOException ignored) { }
+        try { if (sppSocket != null) sppSocket.close(); } catch (IOException ignored) { }
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
