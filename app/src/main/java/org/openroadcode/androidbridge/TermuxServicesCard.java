@@ -76,7 +76,7 @@ public final class TermuxServicesCard {
     root.addView(buttonRow(actionButton("START CORE", BLUE, v -> runAction(client::startCoreStack)),
         actionButton("STOP CORE", RED, v -> runAction(client::stopCoreStack))));
 
-    addService("openroadcode-broker", "Message broker", false);
+    addService("openroadcode-message-broker", "Message broker", false);
     addService("openroadcode-navigation", "Navigation", false);
     addService("openroadcode-automotive", "Automotive", false);
     addService("openroadcode-adsb", "ADS-B", true);
