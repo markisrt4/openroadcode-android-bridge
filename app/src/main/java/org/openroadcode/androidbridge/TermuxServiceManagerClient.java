@@ -37,7 +37,7 @@ public final class TermuxServiceManagerClient {
     }
 
     private JSONObject serviceAction(String service, String action) throws Exception {
-        if (!service.matches("openroadcode-(broker|navigation|automotive|adsb)")) {
+        if (!service.matches("openroadcode-(message-broker|navigation|automotive|adsb)")) {
             throw new IllegalArgumentException("Unsupported OpenRoadCode service: " + service);
         }
         return request("POST", "/services/" + service + "/" + action);
