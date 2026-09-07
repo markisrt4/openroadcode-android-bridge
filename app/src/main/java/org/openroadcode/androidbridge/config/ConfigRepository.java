@@ -9,6 +9,7 @@ public final class ConfigRepository {
     private static final String SENSOR_PROVIDER = "sensor.provider";
     private static final String VEHICLE_ENABLED = "vehicle.enabled";
     private static final String VEHICLE_PROVIDER = "vehicle.provider";
+    private static final String VEHICLE_DEVICE_ADDRESS = "vehicle.device_address";
 
     private final SharedPreferences preferences;
 
@@ -30,6 +31,18 @@ public final class ConfigRepository {
 
     public void saveVehicleConfig(ServiceConfig config) {
         save(VEHICLE_ENABLED, VEHICLE_PROVIDER, config);
+    }
+
+    /** Selected paired Bluetooth device, independent from the provider type itself. */
+    public String vehicleDeviceAddress() {
+        return preferences.getString(VEHICLE_DEVICE_ADDRESS, null);
+    }
+
+    public void saveVehicleDeviceAddress(String address) {
+        SharedPreferences.Editor editor = preferences.edit();
+        if (address == null || address.isEmpty()) editor.remove(VEHICLE_DEVICE_ADDRESS);
+        else editor.putString(VEHICLE_DEVICE_ADDRESS, address);
+        editor.apply();
     }
 
     private ServiceConfig load(
