@@ -4,8 +4,10 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Typeface;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -24,6 +26,7 @@ final class PlaybackAudioCard {
   private final Activity activity;
   private final LinearLayout view;
   private final TextView status;
+  private final TextView streamDetail;
   private final Button start, stop;
   private boolean requesting;
   private boolean requestedRunning;
@@ -31,25 +34,77 @@ final class PlaybackAudioCard {
   PlaybackAudioCard(Activity activity) {
     this.activity = activity;
     view = UiTheme.card(activity);
+
     TextView heading = UiTheme.text(activity, "ANDROID PLAYBACK AUDIO", 18, UiTheme.TEXT);
-    heading.setPadding(0, 0, 0, UiTheme.dp(activity, 8));
+    heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    heading.setPadding(0, 0, 0, UiTheme.dp(activity, 4));
     view.addView(heading);
-    view.addView(UiTheme.text(activity, "Native playback capture • PCM16 • localhost:8768", 12, UiTheme.BLUE));
+
+    TextView subtitle = UiTheme.text(activity,
+        "Native playback capture • PCM16 • localhost:8768", 12, UiTheme.BLUE);
+    subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    subtitle.setPadding(0, 0, 0, UiTheme.dp(activity, 12));
+    view.addView(subtitle);
+
     status = UiTheme.text(activity, "●  Stopped", 13, UiTheme.MUTED);
-    status.setPadding(UiTheme.dp(activity, 8), UiTheme.dp(activity, 12), 0, UiTheme.dp(activity, 8));
+    status.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    status.setPadding(UiTheme.dp(activity, 10), UiTheme.dp(activity, 9),
+        UiTheme.dp(activity, 10), UiTheme.dp(activity, 9));
+    status.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
     view.addView(status);
+
     start = UiTheme.actionButton(activity, "START PLAYBACK CAPTURE", UiTheme.BLUE, v -> start());
     stop = UiTheme.actionButton(activity, "STOP", UiTheme.SURFACE_RAISED, v -> stop());
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
-    row.addView(start, new LinearLayout.LayoutParams(0, -2, 1));
-    row.addView(stop, new LinearLayout.LayoutParams(0, -2, 1));
+    row.setPadding(0, UiTheme.dp(activity, 10), 0, UiTheme.dp(activity, 10));
+    LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(0, UiTheme.dp(activity, 52), 1);
+    startParams.setMargins(0, 0, UiTheme.dp(activity, 4), 0);
+    LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(0, UiTheme.dp(activity, 52), 1);
+    stopParams.setMargins(UiTheme.dp(activity, 4), 0, 0, 0);
+    row.addView(start, startParams);
+    row.addView(stop, stopParams);
     view.addView(row);
-    view.addView(UiTheme.text(activity, "Android asks for capture consent each session. Only playback permitted by other apps is available. No microphone, recording files, or remote audio endpoint.", 12, UiTheme.MUTED));
+
+    LinearLayout facts = new LinearLayout(activity);
+    facts.setOrientation(LinearLayout.HORIZONTAL);
+    facts.setPadding(0, 0, 0, UiTheme.dp(activity, 10));
+    facts.addView(infoTile("FORMAT", "PCM16"), tileParams(false));
+    facts.addView(infoTile("ENDPOINT", ":8768"), tileParams(true));
+    streamDetail = infoTile("STREAM", "48 kHz mono");
+    facts.addView(streamDetail, tileParams(false));
+    view.addView(facts);
+
+    TextView note = UiTheme.text(activity,
+        "Android asks for capture consent each session. Only playback permitted by other apps is available. "
+            + "No microphone, recording files, or remote audio endpoint.",
+        12, UiTheme.MUTED);
+    note.setPadding(UiTheme.dp(activity, 10), UiTheme.dp(activity, 10),
+        UiTheme.dp(activity, 10), UiTheme.dp(activity, 10));
+    note.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
+    view.addView(note);
+
     update(false, "Stopped");
   }
 
   View view() { return view; }
+
+  private TextView infoTile(String label, String value) {
+    TextView tile = UiTheme.text(activity, label + "\n" + value, 11, UiTheme.MUTED);
+    tile.setGravity(Gravity.CENTER);
+    tile.setLineSpacing(0f, 1.1f);
+    tile.setPadding(UiTheme.dp(activity, 6), UiTheme.dp(activity, 10),
+        UiTheme.dp(activity, 6), UiTheme.dp(activity, 10));
+    tile.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
+    return tile;
+  }
+
+  private LinearLayout.LayoutParams tileParams(boolean middle) {
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+    int gap = UiTheme.dp(activity, 4);
+    if (middle) params.setMargins(gap, 0, gap, 0);
+    return params;
+  }
 
   private void update(boolean running, String message) {
     status.setText("●  " + message);
@@ -116,10 +171,14 @@ final class PlaybackAudioCard {
         long frames = result.optLong("frames");
         activity.runOnUiThread(() -> {
           requestedRunning = running;
+          streamDetail.setText("STREAM\n" + (running ? frames + " samples" : "48 kHz mono"));
+          streamDetail.setTextColor(running ? UiTheme.GREEN : UiTheme.MUTED);
           update(running, running ? "Running • " + frames + " samples • 48 kHz mono" : "Stopped");
         });
       } catch (Exception ignored) {
         activity.runOnUiThread(() -> {
+          streamDetail.setText("STREAM\n48 kHz mono");
+          streamDetail.setTextColor(UiTheme.MUTED);
           if (!requesting) update(false, requestedRunning ? "Starting or unavailable…" : "Stopped");
         });
       }
