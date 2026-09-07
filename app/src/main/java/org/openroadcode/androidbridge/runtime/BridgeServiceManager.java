@@ -166,6 +166,10 @@ public final class BridgeServiceManager {
         vehicleState = ServiceState.STARTING;
     }
 
+    public void markVehicleStopped() {
+        vehicleState = ServiceState.STOPPED;
+    }
+
     public void markVehicleError() {
         vehicleState = ServiceState.ERROR;
     }
