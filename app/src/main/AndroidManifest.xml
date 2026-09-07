@@ -49,6 +49,15 @@
             android:foregroundServiceType="connectedDevice" />
 
         <service
+            android:name=".SimulatedVehicleBridgeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Provides a localhost-only simulated OBD vehicle data source for OpenRoadCode development and testing." />
+        </service>
+
+        <service
             android:name=".RtlSdrUsbProxyService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
