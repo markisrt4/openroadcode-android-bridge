@@ -5,17 +5,10 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
-import android.net.ConnectivityManager;
-import android.net.LinkAddress;
-import android.net.LinkProperties;
-import android.net.Network;
-import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
-import android.view.View;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -30,7 +23,6 @@ import java.net.NetworkInterface;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
-import java.util.Locale;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.ConfigRepository;
 import org.openroadcode.androidbridge.config.ServiceConfig;
@@ -40,7 +32,6 @@ import org.openroadcode.androidbridge.ui.UiTheme;
 
 public final class MainActivity extends Activity {
   private static final int LOCATION_PERMISSION_REQUEST = 1001;
-  private static final int CAMERA_PERMISSION_REQUEST = 1003;
   private static final long DASHBOARD_PERIOD_MS = 500;
   private static final String IMU_URL = "http://127.0.0.1:8766/imu";
   private static final String LOCATION_URL = "http://127.0.0.1:8766/location";
@@ -60,26 +51,18 @@ public final class MainActivity extends Activity {
     @Override
     public void run() {
       refreshDashboard();
-      refreshCameraStatus();
+      if (cameraCard != null) cameraCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
   };
 
   private TextView remoteAccessStatus;
-  private TextView cameraStatus;
-  private TextView cameraDetails;
-  private TextView cameraEndpoint;
-  private Button cameraStartButton;
-  private Button cameraStopButton;
-  private Button cameraLocalButton;
-  private Button cameraWifiButton;
-  private Button cameraCellularButton;
   private SensorCard sensorCard;
+  private CameraCard cameraCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
   private ConfigRepository configRepository;
   private boolean bridgeRequestedRunning;
-  private boolean cameraRequestedRunning;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -103,7 +86,9 @@ public final class MainActivity extends Activity {
     content.addView(sensorCard.view(), cardParams());
 
     content.addView(createRemoteAccessCard(), cardParams());
-    content.addView(createCameraCard(), cardParams());
+
+    cameraCard = new CameraCard(this);
+    content.addView(cameraCard.view(), cardParams());
 
     bluetoothCard = new BluetoothCard(this);
     content.addView(bluetoothCard.view(), cardParams());
@@ -138,50 +123,6 @@ public final class MainActivity extends Activity {
     card.addView(remoteAccessStatus);
     updateRemoteAccessStatus();
     remoteAccessSwitch.setOnCheckedChangeListener((buttonView, checked) -> setRemoteAccess(checked));
-    return card;
-  }
-
-  private LinearLayout createCameraCard() {
-    LinearLayout card = card();
-    addSectionHeading(card, "CAMERA STREAM", RED,
-        "Selectable camera • H.264 • 1280×720 • 30 FPS • HTTP 8767");
-    cameraStatus = statusPill("Camera stopped", MUTED);
-    card.addView(cameraStatus);
-
-    CameraPreviewView cameraPreview = new CameraPreviewView(this);
-    LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, -2);
-    previewParams.setMargins(dp(2), dp(2), dp(2), dp(8));
-    card.addView(cameraPreview, previewParams);
-
-    TextView routeLabel = text("VIDEO INTERFACE", 11, MUTED);
-    routeLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    routeLabel.setLetterSpacing(.10f);
-    routeLabel.setPadding(dp(2), dp(4), 0, 0);
-    card.addView(routeLabel);
-
-    cameraLocalButton = actionButton(
-        "LOCAL", SURFACE_RAISED, v -> setCameraInterface(CameraStreamService.INTERFACE_LOCALHOST));
-    cameraWifiButton = actionButton(
-        "WI-FI", SURFACE_RAISED, v -> setCameraInterface(CameraStreamService.INTERFACE_WIFI));
-    cameraCellularButton = actionButton(
-        "5G", SURFACE_RAISED, v -> setCameraInterface(CameraStreamService.INTERFACE_CELLULAR));
-    card.addView(buttonRow(cameraLocalButton, cameraWifiButton, cameraCellularButton));
-    updateCameraInterfaceButtons();
-
-    cameraDetails = text("Frames  —    Viewer  —    Preview  —", 13, TEXT);
-    cameraDetails.setTypeface(Typeface.MONOSPACE);
-    cameraDetails.setPadding(dp(2), dp(5), 0, dp(4));
-    card.addView(cameraDetails);
-
-    cameraEndpoint = text("Video endpoint  waiting for network", 12, MUTED);
-    cameraEndpoint.setTypeface(Typeface.MONOSPACE);
-    cameraEndpoint.setPadding(dp(2), dp(2), 0, dp(4));
-    card.addView(cameraEndpoint);
-    updateCameraEndpoint();
-
-    cameraStartButton = actionButton("START CAMERA", RED, v -> startCamera());
-    cameraStopButton = actionButton("STOP", SURFACE_RAISED, v -> stopCamera());
-    card.addView(buttonRow(cameraStartButton, cameraStopButton));
     return card;
   }
 
@@ -265,46 +206,15 @@ public final class MainActivity extends Activity {
     TextView view = text("●  " + value, 13, accent);
     view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     view.setPadding(dp(10), dp(8), dp(10), dp(8));
-    view.setBackground(rounded(SURFACE_RAISED, BORDER, 9));
+    view.setBackground(UiTheme.rounded(this, SURFACE_RAISED, BORDER, 9));
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, 0, 0, dp(8));
     view.setLayoutParams(params);
     return view;
   }
 
-  private Button actionButton(String label, int color, View.OnClickListener listener) {
-    return UiTheme.actionButton(this, label, color, listener);
-  }
-
-  private void setButtonColor(Button button, int color) {
-    UiTheme.setButtonColor(this, button, color);
-  }
-
-  private void updateCameraButtons(boolean running, boolean streaming) {
-    cameraStartButton.setText(running ? (streaming ? "RUNNING" : "STARTING") : "START CAMERA");
-    setButtonColor(cameraStartButton, running ? SURFACE_RAISED : RED);
-    setButtonColor(cameraStopButton, running ? RED : SURFACE_RAISED);
-  }
-
-  private LinearLayout buttonRow(Button... buttons) {
-    LinearLayout row = new LinearLayout(this);
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setGravity(Gravity.CENTER);
-    row.setPadding(0, dp(8), 0, 0);
-    for (Button button : buttons) {
-      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1);
-      params.setMargins(dp(3), 0, dp(3), 0);
-      row.addView(button, params);
-    }
-    return row;
-  }
-
   private TextView text(String value, float size, int color) {
     return UiTheme.text(this, value, size, color);
-  }
-
-  private android.graphics.drawable.GradientDrawable rounded(int fill, int stroke, int radius) {
-    return UiTheme.rounded(this, fill, stroke, radius);
   }
 
   private int dp(int value) {
@@ -315,8 +225,8 @@ public final class MainActivity extends Activity {
   protected void onResume() {
     super.onResume();
     updateRemoteAccessStatus();
-    updateCameraEndpoint();
     dashboardHandler.post(dashboardRefresh);
+    if (cameraCard != null) cameraCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
   }
@@ -369,61 +279,6 @@ public final class MainActivity extends Activity {
     }, "orc-dashboard-refresh").start();
   }
 
-  private void refreshCameraStatus() {
-    new Thread(() -> {
-      try {
-        String address = cameraAddress();
-        if (address == null) throw new Exception();
-        JSONObject camera = getJson(
-            "http://" + address + ":" + CameraStreamService.PORT + "/status");
-        runOnUiThread(() -> displayCameraStatus(camera));
-      } catch (Exception ignored) {
-        runOnUiThread(() -> {
-          if (!cameraRequestedRunning) {
-            cameraStatus.setText("●  Camera stopped");
-            cameraStatus.setTextColor(MUTED);
-            cameraDetails.setText("Frames  —    Viewer  —    Preview  —");
-            updateCameraButtons(false, false);
-          }
-        });
-      }
-    }, "orc-camera-status-refresh").start();
-  }
-
-  private void displayCameraStatus(JSONObject response) {
-    String state = response.optString("state", "unknown");
-    String error = response.optString("error", "");
-    boolean client = response.optBoolean("client_connected", false);
-    boolean preview = response.optBoolean("preview_attached", false);
-    long frames = response.optLong("encoded_frames", 0);
-    if ("streaming".equals(state)) {
-      cameraRequestedRunning = true;
-      updateCameraButtons(true, true);
-      cameraStatus.setText("●  Camera " + response.optString("camera_id", "?")
-          + " streaming • 720p30 • "
-          + interfaceLabel(response.optString("interface", currentCameraInterface())));
-      cameraStatus.setTextColor(GREEN);
-    } else if ("starting".equals(state)) {
-      cameraRequestedRunning = true;
-      updateCameraButtons(true, false);
-      cameraStatus.setText("●  Camera starting…");
-      cameraStatus.setTextColor(BLUE);
-    } else if ("error".equals(state)) {
-      cameraRequestedRunning = false;
-      updateCameraButtons(false, false);
-      cameraStatus.setText("●  Camera error • " + (error.isEmpty() ? "unknown error" : error));
-      cameraStatus.setTextColor(RED);
-    } else {
-      cameraRequestedRunning = false;
-      updateCameraButtons(false, false);
-      cameraStatus.setText("●  Camera " + state);
-      cameraStatus.setTextColor(MUTED);
-    }
-    cameraDetails.setText(String.format(Locale.US, "Frames  %,d    Viewer  %s    Preview  %s",
-        frames, client ? "connected" : "none", preview ? "on" : "off"));
-    updateCameraEndpoint();
-  }
-
   private boolean hasLocationPermission() {
     return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
@@ -458,97 +313,6 @@ public final class MainActivity extends Activity {
     stopService(new Intent(this, SensorBridgeService.class));
     sensorCard.setStatus("●  Bridge stopped", MUTED);
     sensorCard.clear();
-  }
-
-  private void startCamera() {
-    if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-      requestPermissions(new String[] {Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
-      return;
-    }
-    cameraRequestedRunning = true;
-    updateCameraButtons(true, false);
-    startForegroundService(new Intent(this, CameraStreamService.class));
-    cameraStatus.setText("●  Camera starting…");
-    cameraStatus.setTextColor(BLUE);
-  }
-
-  private void stopCamera() {
-    cameraRequestedRunning = false;
-    updateCameraButtons(false, false);
-    stopService(new Intent(this, CameraStreamService.class));
-    cameraStatus.setText("●  Camera stopped");
-    cameraStatus.setTextColor(MUTED);
-    cameraDetails.setText("Frames  —    Viewer  —    Preview  —");
-  }
-
-  private String currentCameraInterface() {
-    return getSharedPreferences(CameraStreamService.PREFERENCES, MODE_PRIVATE)
-        .getString(CameraStreamService.PREF_INTERFACE, CameraStreamService.INTERFACE_WIFI);
-  }
-
-  private void setCameraInterface(String mode) {
-    getSharedPreferences(CameraStreamService.PREFERENCES, MODE_PRIVATE)
-        .edit().putString(CameraStreamService.PREF_INTERFACE, mode).apply();
-    updateCameraInterfaceButtons();
-    updateCameraEndpoint();
-    if (cameraRequestedRunning) {
-      stopService(new Intent(this, CameraStreamService.class));
-      cameraRequestedRunning = true;
-      updateCameraButtons(true, false);
-      startForegroundService(new Intent(this, CameraStreamService.class));
-      cameraStatus.setText("●  Camera restarting on " + interfaceLabel(mode) + "…");
-      cameraStatus.setTextColor(BLUE);
-    }
-  }
-
-  private void updateCameraInterfaceButtons() {
-    if (cameraLocalButton == null) return;
-    String mode = currentCameraInterface();
-    setButtonColor(cameraLocalButton,
-        CameraStreamService.INTERFACE_LOCALHOST.equals(mode) ? BLUE : SURFACE_RAISED);
-    setButtonColor(cameraWifiButton,
-        CameraStreamService.INTERFACE_WIFI.equals(mode) ? BLUE : SURFACE_RAISED);
-    setButtonColor(cameraCellularButton,
-        CameraStreamService.INTERFACE_CELLULAR.equals(mode) ? BLUE : SURFACE_RAISED);
-  }
-
-  private String interfaceLabel(String mode) {
-    if (CameraStreamService.INTERFACE_LOCALHOST.equals(mode)) return "LOCAL";
-    if (CameraStreamService.INTERFACE_CELLULAR.equals(mode)) return "5G";
-    return "WI-FI";
-  }
-
-  private String cameraAddress() {
-    String mode = currentCameraInterface();
-    if (CameraStreamService.INTERFACE_LOCALHOST.equals(mode)) return "127.0.0.1";
-    return findTransportAddress(CameraStreamService.INTERFACE_CELLULAR.equals(mode)
-        ? NetworkCapabilities.TRANSPORT_CELLULAR : NetworkCapabilities.TRANSPORT_WIFI);
-  }
-
-  private String findTransportAddress(int transport) {
-    ConnectivityManager manager = getSystemService(ConnectivityManager.class);
-    if (manager == null) return null;
-    for (Network network : manager.getAllNetworks()) {
-      NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
-      if (capabilities == null || !capabilities.hasTransport(transport)) continue;
-      LinkProperties properties = manager.getLinkProperties(network);
-      if (properties == null) continue;
-      for (LinkAddress link : properties.getLinkAddresses()) {
-        InetAddress address = link.getAddress();
-        if (address instanceof Inet4Address && !address.isLoopbackAddress())
-          return address.getHostAddress();
-      }
-    }
-    return null;
-  }
-
-  private void updateCameraEndpoint() {
-    if (cameraEndpoint == null) return;
-    String address = cameraAddress();
-    cameraEndpoint.setText(address == null
-        ? interfaceLabel(currentCameraInterface()) + " unavailable • port " + CameraStreamService.PORT
-        : "Video  http://" + address + ":" + CameraStreamService.PORT + "/video");
-    cameraEndpoint.setTextColor(address == null ? RED : GREEN);
   }
 
   private void setRemoteAccess(boolean enabled) {
@@ -601,6 +365,7 @@ public final class MainActivity extends Activity {
   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
     if (bluetoothCard != null && bluetoothCard.onRequestPermissionsResult(requestCode, grants)) return;
+    if (cameraCard != null && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
 
     if (requestCode == LOCATION_PERMISSION_REQUEST) {
       if (hasLocationPermission()) {
@@ -612,15 +377,6 @@ public final class MainActivity extends Activity {
         configRepository.saveSensorConfig(configRepository.sensorConfig().withEnabled(false));
         sensorCard.setRunning(false);
         sensorCard.setStatus("●  Location permission required", RED);
-      }
-    } else if (requestCode == CAMERA_PERMISSION_REQUEST) {
-      if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) {
-        startCamera();
-      } else {
-        cameraRequestedRunning = false;
-        updateCameraButtons(false, false);
-        cameraStatus.setText("●  Camera permission required");
-        cameraStatus.setTextColor(RED);
       }
     }
   }
