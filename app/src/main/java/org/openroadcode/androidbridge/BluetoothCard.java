@@ -22,8 +22,10 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
+import org.openroadcode.androidbridge.config.ServiceProvider;
+import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
 
-/** Owns the Bluetooth SPP controls and lifecycle for the bridge dashboard. */
+/** Owns the Bluetooth SPP controls and delegates vehicle lifecycle to BridgeServiceManager. */
 final class BluetoothCard {
   static final int PERMISSION_REQUEST = 1002;
 
@@ -37,6 +39,7 @@ final class BluetoothCard {
   private static final int RED = Color.rgb(241, 90, 22);
 
   private final Activity activity;
+  private final BridgeServiceManager serviceManager;
   private final LinearLayout view;
   private final List<BluetoothDevice> pairedDevices = new ArrayList<>();
   private final TextView status;
@@ -49,34 +52,40 @@ final class BluetoothCard {
   private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
     @Override
     public void onReceive(Context context, Intent intent) {
-      if (!BluetoothSppBridgeService.ACTION_STATUS.equals(intent.getAction()))
-        return;
+      if (!BluetoothSppBridgeService.ACTION_STATUS.equals(intent.getAction())) return;
       String state = intent.getStringExtra(BluetoothSppBridgeService.EXTRA_STATUS);
       String message = intent.getStringExtra(BluetoothSppBridgeService.EXTRA_MESSAGE);
-      if (message == null || message.isEmpty())
-        message = "Bluetooth bridge status unavailable";
+      if (message == null || message.isEmpty()) message = "Bluetooth bridge status unavailable";
+
       if (BluetoothSppBridgeService.STATUS_CONNECTING.equals(state)) {
         requestedRunning = true;
+        serviceManager.markVehicleStarting();
         updateButtons(true, false);
         setStatus(message, BLUE);
       } else if (BluetoothSppBridgeService.STATUS_CONNECTED.equals(state)) {
         requestedRunning = true;
+        serviceManager.markVehicleRunning();
         updateButtons(true, true);
         setStatus(message, GREEN);
       } else if (BluetoothSppBridgeService.STATUS_ERROR.equals(state)) {
         requestedRunning = false;
+        serviceManager.markVehicleError();
         updateButtons(false, false);
         setStatus(message, RED);
       } else if (BluetoothSppBridgeService.STATUS_STOPPED.equals(state)) {
         requestedRunning = false;
+        serviceManager.disableVehicle();
         updateButtons(false, false);
         setStatus(message, MUTED);
       }
     }
   };
 
-  BluetoothCard(Activity activity) {
+  BluetoothCard(Activity activity, BridgeServiceManager serviceManager) {
     this.activity = activity;
+    this.serviceManager = serviceManager;
+    requestedRunning = serviceManager.vehicleRequested();
+
     view = new LinearLayout(activity);
     view.setOrientation(LinearLayout.VERTICAL);
     view.setPadding(dp(12), dp(16), dp(12), dp(16));
@@ -86,12 +95,14 @@ final class BluetoothCard {
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.setLetterSpacing(.08f);
     view.addView(heading);
-    TextView subtitle = text("Classic Bluetooth • RFCOMM transport", 12, GREEN);
+    TextView subtitle = text("Vehicle source • KONNWEI SPP • RFCOMM transport", 12, GREEN);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, dp(2), 0, dp(10));
     view.addView(subtitle);
 
-    status = text("●  Tap REFRESH to load paired devices", 13, MUTED);
+    status = text(requestedRunning
+        ? "●  Vehicle bridge requested • select device to reconnect"
+        : "●  Tap REFRESH to load paired devices", 13, requestedRunning ? BLUE : MUTED);
     status.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     status.setPadding(dp(10), dp(8), dp(10), dp(8));
     status.setBackground(rounded(SURFACE_RAISED, BORDER, 9));
@@ -109,6 +120,7 @@ final class BluetoothCard {
     startButton = actionButton("START SPP", BLUE, ignored -> startBridge());
     stopButton = actionButton("STOP", SURFACE_RAISED, ignored -> stopBridge());
     view.addView(buttonRow(refreshButton, startButton, stopButton));
+    updateButtons(requestedRunning, false);
 
     TextView hint = text("TCP endpoint  127.0.0.1:35000", 12, MUTED);
     hint.setTypeface(Typeface.MONOSPACE);
@@ -116,9 +128,7 @@ final class BluetoothCard {
     view.addView(hint);
   }
 
-  View view() {
-    return view;
-  }
+  View view() { return view; }
 
   void start() {
     if (!receiverRegistered) {
@@ -127,8 +137,7 @@ final class BluetoothCard {
       receiverRegistered = true;
     }
     if (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
-        == PackageManager.PERMISSION_GRANTED)
-      loadPairedDevices();
+        == PackageManager.PERMISSION_GRANTED) loadPairedDevices();
   }
 
   void stop() {
@@ -139,8 +148,7 @@ final class BluetoothCard {
   }
 
   boolean onRequestPermissionsResult(int requestCode, int[] grantResults) {
-    if (requestCode != PERMISSION_REQUEST)
-      return false;
+    if (requestCode != PERMISSION_REQUEST) return false;
     if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
       loadPairedDevices();
     else
@@ -159,8 +167,7 @@ final class BluetoothCard {
 
   private void loadPairedDevices() {
     if (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
-        != PackageManager.PERMISSION_GRANTED)
-      return;
+        != PackageManager.PERMISSION_GRANTED) return;
     BluetoothManager manager = activity.getSystemService(BluetoothManager.class);
     BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
     pairedDevices.clear();
@@ -209,12 +216,13 @@ final class BluetoothCard {
       setStatus("Select a paired Bluetooth device first", RED);
       return;
     }
+
     BluetoothDevice device = pairedDevices.get(position);
-    Intent intent = new Intent(activity, BluetoothSppBridgeService.class);
-    intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, device.getAddress());
+    serviceManager.setVehicleProvider(ServiceProvider.KONNWEI_SPP);
+    serviceManager.requestVehicleEnabled();
     requestedRunning = true;
     updateButtons(true, false);
-    activity.startForegroundService(intent);
+    serviceManager.startRequestedVehicle(device.getAddress());
     setStatus("Connecting to "
         + (device.getName() == null ? device.getAddress() : device.getName()) + "…", BLUE);
   }
@@ -222,7 +230,7 @@ final class BluetoothCard {
   private void stopBridge() {
     requestedRunning = false;
     updateButtons(false, false);
-    activity.stopService(new Intent(activity, BluetoothSppBridgeService.class));
+    serviceManager.disableVehicle();
     setStatus("Bluetooth bridge stopped", MUTED);
   }
 
