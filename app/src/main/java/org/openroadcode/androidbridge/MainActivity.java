@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -26,6 +27,7 @@ import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.ServiceConfig;
 import org.openroadcode.androidbridge.config.ServiceProvider;
 import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
+import org.openroadcode.androidbridge.ui.ExpandableCard;
 import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
@@ -79,31 +81,39 @@ public final class MainActivity extends Activity {
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
         this::startBridge, this::stopBridge);
     sensorCard.setRunning(sensorConfig.enabled());
-    content.addView(sensorCard.view(), cardParams());
+    addServiceCard(content, "SENSORS & POSITION",
+        sensorConfig.provider().displayName(), BLUE, sensorCard.view(), false, false);
 
     bluetoothCard = new BluetoothCard(this, serviceManager);
-    content.addView(bluetoothCard.view(), sectionEndCardParams());
+    addServiceCard(content, "VEHICLE DATA",
+        serviceManager.vehicleConfig().provider().displayName(), GREEN,
+        bluetoothCard.view(), false, true);
 
     addSectionHeader(content, "CONNECTIVITY", "Expose bridge services beyond this device", GREEN);
 
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
     remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    content.addView(remoteAccessCard.view(), sectionEndCardParams());
+    addServiceCard(content, "REMOTE ACCESS",
+        remoteEnabled ? "LAN access enabled" : "Local device only", GREEN,
+        remoteAccessCard.view(), false, true);
     updateRemoteAccessStatus();
 
     addSectionHeader(content, "MEDIA I/O", "Camera and audio paths", RED);
 
     cameraCard = new CameraCard(this);
-    content.addView(cameraCard.view(), cardParams());
+    addServiceCard(content, "CAMERA",
+        "Video capture and stream", RED, cameraCard.view(), false, false);
 
     playbackAudioCard = new PlaybackAudioCard(this);
-    content.addView(playbackAudioCard.view(), sectionEndCardParams());
+    addServiceCard(content, "PLAYBACK AUDIO",
+        "Audio bridge and playback", BLUE, playbackAudioCard.view(), false, true);
 
     addSectionHeader(content, "SYSTEM", "Android and Termux runtime services", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
-    content.addView(termuxServicesCard.view(), sectionEndCardParams());
+    addServiceCard(content, "TERMUX SERVICES",
+        "OpenRoadCode runtime processes", SILVER, termuxServicesCard.view(), false, true);
 
     TextView footer = text("OPENROADC0DE  •  BUILD " + BuildConfig.VERSION_NAME, 11, MUTED);
     footer.setGravity(Gravity.CENTER);
@@ -179,6 +189,19 @@ public final class MainActivity extends Activity {
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, dp(4), 0, 0);
     parent.addView(section, params);
+  }
+
+  private void addServiceCard(
+      LinearLayout parent,
+      String title,
+      String subtitle,
+      int accent,
+      View detailView,
+      boolean initiallyExpanded,
+      boolean sectionEnd) {
+    ExpandableCard card = new ExpandableCard(
+        this, title, subtitle, accent, detailView, initiallyExpanded);
+    parent.addView(card.view(), sectionEnd ? sectionEndCardParams() : cardParams());
   }
 
   private void addBrandWord(LinearLayout row, String value, int color) {
