@@ -73,13 +73,14 @@ public final class TermuxServicesCard {
     managerStatus = statusPill("Checking Termux service manager…", MUTED);
     root.addView(managerStatus);
 
-    root.addView(buttonRow(actionButton("START CORE", BLUE, v -> runAction(client::startCoreStack)),
+    root.addView(buttonRow(
+        actionButton("START CORE", BLUE, v -> runAction(client::startCoreStack)),
         actionButton("STOP CORE", RED, v -> runAction(client::stopCoreStack))));
 
-    addService("openroadcode-message-broker", "Message broker", false);
-    addService("openroadcode-navigation", "Navigation", false);
-    addService("openroadcode-automotive", "Automotive", false);
-    addService("openroadcode-adsb", "ADS-B", true);
+    addService("openroadcode-message-broker", "Message broker");
+    addService("openroadcode-navigation", "Navigation");
+    addService("openroadcode-automotive", "Automotive");
+    addService("openroadcode-adsb", "ADS-B");
   }
 
   public View view() {
@@ -95,11 +96,15 @@ public final class TermuxServicesCard {
     handler.removeCallbacks(refreshTask);
   }
 
-  private void addService(String id, String label, boolean individualControls) {
+  private void addService(String id, String label) {
+    LinearLayout serviceBlock = new LinearLayout(activity);
+    serviceBlock.setOrientation(LinearLayout.VERTICAL);
+    serviceBlock.setPadding(0, dp(6), 0, dp(6));
+
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(Gravity.CENTER_VERTICAL);
-    row.setPadding(dp(2), dp(8), dp(2), individualControls ? dp(2) : dp(8));
+    row.setPadding(dp(2), dp(6), dp(2), dp(2));
 
     TextView name = text(label, 14, TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -108,17 +113,16 @@ public final class TermuxServicesCard {
     TextView state = text("● UNKNOWN", 12, MUTED);
     state.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
     state.setGravity(Gravity.END);
-
     row.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
 
     serviceStates.put(id, state);
-    root.addView(row);
+    serviceBlock.addView(row);
 
-    if (individualControls) {
-      root.addView(buttonRow(
-          actionButton("START ADS-B", BLUE, v -> runAction(() -> client.startService(id))),
-          actionButton("STOP ADS-B", RED, v -> runAction(() -> client.stopService(id)))));
-    }
+    serviceBlock.addView(buttonRow(
+        actionButton("START", BLUE, v -> runAction(() -> client.startService(id))),
+        actionButton("STOP", RED, v -> runAction(() -> client.stopService(id)))));
+
+    root.addView(serviceBlock);
   }
 
   private void refresh() {
@@ -137,24 +141,17 @@ public final class TermuxServicesCard {
     managerStatus.setTextColor(GREEN);
 
     JSONArray services = result.optJSONArray("services");
-    if (services == null) {
-      return;
-    }
+    if (services == null) return;
 
     for (int i = 0; i < services.length(); i++) {
       JSONObject service = services.optJSONObject(i);
-      if (service == null) {
-        continue;
-      }
+      if (service == null) continue;
 
       String id = service.optString("name", "");
       TextView view = serviceStates.get(id);
-      if (view == null) {
-        continue;
-      }
+      if (view == null) continue;
 
       String state = service.optString("state", "unknown").toLowerCase(Locale.US);
-
       view.setText("● " + state.toUpperCase(Locale.US));
 
       if ("running".equals(state)) {
@@ -209,7 +206,6 @@ public final class TermuxServicesCard {
     button.setAllCaps(false);
     button.setBackground(rounded(color, color, 9));
     button.setOnClickListener(listener);
-
     return button;
   }
 
@@ -217,12 +213,11 @@ public final class TermuxServicesCard {
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(Gravity.CENTER);
-    row.setPadding(0, dp(8), 0, dp(8));
+    row.setPadding(0, dp(6), 0, dp(6));
 
     for (Button button : buttons) {
-      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1);
+      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(42), 1);
       params.setMargins(dp(3), 0, dp(3), 0);
-
       row.addView(button, params);
     }
 
@@ -231,13 +226,9 @@ public final class TermuxServicesCard {
 
   private TextView statusPill(String value, int color) {
     TextView view = text("●  " + value, 13, color);
-
     view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
     view.setPadding(dp(10), dp(8), dp(10), dp(8));
-
     view.setBackground(rounded(SURFACE_RAISED, BORDER, 9));
-
     return view;
   }
 
@@ -251,11 +242,9 @@ public final class TermuxServicesCard {
 
   private GradientDrawable rounded(int fill, int stroke, int radius) {
     GradientDrawable drawable = new GradientDrawable();
-
     drawable.setColor(fill);
     drawable.setCornerRadius(dp(radius));
     drawable.setStroke(dp(1), stroke);
-
     return drawable;
   }
 
