@@ -29,6 +29,7 @@ public final class PlaybackAudioService extends Service {
   private Socket client;
   private volatile String error = "";
   private volatile long frames;
+  private volatile double peakDb = -60.0;
   private byte[] latest;
   private long sequence;
   private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
@@ -73,7 +74,7 @@ public final class PlaybackAudioService extends Service {
       server.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT));
       recorder.startRecording();
       running.set(true);
-      error = ""; frames = 0;
+      error = ""; frames = 0; peakDb = -60.0;
       synchronized (lock) { sequence = 0; latest = null; }
       new Thread(this::captureLoop, "orc-playback-pcm").start();
       new Thread(this::serveLoop, "orc-playback-http").start();
@@ -91,10 +92,14 @@ public final class PlaybackAudioService extends Service {
         if (count < 0) throw new IOException("AudioRecord read error " + count);
         if (count == 0) continue;
         byte[] bytes = new byte[count * 2];
+        int peak = 0;
         for (int i = 0; i < count; i++) {
+          int magnitude = Math.abs((int) buffer[i]);
+          if (magnitude > peak) peak = magnitude;
           bytes[i * 2] = (byte) buffer[i];
           bytes[i * 2 + 1] = (byte) (buffer[i] >>> 8);
         }
+        peakDb = peak <= 0 ? -60.0 : Math.max(-60.0, 20.0 * Math.log10(peak / 32767.0));
         synchronized (lock) {
           latest = bytes; frames += count; sequence++;
           lock.notifyAll();
@@ -130,7 +135,8 @@ public final class PlaybackAudioService extends Service {
       if (path.equals("/status")) {
         JSONObject status = new JSONObject();
         status.put("running", running.get()).put("source", "android-playback").put("sample_rate_hz", RATE)
-            .put("channels", 1).put("format", "s16le").put("frames", frames).put("error", error);
+            .put("channels", 1).put("format", "s16le").put("frames", frames).put("peak_db", peakDb)
+            .put("error", error);
         respond(out, 200, "application/json", status.toString().getBytes(StandardCharsets.UTF_8));
       } else if (path.equals("/stream")) {
         synchronized (lock) {
@@ -166,6 +172,7 @@ public final class PlaybackAudioService extends Service {
 
   @Override public void onDestroy() {
     running.set(false);
+    peakDb = -60.0;
     synchronized (lock) { lock.notifyAll(); }
     try { if (server != null) server.close(); } catch (IOException ignored) {}
     try { if (client != null) client.close(); } catch (IOException ignored) {}
