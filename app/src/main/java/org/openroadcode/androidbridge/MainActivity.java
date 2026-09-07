@@ -93,7 +93,7 @@ public final class MainActivity extends Activity {
     playbackAudioCard = new PlaybackAudioCard(this);
     content.addView(playbackAudioCard.view(), cardParams());
 
-    bluetoothCard = new BluetoothCard(this);
+    bluetoothCard = new BluetoothCard(this, serviceManager);
     content.addView(bluetoothCard.view(), cardParams());
 
     termuxServicesCard = new TermuxServicesCard(this);
