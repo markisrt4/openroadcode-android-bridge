@@ -65,35 +65,52 @@ public final class MainActivity extends Activity {
     serviceManager = new BridgeServiceManager(this);
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
+
     ScrollView scrollView = new ScrollView(this);
     scrollView.setBackgroundColor(BG);
     LinearLayout content = new LinearLayout(this);
     content.setOrientation(LinearLayout.VERTICAL);
     content.setPadding(dp(10), dp(18), dp(10), dp(28));
     addBrandHeader(content);
+
+    addSectionHeader(content, "DATA SOURCES", "Choose what feeds OpenRoadCode", BLUE);
+
     ServiceConfig sensorConfig = serviceManager.sensorConfig();
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
         this::startBridge, this::stopBridge);
     sensorCard.setRunning(sensorConfig.enabled());
     content.addView(sensorCard.view(), cardParams());
+
+    bluetoothCard = new BluetoothCard(this, serviceManager);
+    content.addView(bluetoothCard.view(), sectionEndCardParams());
+
+    addSectionHeader(content, "CONNECTIVITY", "Expose bridge services beyond this device", GREEN);
+
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
     remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    content.addView(remoteAccessCard.view(), cardParams());
+    content.addView(remoteAccessCard.view(), sectionEndCardParams());
     updateRemoteAccessStatus();
+
+    addSectionHeader(content, "MEDIA I/O", "Camera and audio paths", RED);
+
     cameraCard = new CameraCard(this);
     content.addView(cameraCard.view(), cardParams());
+
     playbackAudioCard = new PlaybackAudioCard(this);
-    content.addView(playbackAudioCard.view(), cardParams());
-    bluetoothCard = new BluetoothCard(this, serviceManager);
-    content.addView(bluetoothCard.view(), cardParams());
+    content.addView(playbackAudioCard.view(), sectionEndCardParams());
+
+    addSectionHeader(content, "SYSTEM", "Android and Termux runtime services", SILVER);
+
     termuxServicesCard = new TermuxServicesCard(this);
-    content.addView(termuxServicesCard.view(), cardParams());
+    content.addView(termuxServicesCard.view(), sectionEndCardParams());
+
     TextView footer = text("OPENROADC0DE  •  BUILD " + BuildConfig.VERSION_NAME, 11, MUTED);
     footer.setGravity(Gravity.CENTER);
     footer.setLetterSpacing(.12f);
     footer.setPadding(0, dp(8), 0, 0);
     content.addView(footer);
+
     scrollView.addView(content);
     setContentView(scrollView);
   }
@@ -144,17 +161,45 @@ public final class MainActivity extends Activity {
     brand.addView(badge, badgeParams);
     parent.addView(brand);
   }
+
+  private void addSectionHeader(LinearLayout parent, String title, String subtitle, int accent) {
+    LinearLayout section = new LinearLayout(this);
+    section.setOrientation(LinearLayout.VERTICAL);
+    section.setPadding(dp(2), dp(4), dp(2), dp(8));
+
+    TextView heading = text(title, 13, accent);
+    heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    heading.setLetterSpacing(.12f);
+    section.addView(heading);
+
+    TextView detail = text(subtitle, 11, MUTED);
+    detail.setPadding(0, dp(2), 0, 0);
+    section.addView(detail);
+
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+    params.setMargins(0, dp(4), 0, 0);
+    parent.addView(section, params);
+  }
+
   private void addBrandWord(LinearLayout row, String value, int color) {
     TextView word = text(value, 21, color);
     word.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     word.setLetterSpacing(.035f);
     row.addView(word);
   }
+
   private LinearLayout.LayoutParams cardParams() {
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-    params.setMargins(0, 0, 0, dp(14));
+    params.setMargins(0, 0, 0, dp(10));
     return params;
   }
+
+  private LinearLayout.LayoutParams sectionEndCardParams() {
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+    params.setMargins(0, 0, 0, dp(18));
+    return params;
+  }
+
   private TextView text(String value, float size, int color) { return UiTheme.text(this, value, size, color); }
   private int dp(int value) { return UiTheme.dp(this, value); }
 
@@ -170,6 +215,7 @@ public final class MainActivity extends Activity {
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
   }
+
   @Override protected void onPause() {
     dashboardActive = false;
     dashboardHandler.removeCallbacks(dashboardRefresh);
@@ -188,6 +234,7 @@ public final class MainActivity extends Activity {
       return new JSONObject(reader.readLine());
     } finally { connection.disconnect(); }
   }
+
   private void refreshDashboard() {
     if (sensorPollInFlight) return;
     sensorPollInFlight = true;
@@ -255,9 +302,11 @@ public final class MainActivity extends Activity {
     return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
   }
+
   private boolean sensorNeedsLocationPermission() {
     return serviceManager.sensorConfig().provider() == ServiceProvider.ANDROID_SENSORS;
   }
+
   private void reconcileSensor(boolean requestPermission) {
     if (!serviceManager.sensorRequested()) {
       sensorCard.setRunning(false);
@@ -293,11 +342,13 @@ public final class MainActivity extends Activity {
       sensorCard.setStatus("●  " + sensorStartError, RED);
     }
   }
+
   private void startBridge() {
     serviceManager.requestSensorEnabled();
     sensorStartFailed = false;
     reconcileSensor(true);
   }
+
   private void stopBridge() {
     serviceManager.disableSensor();
     sensorPermissionRequired = false;
@@ -306,6 +357,7 @@ public final class MainActivity extends Activity {
     sensorCard.setStatus("●  Bridge stopped", MUTED);
     sensorCard.clear();
   }
+
   private void setRemoteAccess(boolean enabled) {
     getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
@@ -316,6 +368,7 @@ public final class MainActivity extends Activity {
     sensorStartFailed = false;
     reconcileSensor(true);
   }
+
   private void updateRemoteAccessStatus() {
     if (remoteAccessCard == null) return;
     boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
@@ -323,6 +376,7 @@ public final class MainActivity extends Activity {
     remoteAccessCard.setEnabled(enabled);
     remoteAccessCard.showStatus(enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
   }
+
   private String findLanAddress() {
     try {
       for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
@@ -335,6 +389,7 @@ public final class MainActivity extends Activity {
     } catch (Exception ignored) { }
     return null;
   }
+
   @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
     if (playbackAudioCard != null && playbackAudioCard.onRequestPermissionsResult(requestCode, grants)) return;
@@ -356,6 +411,7 @@ public final class MainActivity extends Activity {
       }
     }
   }
+
   @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
     super.onActivityResult(requestCode, resultCode, data);
     if (playbackAudioCard != null && playbackAudioCard.onActivityResult(requestCode, resultCode, data)) return;
