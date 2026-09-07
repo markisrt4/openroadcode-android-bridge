@@ -48,6 +48,7 @@ public final class MainActivity extends Activity {
     public void run() {
       refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
+      if (playbackAudioCard != null) playbackAudioCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
   };
@@ -55,6 +56,7 @@ public final class MainActivity extends Activity {
   private SensorCard sensorCard;
   private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
+  private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
   private ConfigRepository configRepository;
@@ -89,6 +91,9 @@ public final class MainActivity extends Activity {
 
     cameraCard = new CameraCard(this);
     content.addView(cameraCard.view(), cardParams());
+
+    playbackAudioCard = new PlaybackAudioCard(this);
+    content.addView(playbackAudioCard.view(), cardParams());
 
     bluetoothCard = new BluetoothCard(this);
     content.addView(bluetoothCard.view(), cardParams());
@@ -181,6 +186,7 @@ public final class MainActivity extends Activity {
     updateRemoteAccessStatus();
     dashboardHandler.post(dashboardRefresh);
     if (cameraCard != null) cameraCard.refresh();
+    if (playbackAudioCard != null) playbackAudioCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
   }
@@ -312,6 +318,7 @@ public final class MainActivity extends Activity {
   @Override
   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
+    if (playbackAudioCard != null && playbackAudioCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (bluetoothCard != null && bluetoothCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (cameraCard != null && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
 
@@ -327,5 +334,10 @@ public final class MainActivity extends Activity {
         sensorCard.setStatus("●  Location permission required", RED);
       }
     }
+  }
+
+  @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    super.onActivityResult(requestCode, resultCode, data);
+    if (playbackAudioCard != null && playbackAudioCard.onActivityResult(requestCode, resultCode, data)) return;
   }
 }
