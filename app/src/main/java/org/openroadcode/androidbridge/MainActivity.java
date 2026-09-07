@@ -23,9 +23,9 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import org.json.JSONObject;
-import org.openroadcode.androidbridge.config.ConfigRepository;
 import org.openroadcode.androidbridge.config.ServiceConfig;
 import org.openroadcode.androidbridge.config.ServiceProvider;
+import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
 import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
@@ -59,13 +59,12 @@ public final class MainActivity extends Activity {
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
-  private ConfigRepository configRepository;
-  private boolean bridgeRequestedRunning;
+  private BridgeServiceManager serviceManager;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    configRepository = new ConfigRepository(this);
+    serviceManager = new BridgeServiceManager(this);
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
 
@@ -76,11 +75,10 @@ public final class MainActivity extends Activity {
     content.setPadding(dp(10), dp(18), dp(10), dp(28));
     addBrandHeader(content);
 
-    ServiceConfig sensorConfig = configRepository.sensorConfig();
-    bridgeRequestedRunning = sensorConfig.enabled();
+    ServiceConfig sensorConfig = serviceManager.sensorConfig();
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
         this::startBridge, this::stopBridge);
-    sensorCard.setRunning(bridgeRequestedRunning);
+    sensorCard.setRunning(sensorConfig.enabled());
     content.addView(sensorCard.view(), cardParams());
 
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
@@ -112,14 +110,23 @@ public final class MainActivity extends Activity {
   }
 
   private void selectSensorProvider(ServiceProvider provider) {
-    ServiceConfig current = configRepository.sensorConfig();
+    ServiceConfig current = serviceManager.sensorConfig();
     if (current.provider() == provider) return;
-    configRepository.saveSensorConfig(current.withProvider(provider));
-    if (bridgeRequestedRunning) {
-      stopService(new Intent(this, SensorBridgeService.class));
-      startSensorBridgeService();
-      sensorCard.setStatus("●  Bridge restarting with " + provider.displayName() + "…", BLUE);
+    serviceManager.setSensorProvider(provider);
+
+    if (!serviceManager.sensorRequested()) return;
+
+    if (sensorNeedsLocationPermission() && !hasLocationPermission()) {
+      serviceManager.suspendSensor();
+      sensorCard.setRunning(true);
+      sensorCard.setStatus("●  Location permission required for " + provider.displayName(), RED);
+      requestPermissions(new String[] {Manifest.permission.ACCESS_FINE_LOCATION,
+          Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
+      return;
     }
+
+    serviceManager.restartRequestedSensor();
+    sensorCard.setStatus("●  Bridge restarting with " + provider.displayName() + "…", BLUE);
   }
 
   private void addBrandHeader(LinearLayout parent) {
@@ -218,7 +225,7 @@ public final class MainActivity extends Activity {
         JSONObject imu = getJson(IMU_URL);
         JSONObject position = getJson(LOCATION_URL);
         runOnUiThread(() -> {
-          bridgeRequestedRunning = true;
+          serviceManager.markSensorRunning();
           sensorCard.setRunning(true);
           boolean ready = imu.optBoolean("ready");
           String source = imu.optString("source", "");
@@ -231,8 +238,10 @@ public final class MainActivity extends Activity {
         });
       } catch (Exception ignored) {
         runOnUiThread(() -> {
-          sensorCard.setStatus(bridgeRequestedRunning ? "●  Bridge starting…" : "●  Bridge stopped",
-              bridgeRequestedRunning ? BLUE : MUTED);
+          if (serviceManager.sensorRequested()) serviceManager.markSensorStarting();
+          sensorCard.setStatus(serviceManager.sensorRequested() ? "●  Bridge starting…" : "●  Bridge stopped",
+              serviceManager.sensorRequested() ? BLUE : MUTED);
+          sensorCard.setRunning(serviceManager.sensorRequested());
           sensorCard.clear();
         });
       }
@@ -245,12 +254,11 @@ public final class MainActivity extends Activity {
   }
 
   private boolean sensorNeedsLocationPermission() {
-    return configRepository.sensorConfig().provider() == ServiceProvider.ANDROID_SENSORS;
+    return serviceManager.sensorConfig().provider() == ServiceProvider.ANDROID_SENSORS;
   }
 
   private void startBridge() {
-    bridgeRequestedRunning = true;
-    configRepository.saveSensorConfig(configRepository.sensorConfig().withEnabled(true));
+    serviceManager.requestSensorEnabled();
     sensorCard.setRunning(true);
     if (sensorNeedsLocationPermission() && !hasLocationPermission()) {
       sensorCard.setStatus("●  Location permission required…", BLUE);
@@ -258,19 +266,13 @@ public final class MainActivity extends Activity {
           Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
       return;
     }
-    startSensorBridgeService();
-  }
-
-  private void startSensorBridgeService() {
-    startForegroundService(new Intent(this, SensorBridgeService.class));
+    serviceManager.startRequestedSensor();
     sensorCard.setStatus("●  Bridge starting…", BLUE);
   }
 
   private void stopBridge() {
-    bridgeRequestedRunning = false;
-    configRepository.saveSensorConfig(configRepository.sensorConfig().withEnabled(false));
+    serviceManager.disableSensor();
     sensorCard.setRunning(false);
-    stopService(new Intent(this, SensorBridgeService.class));
     sensorCard.setStatus("●  Bridge stopped", MUTED);
     sensorCard.clear();
   }
@@ -281,16 +283,18 @@ public final class MainActivity extends Activity {
     remoteAccessCard.setEnabled(enabled);
     updateRemoteAccessStatus();
 
-    if (!bridgeRequestedRunning) return;
+    if (!serviceManager.sensorRequested()) return;
 
-    stopService(new Intent(this, SensorBridgeService.class));
-    if (!sensorNeedsLocationPermission() || hasLocationPermission()) {
-      startSensorBridgeService();
-    } else {
-      bridgeRequestedRunning = false;
-      configRepository.saveSensorConfig(configRepository.sensorConfig().withEnabled(false));
-      sensorCard.setRunning(false);
+    if (sensorNeedsLocationPermission() && !hasLocationPermission()) {
+      serviceManager.suspendSensor();
+      sensorCard.setStatus("●  Location permission required…", RED);
+      requestPermissions(new String[] {Manifest.permission.ACCESS_FINE_LOCATION,
+          Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
+      return;
     }
+
+    serviceManager.restartRequestedSensor();
+    sensorCard.setStatus("●  Bridge restarting with network change…", BLUE);
   }
 
   private void updateRemoteAccessStatus() {
@@ -324,12 +328,11 @@ public final class MainActivity extends Activity {
 
     if (requestCode == LOCATION_PERMISSION_REQUEST) {
       if (hasLocationPermission()) {
-        bridgeRequestedRunning = true;
+        serviceManager.startRequestedSensor();
         sensorCard.setRunning(true);
-        startSensorBridgeService();
+        sensorCard.setStatus("●  Bridge starting…", BLUE);
       } else {
-        bridgeRequestedRunning = false;
-        configRepository.saveSensorConfig(configRepository.sensorConfig().withEnabled(false));
+        serviceManager.disableSensor();
         sensorCard.setRunning(false);
         sensorCard.setStatus("●  Location permission required", RED);
       }
