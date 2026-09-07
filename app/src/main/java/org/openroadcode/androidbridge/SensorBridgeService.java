@@ -19,10 +19,6 @@ import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.SystemClock;
-
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -33,6 +29,10 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.openroadcode.androidbridge.config.ConfigRepository;
+import org.openroadcode.androidbridge.config.ServiceProvider;
 
 public final class SensorBridgeService extends Service implements SensorEventListener, LocationListener {
     public static final String PREFERENCES = "sensor_bridge";
@@ -48,8 +48,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private LocationManager locationManager;
     private ServerSocket serverSocket;
     private Thread serverThread;
+    private Thread simulatedThread;
     private long startedElapsedRealtimeMs;
     private boolean remoteAccessEnabled;
+    private ServiceProvider provider = ServiceProvider.ANDROID_SENSORS;
 
     private final AtomicReference<Sample> sample = new AtomicReference<>(new Sample());
     private final AtomicReference<Location> location = new AtomicReference<>();
@@ -74,27 +76,36 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         super.onCreate();
         remoteAccessEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
                 .getBoolean(PREF_REMOTE_ACCESS, false);
+        provider = new ConfigRepository(this).sensorConfig().provider();
         startedElapsedRealtimeMs = SystemClock.elapsedRealtime();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        registerSensor(Sensor.TYPE_ACCELEROMETER, SensorManager.SENSOR_DELAY_GAME);
-        registerSensor(Sensor.TYPE_LINEAR_ACCELERATION, SensorManager.SENSOR_DELAY_GAME);
-        registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
-        registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
-        registerSensor(Sensor.TYPE_PRESSURE, SensorManager.SENSOR_DELAY_NORMAL);
-        registerSensor(Sensor.TYPE_LIGHT, SensorManager.SENSOR_DELAY_NORMAL);
-        startLocationUpdates();
+
+        if (provider == ServiceProvider.SIMULATED_DRIVE) {
+            startSimulatedDrive();
+        } else {
+            sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+            registerSensor(Sensor.TYPE_ACCELEROMETER, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_LINEAR_ACCELERATION, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_PRESSURE, SensorManager.SENSOR_DELAY_NORMAL);
+            registerSensor(Sensor.TYPE_LIGHT, SensorManager.SENSOR_DELAY_NORMAL);
+            startLocationUpdates();
+        }
+
         serverThread = new Thread(this::runServer, "orc-sensor-http");
         serverThread.start();
     }
 
     private void registerSensor(int sensorType, int delay) {
+        if (sensorManager == null) return;
         Sensor sensor = sensorManager.getDefaultSensor(sensorType);
         if (sensor != null) sensorManager.registerListener(this, sensor, delay);
     }
 
     private boolean hasLocationPermission() {
+        if (provider == ServiceProvider.SIMULATED_DRIVE) return true;
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                 || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
@@ -119,8 +130,89 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         }
     }
 
+    private void startSimulatedDrive() {
+        locationProviderAvailable = true;
+        satellitesVisible = 12;
+        satellitesUsedInFix = 9;
+        simulatedThread = new Thread(() -> {
+            final double centerLat = 42.8028;
+            final double centerLon = -83.0127;
+            final double latRadius = 0.0060;
+            final double lonRadius = 0.0085;
+            final long stepMs = 100;
+            long started = SystemClock.elapsedRealtime();
+            while (!Thread.currentThread().isInterrupted()) {
+                double elapsedSeconds = (SystemClock.elapsedRealtime() - started) / 1000.0;
+                double angle = elapsedSeconds * 0.045;
+                double lat = centerLat + Math.sin(angle) * latRadius;
+                double lon = centerLon + Math.cos(angle) * lonRadius;
+                double bearing = (Math.toDegrees(angle) + 90.0) % 360.0;
+                double pitchPhase = Math.sin(angle * 2.0);
+                double rollPhase = Math.cos(angle * 1.5);
+
+                Location simulated = new Location("simulated_drive");
+                simulated.setLatitude(lat);
+                simulated.setLongitude(lon);
+                simulated.setAltitude(230.0 + 3.0 * pitchPhase);
+                simulated.setSpeed(13.4f);
+                simulated.setBearing((float) bearing);
+                simulated.setAccuracy(1.5f);
+                simulated.setTime(System.currentTimeMillis());
+                simulated.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+                location.set(simulated);
+                locationCount++;
+
+                Sample next = sample.get().copy();
+                next.ax = (float) (0.15 * Math.sin(angle * 1.7));
+                next.ay = (float) (0.25 * Math.cos(angle * 1.2));
+                next.az = 9.81f;
+                next.lax = next.ax;
+                next.lay = next.ay;
+                next.laz = 0.0f;
+                next.gx = (float) (0.01 * pitchPhase);
+                next.gy = (float) (0.02 * rollPhase);
+                next.gz = 0.045f;
+                next.mx = 21.0f;
+                next.my = -4.0f;
+                next.mz = 42.0f;
+                next.pressureHpa = 1007.5f;
+                next.ambientLightLux = 420.0f;
+                long nowNs = SystemClock.elapsedRealtimeNanos();
+                next.accelTimestampNs = nowNs;
+                next.linearAccelTimestampNs = nowNs;
+                next.gyroTimestampNs = nowNs;
+                next.magTimestampNs = nowNs;
+                next.pressureTimestampNs = nowNs;
+                next.lightTimestampNs = nowNs;
+                next.accelCount++;
+                next.linearAccelCount++;
+                next.gyroCount++;
+                next.magCount++;
+                next.pressureCount++;
+                next.lightCount++;
+                next.hasAccel = true;
+                next.hasLinearAccel = true;
+                next.hasGyro = true;
+                next.hasMag = true;
+                next.hasPressure = true;
+                next.hasLight = true;
+                sample.set(next);
+
+                try {
+                    Thread.sleep(stepMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }, "orc-simulated-drive");
+        simulatedThread.start();
+    }
+
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (locationManager == null || (hasLocationPermission() && location.get() == null)) startLocationUpdates();
+        if (provider == ServiceProvider.ANDROID_SENSORS
+                && (locationManager == null || (hasLocationPermission() && location.get() == null))) {
+            startLocationUpdates();
+        }
         return START_STICKY;
     }
 
@@ -136,6 +228,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
                 locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
             } catch (SecurityException ignored) { }
         }
+        if (simulatedThread != null) simulatedThread.interrupt();
         if (serverSocket != null) try { serverSocket.close(); } catch (IOException ignored) { }
         super.onDestroy();
     }
@@ -250,6 +343,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         Sample current = sample.get();
         try {
             JSONObject root = new JSONObject();
+            root.put("source", provider.displayName());
             root.put("ready", current.hasAccel && current.hasGyro);
             root.put("acceleration_mps2", vector(current.ax, current.ay, current.az));
             root.put("linear_acceleration_mps2", vector(current.lax, current.lay, current.laz));
@@ -277,6 +371,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         Location current = location.get();
         try {
             JSONObject root = new JSONObject();
+            root.put("source", provider.displayName());
             root.put("permission_granted", hasLocationPermission());
             root.put("available", locationProviderAvailable);
             root.put("ready", current != null);
@@ -308,6 +403,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         try {
             JSONObject root = new JSONObject();
             root.put("status", current.hasAccel && current.hasGyro ? "ready" : "starting");
+            root.put("source", provider.displayName());
             root.put("version_name", BuildConfig.VERSION_NAME);
             root.put("version_code", BuildConfig.VERSION_CODE);
             root.put("application_id", BuildConfig.APPLICATION_ID);
@@ -347,9 +443,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     }
 
     private Notification buildNotification() {
+        String source = provider == ServiceProvider.SIMULATED_DRIVE ? "simulated drive" : "device sensors and position";
         String text = remoteAccessEnabled
-                ? "Device sensors and position are available on the local network"
-                : "Device sensors and position are being bridged locally";
+                ? source + " available on the local network"
+                : source + " being bridged locally";
         return new Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("OpenRoadCode Sensor Bridge")
                 .setContentText(text)
