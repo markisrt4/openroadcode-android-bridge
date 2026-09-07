@@ -107,6 +107,14 @@ public final class BridgeServiceManager {
         return vehicleState;
     }
 
+    public String vehicleDeviceAddress() {
+        return configRepository.vehicleDeviceAddress();
+    }
+
+    public void setVehicleDeviceAddress(String address) {
+        configRepository.saveVehicleDeviceAddress(address);
+    }
+
     public void setVehicleProvider(ServiceProvider provider) {
         ServiceConfig current = vehicleConfig();
         if (current.provider() == provider) return;
@@ -117,6 +125,11 @@ public final class BridgeServiceManager {
         ServiceConfig current = vehicleConfig();
         if (!current.enabled()) configRepository.saveVehicleConfig(current.withEnabled(true));
         vehicleState = ServiceState.STARTING;
+    }
+
+    /** Starts the requested vehicle provider using persisted provider-specific configuration. */
+    public void startRequestedVehicle() {
+        startRequestedVehicle(vehicleDeviceAddress());
     }
 
     /** Starts whichever vehicle provider is currently configured. */
@@ -133,6 +146,11 @@ public final class BridgeServiceManager {
 
         if (provider == ServiceProvider.BLUETOOTH_SPP) {
             context.stopService(new Intent(context, SimulatedVehicleBridgeService.class));
+            if (deviceAddress == null || deviceAddress.isEmpty()) {
+                vehicleState = ServiceState.ERROR;
+                return;
+            }
+            configRepository.saveVehicleDeviceAddress(deviceAddress);
             Intent intent = new Intent(context, BluetoothSppBridgeService.class);
             intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, deviceAddress);
             context.startForegroundService(intent);
