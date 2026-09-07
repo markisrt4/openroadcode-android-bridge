@@ -52,6 +52,8 @@ final class BluetoothCard {
   private boolean requestedRunning;
   private boolean receiverRegistered;
   private boolean bindingProvider;
+  private boolean bindingDevice;
+  private boolean restoredRequestedVehicle;
 
   private final BroadcastReceiver statusReceiver = new BroadcastReceiver() {
     @Override
@@ -172,6 +174,13 @@ final class BluetoothCard {
     deviceSpinner = new Spinner(activity);
     deviceSpinner.setBackground(rounded(SURFACE_RAISED, BORDER, 10));
     deviceSpinner.setPadding(dp(10), 0, dp(10), 0);
+    deviceSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+      @Override public void onItemSelected(AdapterView<?> parent, View selected, int position, long id) {
+        if (bindingDevice || position < 0 || position >= pairedDevices.size()) return;
+        serviceManager.setVehicleDeviceAddress(pairedDevices.get(position).getAddress());
+      }
+      @Override public void onNothingSelected(AdapterView<?> parent) { }
+    });
     view.addView(deviceSpinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
     refreshButton = actionButton("REFRESH", BLUE, ignored -> ensurePermissionAndLoad());
@@ -199,10 +208,30 @@ final class BluetoothCard {
       activity.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
       receiverRegistered = true;
     }
-    if (serviceManager.vehicleConfig().provider() == ServiceProvider.BLUETOOTH_SPP
+
+    ServiceProvider provider = serviceManager.vehicleConfig().provider();
+    if (provider == ServiceProvider.BLUETOOTH_SPP
         && activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
             == PackageManager.PERMISSION_GRANTED) {
       loadPairedDevices();
+    }
+
+    if (!restoredRequestedVehicle && serviceManager.vehicleRequested()) {
+      restoredRequestedVehicle = true;
+      if (provider == ServiceProvider.SIMULATED_VEHICLE) {
+        requestedRunning = true;
+        updateButtons(true, false);
+        serviceManager.startRequestedVehicle();
+        setStatus("Restoring simulated vehicle…", BLUE);
+      } else if (provider == ServiceProvider.BLUETOOTH_SPP
+          && activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+              == PackageManager.PERMISSION_GRANTED
+          && serviceManager.vehicleDeviceAddress() != null) {
+        requestedRunning = true;
+        updateButtons(true, false);
+        serviceManager.startRequestedVehicle();
+        setStatus("Restoring Bluetooth OBD-II connection…", BLUE);
+      }
     }
   }
 
@@ -215,10 +244,17 @@ final class BluetoothCard {
 
   boolean onRequestPermissionsResult(int requestCode, int[] grantResults) {
     if (requestCode != PERMISSION_REQUEST) return false;
-    if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+    if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
       loadPairedDevices();
-    else
+      if (serviceManager.vehicleRequested() && serviceManager.vehicleDeviceAddress() != null) {
+        requestedRunning = true;
+        serviceManager.startRequestedVehicle();
+        updateButtons(true, false);
+        setStatus("Restoring Bluetooth OBD-II connection…", BLUE);
+      }
+    } else {
       setStatus("Bluetooth permission required for OBD-II SPP", RED);
+    }
     return true;
   }
 
@@ -234,7 +270,7 @@ final class BluetoothCard {
 
     if (provider == ServiceProvider.SIMULATED_VEHICLE && wasRequested) {
       requestedRunning = true;
-      serviceManager.startRequestedVehicle(null);
+      serviceManager.startRequestedVehicle();
       updateButtons(true, false);
       setStatus("Starting simulated vehicle…", BLUE);
     } else if (provider == ServiceProvider.BLUETOOTH_SPP) {
@@ -277,7 +313,20 @@ final class BluetoothCard {
         labels.add((name == null ? "Unknown device" : name) + "  •  " + device.getAddress());
       }
     }
+
+    bindingDevice = true;
     deviceSpinner.setAdapter(darkAdapter(labels.toArray(new String[0])));
+    String selectedAddress = serviceManager.vehicleDeviceAddress();
+    if (selectedAddress != null) {
+      for (int index = 0; index < pairedDevices.size(); index++) {
+        if (selectedAddress.equalsIgnoreCase(pairedDevices.get(index).getAddress())) {
+          deviceSpinner.setSelection(index);
+          break;
+        }
+      }
+    }
+    bindingDevice = false;
+
     if (!requestedRunning) {
       setStatus(labels.isEmpty() ? "No paired classic Bluetooth devices"
                                  : labels.size() + " paired device(s) available",
@@ -292,7 +341,7 @@ final class BluetoothCard {
     if (provider == ServiceProvider.SIMULATED_VEHICLE) {
       requestedRunning = true;
       updateButtons(true, false);
-      serviceManager.startRequestedVehicle(null);
+      serviceManager.startRequestedVehicle();
       setStatus("Starting simulated vehicle…", BLUE);
       return;
     }
@@ -309,9 +358,10 @@ final class BluetoothCard {
     }
 
     BluetoothDevice device = pairedDevices.get(position);
+    serviceManager.setVehicleDeviceAddress(device.getAddress());
     requestedRunning = true;
     updateButtons(true, false);
-    serviceManager.startRequestedVehicle(device.getAddress());
+    serviceManager.startRequestedVehicle();
     setStatus("Connecting to "
         + (device.getName() == null ? device.getAddress() : device.getName()) + "…", BLUE);
   }
