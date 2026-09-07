@@ -25,7 +25,7 @@ public final class ConfigRepository {
     }
 
     public ServiceConfig vehicleConfig() {
-        return load(VEHICLE_ENABLED, VEHICLE_PROVIDER, false, ServiceProvider.KONNWEI_SPP);
+        return load(VEHICLE_ENABLED, VEHICLE_PROVIDER, false, ServiceProvider.BLUETOOTH_SPP);
     }
 
     public void saveVehicleConfig(ServiceConfig config) {
