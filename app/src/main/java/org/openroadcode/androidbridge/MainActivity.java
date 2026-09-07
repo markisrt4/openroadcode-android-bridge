@@ -12,7 +12,6 @@ import android.view.Gravity;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -37,9 +36,6 @@ public final class MainActivity extends Activity {
   private static final String LOCATION_URL = "http://127.0.0.1:8766/location";
 
   private static final int BG = UiTheme.BG;
-  private static final int SURFACE_RAISED = UiTheme.SURFACE_RAISED;
-  private static final int BORDER = UiTheme.BORDER;
-  private static final int TEXT = UiTheme.TEXT;
   private static final int MUTED = UiTheme.MUTED;
   private static final int SILVER = UiTheme.SILVER;
   private static final int BLUE = UiTheme.BLUE;
@@ -56,8 +52,8 @@ public final class MainActivity extends Activity {
     }
   };
 
-  private TextView remoteAccessStatus;
   private SensorCard sensorCard;
+  private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
@@ -85,7 +81,11 @@ public final class MainActivity extends Activity {
     sensorCard.setRunning(bridgeRequestedRunning);
     content.addView(sensorCard.view(), cardParams());
 
-    content.addView(createRemoteAccessCard(), cardParams());
+    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
+    remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
+    content.addView(remoteAccessCard.view(), cardParams());
+    updateRemoteAccessStatus();
 
     cameraCard = new CameraCard(this);
     content.addView(cameraCard.view(), cardParams());
@@ -104,26 +104,6 @@ public final class MainActivity extends Activity {
 
     scrollView.addView(content);
     setContentView(scrollView);
-  }
-
-  private LinearLayout createRemoteAccessCard() {
-    LinearLayout card = card();
-    addSectionHeading(card, "REMOTE SENSOR ACCESS", BLUE,
-        "Share sensor telemetry with devices on this network");
-    Switch remoteAccessSwitch = new Switch(this);
-    remoteAccessSwitch.setText("Allow network clients");
-    remoteAccessSwitch.setTextColor(TEXT);
-    remoteAccessSwitch.setTextSize(15);
-    remoteAccessSwitch.setPadding(dp(4), dp(4), dp(4), dp(8));
-    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    remoteAccessSwitch.setChecked(remoteEnabled);
-    card.addView(remoteAccessSwitch);
-    remoteAccessStatus = statusPill("", remoteEnabled ? GREEN : MUTED);
-    card.addView(remoteAccessStatus);
-    updateRemoteAccessStatus();
-    remoteAccessSwitch.setOnCheckedChangeListener((buttonView, checked) -> setRemoteAccess(checked));
-    return card;
   }
 
   private void selectSensorProvider(ServiceProvider provider) {
@@ -181,36 +161,10 @@ public final class MainActivity extends Activity {
     row.addView(word);
   }
 
-  private LinearLayout card() {
-    return UiTheme.card(this);
-  }
-
   private LinearLayout.LayoutParams cardParams() {
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, 0, 0, dp(14));
     return params;
-  }
-
-  private void addSectionHeading(LinearLayout parent, String title, int accent, String subtitle) {
-    TextView heading = text(title, 18, TEXT);
-    heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    heading.setLetterSpacing(.08f);
-    parent.addView(heading);
-    TextView sub = text(subtitle, 12, accent);
-    sub.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    sub.setPadding(0, dp(2), 0, dp(10));
-    parent.addView(sub);
-  }
-
-  private TextView statusPill(String value, int accent) {
-    TextView view = text("●  " + value, 13, accent);
-    view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    view.setPadding(dp(10), dp(8), dp(10), dp(8));
-    view.setBackground(UiTheme.rounded(this, SURFACE_RAISED, BORDER, 9));
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-    params.setMargins(0, 0, 0, dp(8));
-    view.setLayoutParams(params);
-    return view;
   }
 
   private TextView text(String value, float size, int color) {
@@ -318,33 +272,27 @@ public final class MainActivity extends Activity {
   private void setRemoteAccess(boolean enabled) {
     getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
+    remoteAccessCard.setEnabled(enabled);
     updateRemoteAccessStatus();
+
+    if (!bridgeRequestedRunning) return;
+
     stopService(new Intent(this, SensorBridgeService.class));
     if (!sensorNeedsLocationPermission() || hasLocationPermission()) {
-      bridgeRequestedRunning = true;
-      sensorCard.setRunning(true);
       startSensorBridgeService();
     } else {
       bridgeRequestedRunning = false;
+      configRepository.saveSensorConfig(configRepository.sensorConfig().withEnabled(false));
       sensorCard.setRunning(false);
     }
   }
 
   private void updateRemoteAccessStatus() {
-    if (remoteAccessStatus == null) return;
+    if (remoteAccessCard == null) return;
     boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    if (!enabled) {
-      remoteAccessStatus.setText(
-          "●  Disabled • localhost only • 127.0.0.1:" + SensorBridgeService.PORT);
-      remoteAccessStatus.setTextColor(MUTED);
-      return;
-    }
-    String address = findLanAddress();
-    remoteAccessStatus.setText(address == null
-        ? "●  Enabled • waiting for a network address • port " + SensorBridgeService.PORT
-        : "●  Enabled • http://" + address + ":" + SensorBridgeService.PORT);
-    remoteAccessStatus.setTextColor(address == null ? BLUE : GREEN);
+    remoteAccessCard.setEnabled(enabled);
+    remoteAccessCard.showStatus(enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
   }
 
   private String findLanAddress() {
