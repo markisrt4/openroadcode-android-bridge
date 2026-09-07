@@ -12,6 +12,8 @@ Bluetooth SPP device -> SPP Bridge -----------------> OpenRoadCode
 Android rear camera  -> Camera2 -> MediaCodec H.264 -> MPEG-TS -> HTTP :8767 -> OpenRoadCode/video player
 ```
 
+The bridge is being reorganized around independent service configuration. Each service can be enabled separately and can select an implementation/provider without changing the downstream OpenRoadCode interface. The first configurable service is the Sensor Bridge, with Android Sensors and Simulated Drive providers using the same HTTP endpoints.
+
 ## Sensor API
 
 Health/status snapshot:
@@ -33,6 +35,8 @@ curl -N http://127.0.0.1:8766/stream/imu
 ```
 
 The sensor payload can contain acceleration, linear acceleration, angular velocity, magnetic field, barometric pressure, ambient light, Android monotonic timestamps, per-sensor availability, GNSS position, and satellite counts.
+
+The Sensor Bridge source is selected in the app. `Android Sensors` uses the phone hardware and GNSS. `Simulated Drive` produces a moving synthetic position plus representative IMU values while preserving the same `/imu`, `/location`, `/health`, and `/stream/imu` interfaces.
 
 ## Camera stream
 
