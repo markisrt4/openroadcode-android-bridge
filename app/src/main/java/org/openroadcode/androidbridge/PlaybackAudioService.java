@@ -8,7 +8,6 @@ import android.media.projection.*;
 import android.os.*;
 import java.io.*;
 import java.net.*;
-import java.nio.*;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
@@ -28,10 +27,9 @@ public final class PlaybackAudioService extends Service {
   private AudioRecord recorder;
   private ServerSocket server;
   private Socket client;
-  private Thread captureThread, serverThread;
-  private String error = "";
-  private long frames;
-  private volatile byte[] latest;
+  private volatile String error = "";
+  private volatile long frames;
+  private byte[] latest;
   private long sequence;
   private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
     @Override public void onStop() { stopSelf(); }
@@ -67,17 +65,18 @@ public final class PlaybackAudioService extends Service {
       AudioFormat format = new AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
           .setSampleRate(RATE).setChannelMask(AudioFormat.CHANNEL_IN_MONO).build();
       int minimum = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+      if (minimum <= 0) throw new IllegalStateException("Unsupported playback capture format: " + minimum);
       recorder = new AudioRecord.Builder().setAudioFormat(format).setBufferSizeInBytes(Math.max(minimum, SAMPLES * 8))
           .setAudioPlaybackCaptureConfig(config).build();
       if (recorder.getState() != AudioRecord.STATE_INITIALIZED) throw new IllegalStateException("AudioRecord initialization failed");
+      server = new ServerSocket();
+      server.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT));
       recorder.startRecording();
       running.set(true);
-      error = ""; frames = 0; sequence = 0; latest = null;
-      server = new ServerSocket();
-      server.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), PORT));
-      captureThread = new Thread(this::captureLoop, "orc-playback-pcm");
-      serverThread = new Thread(this::serveLoop, "orc-playback-http");
-      captureThread.start(); serverThread.start();
+      error = ""; frames = 0;
+      synchronized (lock) { sequence = 0; latest = null; }
+      new Thread(this::captureLoop, "orc-playback-pcm").start();
+      new Thread(this::serveLoop, "orc-playback-http").start();
     } catch (Exception ex) {
       error = ex.toString(); android.util.Log.e("ORCPlayback", "Capture start failed", ex); stopSelf();
     }
@@ -85,15 +84,19 @@ public final class PlaybackAudioService extends Service {
   }
 
   private void captureLoop() {
-    byte[] buffer = new byte[SAMPLES * 2];
+    short[] buffer = new short[SAMPLES];
     try {
       while (running.get()) {
         int count = recorder.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
         if (count < 0) throw new IOException("AudioRecord read error " + count);
         if (count == 0) continue;
+        byte[] bytes = new byte[count * 2];
+        for (int i = 0; i < count; i++) {
+          bytes[i * 2] = (byte) buffer[i];
+          bytes[i * 2 + 1] = (byte) (buffer[i] >>> 8);
+        }
         synchronized (lock) {
-          latest = java.util.Arrays.copyOf(buffer, count);
-          frames += count / 2; sequence++;
+          latest = bytes; frames += count; sequence++;
           lock.notifyAll();
         }
       }
@@ -118,8 +121,12 @@ public final class PlaybackAudioService extends Service {
       String request = reader.readLine();
       if (request == null) return;
       while (true) { String line = reader.readLine(); if (line == null || line.isEmpty()) break; }
-      String path = request.split(" ")[1];
+      String[] parts = request.split(" ");
       OutputStream out = connection.getOutputStream();
+      if (parts.length < 2 || !"GET".equals(parts[0])) {
+        respond(out, 400, "text/plain", "Invalid request".getBytes(StandardCharsets.UTF_8)); return;
+      }
+      String path = parts[1];
       if (path.equals("/status")) {
         JSONObject status = new JSONObject();
         status.put("running", running.get()).put("source", "android-playback").put("sample_rate_hz", RATE)
@@ -131,9 +138,9 @@ public final class PlaybackAudioService extends Service {
           client = connection;
         }
         out.write(("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
-        // ORCA v1: 4-byte magic, little-endian sample rate and channel count, then raw s16le PCM.
-        out.write(ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN).put(new byte[]{'O','R','C','A'}).putInt(RATE).putInt(1).array());
-        long seen = 0;
+        out.write(PlaybackPcmProtocol.header(RATE, 1));
+        long seen;
+        synchronized (lock) { seen = sequence; }
         while (running.get()) {
           byte[] block;
           synchronized (lock) {
@@ -162,7 +169,10 @@ public final class PlaybackAudioService extends Service {
     synchronized (lock) { lock.notifyAll(); }
     try { if (server != null) server.close(); } catch (IOException ignored) {}
     try { if (client != null) client.close(); } catch (IOException ignored) {}
-    if (recorder != null) { try { recorder.stop(); } catch (IllegalStateException ignored) {} recorder.release(); recorder = null; }
+    if (recorder != null) {
+      try { recorder.stop(); } catch (IllegalStateException ignored) {}
+      recorder.release(); recorder = null;
+    }
     if (projection != null) { projection.unregisterCallback(projectionCallback); projection.stop(); projection = null; }
     server = null; client = null;
     stopForeground(STOP_FOREGROUND_REMOVE);
