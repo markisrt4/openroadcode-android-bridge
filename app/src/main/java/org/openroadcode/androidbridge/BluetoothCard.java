@@ -61,7 +61,7 @@ final class BluetoothCard {
       boolean physical = BluetoothSppBridgeService.ACTION_STATUS.equals(action);
       boolean simulated = SimulatedVehicleBridgeService.ACTION_STATUS.equals(action);
       if (!physical && !simulated) return;
-      if (physical && provider != ServiceProvider.KONNWEI_SPP) return;
+      if (physical && provider != ServiceProvider.BLUETOOTH_SPP) return;
       if (simulated && provider != ServiceProvider.SIMULATED_VEHICLE) return;
 
       String state = intent.getStringExtra(physical
@@ -147,7 +147,7 @@ final class BluetoothCard {
     providerSpinner.setBackground(rounded(SURFACE_RAISED, BORDER, 10));
     providerSpinner.setPadding(dp(10), 0, dp(10), 0);
     ArrayAdapter<String> providerAdapter = darkAdapter(
-        new String[] {ServiceProvider.KONNWEI_SPP.displayName(), ServiceProvider.SIMULATED_VEHICLE.displayName()});
+        new String[] {ServiceProvider.BLUETOOTH_SPP.displayName(), ServiceProvider.SIMULATED_VEHICLE.displayName()});
     providerSpinner.setAdapter(providerAdapter);
     bindingProvider = true;
     providerSpinner.setSelection(serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE ? 1 : 0);
@@ -156,7 +156,7 @@ final class BluetoothCard {
       @Override public void onItemSelected(AdapterView<?> parent, View selected, int position, long id) {
         if (bindingProvider) return;
         ServiceProvider provider = position == 1
-            ? ServiceProvider.SIMULATED_VEHICLE : ServiceProvider.KONNWEI_SPP;
+            ? ServiceProvider.SIMULATED_VEHICLE : ServiceProvider.BLUETOOTH_SPP;
         selectProvider(provider);
       }
       @Override public void onNothingSelected(AdapterView<?> parent) { }
@@ -199,7 +199,7 @@ final class BluetoothCard {
       activity.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
       receiverRegistered = true;
     }
-    if (serviceManager.vehicleConfig().provider() == ServiceProvider.KONNWEI_SPP
+    if (serviceManager.vehicleConfig().provider() == ServiceProvider.BLUETOOTH_SPP
         && activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
             == PackageManager.PERMISSION_GRANTED) {
       loadPairedDevices();
@@ -218,7 +218,7 @@ final class BluetoothCard {
     if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
       loadPairedDevices();
     else
-      setStatus("Bluetooth permission required for KONNWEI SPP", RED);
+      setStatus("Bluetooth permission required for OBD-II SPP", RED);
     return true;
   }
 
@@ -237,15 +237,15 @@ final class BluetoothCard {
       serviceManager.startRequestedVehicle(null);
       updateButtons(true, false);
       setStatus("Starting simulated vehicle…", BLUE);
-    } else if (provider == ServiceProvider.KONNWEI_SPP) {
-      setStatus("KONNWEI SPP selected • choose a paired device", BLUE);
+    } else if (provider == ServiceProvider.BLUETOOTH_SPP) {
+      setStatus("Bluetooth OBD-II (SPP) selected • choose a paired device", BLUE);
       if (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
           == PackageManager.PERMISSION_GRANTED) loadPairedDevices();
     }
   }
 
   private void updateProviderUi() {
-    boolean physical = serviceManager.vehicleConfig().provider() == ServiceProvider.KONNWEI_SPP;
+    boolean physical = serviceManager.vehicleConfig().provider() == ServiceProvider.BLUETOOTH_SPP;
     deviceSpinner.setEnabled(physical);
     refreshButton.setEnabled(physical);
     refreshButton.setAlpha(physical ? 1.0f : 0.45f);
@@ -253,7 +253,7 @@ final class BluetoothCard {
   }
 
   private void ensurePermissionAndLoad() {
-    if (serviceManager.vehicleConfig().provider() != ServiceProvider.KONNWEI_SPP) return;
+    if (serviceManager.vehicleConfig().provider() != ServiceProvider.BLUETOOTH_SPP) return;
     if (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
         != PackageManager.PERMISSION_GRANTED) {
       activity.requestPermissions(new String[] {Manifest.permission.BLUETOOTH_CONNECT}, PERMISSION_REQUEST);
@@ -263,7 +263,7 @@ final class BluetoothCard {
   }
 
   private void loadPairedDevices() {
-    if (serviceManager.vehicleConfig().provider() != ServiceProvider.KONNWEI_SPP) return;
+    if (serviceManager.vehicleConfig().provider() != ServiceProvider.BLUETOOTH_SPP) return;
     if (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
         != PackageManager.PERMISSION_GRANTED) return;
     BluetoothManager manager = activity.getSystemService(BluetoothManager.class);
