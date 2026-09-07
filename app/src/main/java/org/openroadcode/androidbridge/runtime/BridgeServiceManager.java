@@ -2,6 +2,7 @@ package org.openroadcode.androidbridge.runtime;
 
 import android.content.Context;
 import android.content.Intent;
+import org.openroadcode.androidbridge.BluetoothSppBridgeService;
 import org.openroadcode.androidbridge.SensorBridgeService;
 import org.openroadcode.androidbridge.config.ConfigRepository;
 import org.openroadcode.androidbridge.config.ServiceConfig;
@@ -19,11 +20,13 @@ public final class BridgeServiceManager {
     private final Context context;
     private final ConfigRepository configRepository;
     private ServiceState sensorState;
+    private ServiceState vehicleState;
 
     public BridgeServiceManager(Context context) {
         this.context = context.getApplicationContext();
         this.configRepository = new ConfigRepository(this.context);
         this.sensorState = sensorConfig().enabled() ? ServiceState.STARTING : ServiceState.STOPPED;
+        this.vehicleState = vehicleConfig().enabled() ? ServiceState.STARTING : ServiceState.STOPPED;
     }
 
     public ServiceConfig sensorConfig() {
@@ -89,5 +92,66 @@ public final class BridgeServiceManager {
 
     public void markSensorError() {
         sensorState = ServiceState.ERROR;
+    }
+
+    public ServiceConfig vehicleConfig() {
+        return configRepository.vehicleConfig();
+    }
+
+    public boolean vehicleRequested() {
+        return vehicleConfig().enabled();
+    }
+
+    public ServiceState vehicleState() {
+        return vehicleState;
+    }
+
+    public void setVehicleProvider(ServiceProvider provider) {
+        ServiceConfig current = vehicleConfig();
+        if (current.provider() == provider) return;
+        configRepository.saveVehicleConfig(current.withProvider(provider));
+    }
+
+    public void requestVehicleEnabled() {
+        ServiceConfig current = vehicleConfig();
+        if (!current.enabled()) configRepository.saveVehicleConfig(current.withEnabled(true));
+        vehicleState = ServiceState.STARTING;
+    }
+
+    /** Starts the configured physical vehicle bridge. Provider-specific simulation is handled separately. */
+    public void startRequestedVehicle(String deviceAddress) {
+        if (!vehicleRequested()) return;
+        if (vehicleConfig().provider() != ServiceProvider.KONNWEI_SPP) {
+            vehicleState = ServiceState.ERROR;
+            return;
+        }
+        Intent intent = new Intent(context, BluetoothSppBridgeService.class);
+        intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, deviceAddress);
+        vehicleState = ServiceState.STARTING;
+        context.startForegroundService(intent);
+    }
+
+    public void suspendVehicle() {
+        context.stopService(new Intent(context, BluetoothSppBridgeService.class));
+        vehicleState = ServiceState.STOPPED;
+    }
+
+    public void disableVehicle() {
+        ServiceConfig current = vehicleConfig();
+        if (current.enabled()) configRepository.saveVehicleConfig(current.withEnabled(false));
+        context.stopService(new Intent(context, BluetoothSppBridgeService.class));
+        vehicleState = ServiceState.STOPPED;
+    }
+
+    public void markVehicleRunning() {
+        vehicleState = ServiceState.RUNNING;
+    }
+
+    public void markVehicleStarting() {
+        vehicleState = ServiceState.STARTING;
+    }
+
+    public void markVehicleError() {
+        vehicleState = ServiceState.ERROR;
     }
 }
