@@ -131,7 +131,7 @@ public final class BridgeServiceManager {
             return;
         }
 
-        if (provider == ServiceProvider.KONNWEI_SPP) {
+        if (provider == ServiceProvider.BLUETOOTH_SPP) {
             context.stopService(new Intent(context, SimulatedVehicleBridgeService.class));
             Intent intent = new Intent(context, BluetoothSppBridgeService.class);
             intent.putExtra(BluetoothSppBridgeService.EXTRA_DEVICE_ADDRESS, deviceAddress);
