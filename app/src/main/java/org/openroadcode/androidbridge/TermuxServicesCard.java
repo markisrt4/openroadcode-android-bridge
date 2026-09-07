@@ -1,14 +1,17 @@
 package org.openroadcode.androidbridge;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.text.InputType;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.LinkedHashMap;
@@ -16,12 +19,14 @@ import java.util.Locale;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Target;
 
 /**
- * UI and controller for OpenRoadCode services supervised by runit in Termux.
+ * UI and controller for the restricted OpenRoadCode runtime service-manager API.
  *
- * MainActivity owns only this component's lifecycle. All service-manager HTTP
- * communication remains inside TermuxServiceManagerClient.
+ * The card can control the local Termux/runit manager or an authenticated remote
+ * Pi/systemd manager while preserving the same service names and operations.
  */
 public final class TermuxServicesCard {
   private static final int SURFACE = Color.rgb(11, 24, 33);
@@ -36,12 +41,12 @@ public final class TermuxServicesCard {
   private static final long REFRESH_MS = 2000;
 
   private final Activity activity;
-  private final TermuxServiceManagerClient client = new TermuxServiceManagerClient();
+  private final RuntimeServiceManagerSettings settings;
   private final Handler handler = new Handler(Looper.getMainLooper());
-
   private final Map<String, TextView> serviceStates = new LinkedHashMap<>();
 
   private final LinearLayout root;
+  private final TextView targetSummary;
   private final TextView managerStatus;
 
   private final Runnable refreshTask = new Runnable() {
@@ -54,6 +59,7 @@ public final class TermuxServicesCard {
 
   public TermuxServicesCard(Activity activity) {
     this.activity = activity;
+    settings = new RuntimeServiceManagerSettings(activity);
 
     root = new LinearLayout(activity);
     root.setOrientation(LinearLayout.VERTICAL);
@@ -65,17 +71,23 @@ public final class TermuxServicesCard {
     title.setLetterSpacing(.08f);
     root.addView(title);
 
-    TextView subtitle = text("Termux • runit • localhost control plane", 12, BLUE);
-    subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    subtitle.setPadding(0, dp(2), 0, dp(10));
-    root.addView(subtitle);
+    targetSummary = text("", 12, BLUE);
+    targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    targetSummary.setPadding(0, dp(2), 0, dp(8));
+    root.addView(targetSummary);
+    refreshTargetSummary();
 
-    managerStatus = statusPill("Checking Termux service manager…", MUTED);
+    root.addView(buttonRow(
+        actionButton("TERMUX", BLUE, v -> selectTermux()),
+        actionButton("REMOTE PI", BLUE, v -> selectRemotePi()),
+        actionButton("CONFIGURE PI", MUTED, v -> configureRemotePi())));
+
+    managerStatus = statusPill("Checking service manager…", MUTED);
     root.addView(managerStatus);
 
     root.addView(buttonRow(
-        actionButton("START CORE", BLUE, v -> runAction(client::startCoreStack)),
-        actionButton("STOP CORE", RED, v -> runAction(client::stopCoreStack))));
+        actionButton("START CORE", BLUE, v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
+        actionButton("STOP CORE", RED, v -> runAction(RuntimeServiceManagerClient::stopCoreStack))));
 
     addService("openroadcode-message-broker", "Message broker");
     addService("openroadcode-navigation", "Navigation");
@@ -94,6 +106,93 @@ public final class TermuxServicesCard {
 
   public void stop() {
     handler.removeCallbacks(refreshTask);
+  }
+
+  private void selectTermux() {
+    settings.setTarget(Target.TERMUX);
+    refreshTargetSummary();
+    refresh();
+  }
+
+  private void selectRemotePi() {
+    if (!settings.hasRemotePiConfiguration()) {
+      configureRemotePi();
+      return;
+    }
+    settings.setTarget(Target.REMOTE_PI);
+    refreshTargetSummary();
+    refresh();
+  }
+
+  private void configureRemotePi() {
+    LinearLayout fields = new LinearLayout(activity);
+    fields.setOrientation(LinearLayout.VERTICAL);
+    fields.setPadding(dp(20), dp(8), dp(20), 0);
+
+    EditText endpoint = new EditText(activity);
+    endpoint.setSingleLine(true);
+    endpoint.setHint("http://pi-address:8769");
+    endpoint.setText(settings.piBaseUrl());
+    endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+    fields.addView(endpoint);
+
+    EditText token = new EditText(activity);
+    token.setSingleLine(true);
+    token.setHint("Service manager token");
+    token.setText(settings.piToken());
+    token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+    fields.addView(token);
+
+    AlertDialog dialog = new AlertDialog.Builder(activity)
+        .setTitle("Remote Pi service manager")
+        .setMessage("Enter the Pi service-manager endpoint and bearer token.")
+        .setView(fields)
+        .setNegativeButton("CANCEL", null)
+        .setPositiveButton("SAVE", null)
+        .create();
+
+    dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        .setOnClickListener(v -> {
+          String baseUrl = endpoint.getText().toString().trim();
+          String bearerToken = token.getText().toString().trim();
+          if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
+            endpoint.setError("Enter a complete http:// or https:// endpoint");
+            return;
+          }
+          if (bearerToken.isBlank()) {
+            token.setError("The remote Pi requires a bearer token");
+            return;
+          }
+          settings.setPiBaseUrl(baseUrl);
+          settings.setPiToken(bearerToken);
+          settings.setTarget(Target.REMOTE_PI);
+          refreshTargetSummary();
+          dialog.dismiss();
+          refresh();
+        }));
+    dialog.show();
+  }
+
+  private void refreshTargetSummary() {
+    if (settings.target() == Target.REMOTE_PI) {
+      String endpoint = settings.piBaseUrl();
+      targetSummary.setText(endpoint.isBlank()
+          ? "Remote Pi • systemd • not configured"
+          : "Remote Pi • systemd • " + endpoint);
+    } else {
+      targetSummary.setText("Termux • runit • localhost control plane");
+    }
+  }
+
+  private RuntimeServiceManagerClient activeClient() {
+    if (settings.target() == Target.REMOTE_PI) {
+      if (!settings.hasRemotePiConfiguration()) {
+        throw new IllegalStateException("Remote Pi service manager is not configured");
+      }
+      return new RuntimeServiceManagerClient(
+          settings.piBaseUrl(), "Remote Pi", settings.piToken());
+    }
+    return new RuntimeServiceManagerClient(TermuxServiceManagerClient.BASE_URL, "Termux");
   }
 
   private void addService(String id, String label) {
@@ -119,8 +218,8 @@ public final class TermuxServicesCard {
     serviceBlock.addView(row);
 
     serviceBlock.addView(buttonRow(
-        actionButton("START", BLUE, v -> runAction(() -> client.startService(id))),
-        actionButton("STOP", RED, v -> runAction(() -> client.stopService(id)))));
+        actionButton("START", BLUE, v -> runAction(client -> client.startService(id))),
+        actionButton("STOP", RED, v -> runAction(client -> client.stopService(id)))));
 
     root.addView(serviceBlock);
   }
@@ -128,16 +227,19 @@ public final class TermuxServicesCard {
   private void refresh() {
     new Thread(() -> {
       try {
+        RuntimeServiceManagerClient client = activeClient();
         JSONObject result = client.getServices();
-        activity.runOnUiThread(() -> render(result));
+        String label = client.targetLabel();
+        activity.runOnUiThread(() -> render(result, label));
       } catch (Exception e) {
-        activity.runOnUiThread(this::renderUnavailable);
+        String message = e.getMessage();
+        activity.runOnUiThread(() -> renderUnavailable(message));
       }
     }, "orc-service-status").start();
   }
 
-  private void render(JSONObject result) {
-    managerStatus.setText("●  Termux service manager available");
+  private void render(JSONObject result, String targetLabel) {
+    managerStatus.setText("●  " + targetLabel + " service manager available");
     managerStatus.setTextColor(GREEN);
 
     JSONArray services = result.optJSONArray("services");
@@ -164,8 +266,10 @@ public final class TermuxServicesCard {
     }
   }
 
-  private void renderUnavailable() {
-    managerStatus.setText("●  Termux service manager unavailable");
+  private void renderUnavailable(String message) {
+    String target = settings.target() == Target.REMOTE_PI ? "Remote Pi" : "Termux";
+    managerStatus.setText("●  " + target + " unavailable"
+        + (message == null || message.isBlank() ? "" : ": " + message));
     managerStatus.setTextColor(RED);
 
     for (TextView state : serviceStates.values()) {
@@ -180,7 +284,7 @@ public final class TermuxServicesCard {
 
     new Thread(() -> {
       try {
-        action.run();
+        action.run(activeClient());
         activity.runOnUiThread(this::refresh);
       } catch (Exception e) {
         activity.runOnUiThread(() -> {
@@ -193,7 +297,7 @@ public final class TermuxServicesCard {
   }
 
   private interface Action {
-    JSONObject run() throws Exception;
+    JSONObject run(RuntimeServiceManagerClient client) throws Exception;
   }
 
   private Button actionButton(String label, int color, View.OnClickListener listener) {
