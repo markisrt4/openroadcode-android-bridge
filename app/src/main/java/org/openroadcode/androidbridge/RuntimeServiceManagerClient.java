@@ -16,13 +16,19 @@ import org.json.JSONObject;
 public final class RuntimeServiceManagerClient {
   private final String baseUrl;
   private final String targetLabel;
+  private final String bearerToken;
 
   public RuntimeServiceManagerClient(String baseUrl, String targetLabel) {
+    this(baseUrl, targetLabel, null);
+  }
+
+  public RuntimeServiceManagerClient(String baseUrl, String targetLabel, String bearerToken) {
     if (baseUrl == null || baseUrl.isBlank()) {
       throw new IllegalArgumentException("Service manager base URL is required");
     }
     this.baseUrl = trimTrailingSlash(baseUrl);
     this.targetLabel = targetLabel == null || targetLabel.isBlank() ? "runtime" : targetLabel;
+    this.bearerToken = bearerToken == null || bearerToken.isBlank() ? null : bearerToken.trim();
   }
 
   public String baseUrl() {
@@ -67,9 +73,12 @@ public final class RuntimeServiceManagerClient {
   private JSONObject request(String method, String path) throws Exception {
     HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
     connection.setRequestMethod(method);
-    connection.setConnectTimeout(750);
-    connection.setReadTimeout(1500);
+    connection.setConnectTimeout(1000);
+    connection.setReadTimeout(2000);
     connection.setUseCaches(false);
+    if (bearerToken != null) {
+      connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+    }
     if ("POST".equals(method)) {
       connection.setDoOutput(true);
       connection.setFixedLengthStreamingMode(0);
