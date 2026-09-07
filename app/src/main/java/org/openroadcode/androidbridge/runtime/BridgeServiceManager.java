@@ -11,139 +11,95 @@ import org.openroadcode.androidbridge.config.ServiceProvider;
 
 /** Coordinates persisted intent and Android lifecycle for bridge services. */
 public final class BridgeServiceManager {
-    public enum ServiceState {
-        STOPPED,
-        STARTING,
-        RUNNING,
-        ERROR
-    }
-
+    public enum ServiceState { STOPPED, STARTING, RUNNING, ERROR }
     private final Context context;
     private final ConfigRepository configRepository;
     private ServiceState sensorState;
     private ServiceState vehicleState;
+    private long sensorGeneration;
+    private boolean sensorStartIssued;
 
     public BridgeServiceManager(Context context) {
         this.context = context.getApplicationContext();
-        this.configRepository = new ConfigRepository(this.context);
-        this.sensorState = sensorConfig().enabled() ? ServiceState.STARTING : ServiceState.STOPPED;
-        this.vehicleState = vehicleConfig().enabled() ? ServiceState.STARTING : ServiceState.STOPPED;
+        configRepository = new ConfigRepository(this.context);
+        sensorState = sensorRequested() ? ServiceState.STARTING : ServiceState.STOPPED;
+        vehicleState = vehicleRequested() ? ServiceState.STARTING : ServiceState.STOPPED;
     }
-
-    public ServiceConfig sensorConfig() {
-        return configRepository.sensorConfig();
-    }
-
-    public boolean sensorRequested() {
-        return sensorConfig().enabled();
-    }
-
-    public ServiceState sensorState() {
-        return sensorState;
-    }
-
+    public ServiceConfig sensorConfig() { return configRepository.sensorConfig(); }
+    public boolean sensorRequested() { return sensorConfig().enabled(); }
+    public ServiceState sensorState() { return sensorState; }
+    public long sensorGeneration() { return sensorGeneration; }
     public void setSensorProvider(ServiceProvider provider) {
         ServiceConfig current = sensorConfig();
         if (current.provider() == provider) return;
         configRepository.saveSensorConfig(current.withProvider(provider));
+        sensorGeneration++;
     }
-
-    /** Records the user's intent to run the sensor bridge before permission checks complete. */
     public void requestSensorEnabled() {
         ServiceConfig current = sensorConfig();
         if (!current.enabled()) configRepository.saveSensorConfig(current.withEnabled(true));
         sensorState = ServiceState.STARTING;
+        sensorGeneration++;
     }
-
-    /** Starts the sensor process without changing the persisted requested state. */
     public void startRequestedSensor() {
         if (!sensorRequested()) return;
+        if (sensorStartIssued) return;
         sensorState = ServiceState.STARTING;
-        context.startForegroundService(new Intent(context, SensorBridgeService.class));
+        sensorStartIssued = true;
+        sensorGeneration++;
+        try {
+            context.startForegroundService(new Intent(context, SensorBridgeService.class));
+        } catch (RuntimeException e) {
+            sensorStartIssued = false;
+            sensorState = ServiceState.ERROR;
+            throw e;
+        }
     }
-
-    /** Restarts a requested sensor process, preserving provider and enabled configuration. */
     public void restartRequestedSensor() {
         if (!sensorRequested()) return;
-        context.stopService(new Intent(context, SensorBridgeService.class));
+        suspendSensor();
         startRequestedSensor();
     }
-
-    /** Stops the process temporarily while preserving the user's requested enabled state. */
     public void suspendSensor() {
+        sensorGeneration++;
+        sensorStartIssued = false;
         context.stopService(new Intent(context, SensorBridgeService.class));
         sensorState = ServiceState.STOPPED;
     }
-
-    /** Stops the sensor bridge and clears the persisted enabled request. */
     public void disableSensor() {
         ServiceConfig current = sensorConfig();
         if (current.enabled()) configRepository.saveSensorConfig(current.withEnabled(false));
-        context.stopService(new Intent(context, SensorBridgeService.class));
-        sensorState = ServiceState.STOPPED;
+        suspendSensor();
     }
+    public void markSensorRunning() { sensorState = ServiceState.RUNNING; sensorStartIssued = true; }
+    public void markSensorStarting() { sensorState = ServiceState.STARTING; }
+    public void markSensorError() { sensorState = ServiceState.ERROR; }
+    public void markSensorStopped() { sensorState = ServiceState.STOPPED; sensorStartIssued = false; sensorGeneration++; }
 
-    public void markSensorRunning() {
-        sensorState = ServiceState.RUNNING;
-    }
-
-    public void markSensorStarting() {
-        sensorState = ServiceState.STARTING;
-    }
-
-    public void markSensorError() {
-        sensorState = ServiceState.ERROR;
-    }
-
-    public ServiceConfig vehicleConfig() {
-        return configRepository.vehicleConfig();
-    }
-
-    public boolean vehicleRequested() {
-        return vehicleConfig().enabled();
-    }
-
-    public ServiceState vehicleState() {
-        return vehicleState;
-    }
-
-    public String vehicleDeviceAddress() {
-        return configRepository.vehicleDeviceAddress();
-    }
-
-    public void setVehicleDeviceAddress(String address) {
-        configRepository.saveVehicleDeviceAddress(address);
-    }
-
+    public ServiceConfig vehicleConfig() { return configRepository.vehicleConfig(); }
+    public boolean vehicleRequested() { return vehicleConfig().enabled(); }
+    public ServiceState vehicleState() { return vehicleState; }
+    public String vehicleDeviceAddress() { return configRepository.vehicleDeviceAddress(); }
+    public void setVehicleDeviceAddress(String address) { configRepository.saveVehicleDeviceAddress(address); }
     public void setVehicleProvider(ServiceProvider provider) {
         ServiceConfig current = vehicleConfig();
-        if (current.provider() == provider) return;
-        configRepository.saveVehicleConfig(current.withProvider(provider));
+        if (current.provider() != provider) configRepository.saveVehicleConfig(current.withProvider(provider));
     }
-
     public void requestVehicleEnabled() {
         ServiceConfig current = vehicleConfig();
         if (!current.enabled()) configRepository.saveVehicleConfig(current.withEnabled(true));
         vehicleState = ServiceState.STARTING;
     }
-
-    /** Starts the requested vehicle provider using persisted provider-specific configuration. */
-    public void startRequestedVehicle() {
-        startRequestedVehicle(vehicleDeviceAddress());
-    }
-
-    /** Starts whichever vehicle provider is currently configured. */
+    public void startRequestedVehicle() { startRequestedVehicle(vehicleDeviceAddress()); }
     public void startRequestedVehicle(String deviceAddress) {
         if (!vehicleRequested()) return;
         ServiceProvider provider = vehicleConfig().provider();
         vehicleState = ServiceState.STARTING;
-
         if (provider == ServiceProvider.SIMULATED_VEHICLE) {
             context.stopService(new Intent(context, BluetoothSppBridgeService.class));
             context.startForegroundService(new Intent(context, SimulatedVehicleBridgeService.class));
             return;
         }
-
         if (provider == ServiceProvider.BLUETOOTH_SPP) {
             context.stopService(new Intent(context, SimulatedVehicleBridgeService.class));
             if (deviceAddress == null || deviceAddress.isEmpty()) {
@@ -156,39 +112,20 @@ public final class BridgeServiceManager {
             context.startForegroundService(intent);
             return;
         }
-
         vehicleState = ServiceState.ERROR;
     }
-
-    /** Stops either vehicle provider while preserving the persisted requested state. */
     public void suspendVehicle() {
         context.stopService(new Intent(context, BluetoothSppBridgeService.class));
         context.stopService(new Intent(context, SimulatedVehicleBridgeService.class));
         vehicleState = ServiceState.STOPPED;
     }
-
-    /** Stops all vehicle providers and clears the persisted requested state. */
     public void disableVehicle() {
         ServiceConfig current = vehicleConfig();
         if (current.enabled()) configRepository.saveVehicleConfig(current.withEnabled(false));
-        context.stopService(new Intent(context, BluetoothSppBridgeService.class));
-        context.stopService(new Intent(context, SimulatedVehicleBridgeService.class));
-        vehicleState = ServiceState.STOPPED;
+        suspendVehicle();
     }
-
-    public void markVehicleRunning() {
-        vehicleState = ServiceState.RUNNING;
-    }
-
-    public void markVehicleStarting() {
-        vehicleState = ServiceState.STARTING;
-    }
-
-    public void markVehicleStopped() {
-        vehicleState = ServiceState.STOPPED;
-    }
-
-    public void markVehicleError() {
-        vehicleState = ServiceState.ERROR;
-    }
+    public void markVehicleRunning() { vehicleState = ServiceState.RUNNING; }
+    public void markVehicleStarting() { vehicleState = ServiceState.STARTING; }
+    public void markVehicleStopped() { vehicleState = ServiceState.STOPPED; }
+    public void markVehicleError() { vehicleState = ServiceState.ERROR; }
 }
