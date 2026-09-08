@@ -26,6 +26,9 @@ import org.openroadcode.androidbridge.ui.UiTheme;
 /** Dashboard controls for the independent, consent-gated playback source. */
 final class PlaybackAudioCard {
   static final int AUDIO_PERMISSION = 1005, PROJECTION_REQUEST = 1006;
+  private static final int GAP = 8;
+  private static final int BUTTON_HEIGHT = 54;
+
   private final Activity activity;
   private final LinearLayout view;
   private final TextView status;
@@ -39,80 +42,79 @@ final class PlaybackAudioCard {
     this.activity = activity;
     view = UiTheme.card(activity);
 
+    LinearLayout headingRow = new LinearLayout(activity);
+    headingRow.setOrientation(LinearLayout.HORIZONTAL);
+    headingRow.setGravity(Gravity.CENTER_VERTICAL);
+    headingRow.setPadding(0, 0, 0, UiTheme.dp(activity, 2));
+
     TextView heading = UiTheme.text(activity, "ANDROID PLAYBACK AUDIO", 18, UiTheme.TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    heading.setPadding(0, 0, 0, UiTheme.dp(activity, 4));
-    view.addView(heading);
-
-    TextView subtitle = UiTheme.text(activity,
-        "Native playback capture • PCM16 • localhost:8768", 12, UiTheme.BLUE);
-    subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    subtitle.setPadding(0, 0, 0, UiTheme.dp(activity, 12));
-    view.addView(subtitle);
-
-    LinearLayout stateRow = new LinearLayout(activity);
-    stateRow.setOrientation(LinearLayout.HORIZONTAL);
-    stateRow.setGravity(Gravity.CENTER_VERTICAL);
-    stateRow.setPadding(0, 0, 0, UiTheme.dp(activity, 10));
+    heading.setLetterSpacing(.04f);
+    headingRow.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
 
     status = UiTheme.text(activity, "●  Stopped", 13, UiTheme.MUTED);
     status.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    status.setPadding(UiTheme.dp(activity, 10), UiTheme.dp(activity, 9),
-        UiTheme.dp(activity, 10), UiTheme.dp(activity, 9));
-    status.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 18));
-    LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(0, -2, 0.46f);
-    statusParams.setMargins(0, 0, UiTheme.dp(activity, 12), 0);
-    stateRow.addView(status, statusParams);
+    status.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+    headingRow.addView(status, new LinearLayout.LayoutParams(-2, -2));
+    view.addView(headingRow);
 
-    LinearLayout meterWrap = new LinearLayout(activity);
-    meterWrap.setOrientation(LinearLayout.HORIZONTAL);
-    meterWrap.setGravity(Gravity.CENTER_VERTICAL);
+    TextView subtitle = UiTheme.text(activity,
+        "Native playback capture • PCM16 • localhost:8768", 12, UiTheme.MUTED);
+    subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    subtitle.setPadding(0, 0, 0, UiTheme.dp(activity, 10));
+    view.addView(subtitle);
+
+    LinearLayout meterRow = new LinearLayout(activity);
+    meterRow.setOrientation(LinearLayout.HORIZONTAL);
+    meterRow.setGravity(Gravity.CENTER_VERTICAL);
+    meterRow.setPadding(0, 0, 0, UiTheme.dp(activity, 12));
+
     levelMeter = new AudioLevelMeter(activity);
-    meterWrap.addView(levelMeter, new LinearLayout.LayoutParams(0, UiTheme.dp(activity, 34), 1));
-    TextView meterDb = UiTheme.text(activity, "-60 dB", 11, UiTheme.SILVER);
-    meterDb.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-    meterDb.setPadding(UiTheme.dp(activity, 8), 0, 0, 0);
-    levelValue = meterDb;
-    meterWrap.addView(meterDb, new LinearLayout.LayoutParams(UiTheme.dp(activity, 56), UiTheme.dp(activity, 34)));
-    stateRow.addView(meterWrap, new LinearLayout.LayoutParams(0, -2, 0.54f));
-    view.addView(stateRow);
+    meterRow.addView(levelMeter, new LinearLayout.LayoutParams(0, UiTheme.dp(activity, 36), 1));
 
-    start = UiTheme.actionButton(activity, "▶  START PLAYBACK\nCAPTURE", UiTheme.BLUE, v -> start());
+    levelValue = UiTheme.text(activity, "-60 dB", 12, UiTheme.SILVER);
+    levelValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+    levelValue.setPadding(UiTheme.dp(activity, 10), 0, 0, 0);
+    meterRow.addView(levelValue,
+        new LinearLayout.LayoutParams(UiTheme.dp(activity, 66), UiTheme.dp(activity, 36)));
+    view.addView(meterRow);
+
+    start = UiTheme.actionButton(activity, "▶  START CAPTURE", UiTheme.BLUE, v -> start());
     stop = UiTheme.actionButton(activity, "■  STOP", UiTheme.SURFACE_RAISED, v -> stop());
-    start.setTextSize(11);
-    stop.setTextSize(11);
-    LinearLayout row = new LinearLayout(activity);
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setPadding(0, 0, 0, UiTheme.dp(activity, 10));
-    LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(0, UiTheme.dp(activity, 58), 1.15f);
-    startParams.setMargins(0, 0, UiTheme.dp(activity, 4), 0);
-    LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(0, UiTheme.dp(activity, 58), .85f);
-    stopParams.setMargins(UiTheme.dp(activity, 4), 0, 0, 0);
-    row.addView(start, startParams);
-    row.addView(stop, stopParams);
-    view.addView(row);
+    start.setTextSize(12);
+    stop.setTextSize(12);
+
+    LinearLayout controls = new LinearLayout(activity);
+    controls.setOrientation(LinearLayout.HORIZONTAL);
+    controls.setPadding(0, 0, 0, UiTheme.dp(activity, 12));
+    controls.addView(start, buttonParams(false));
+    controls.addView(stop, buttonParams(true));
+    view.addView(controls);
 
     LinearLayout facts = new LinearLayout(activity);
     facts.setOrientation(LinearLayout.HORIZONTAL);
-    facts.setPadding(0, 0, 0, UiTheme.dp(activity, 10));
-    facts.addView(infoTile("♪", "Format", "PCM16"), tileParams(false));
-    facts.addView(infoTile("⌘", "Endpoint", "localhost:8768"), tileParams(true));
-    facts.addView(infoTile("▂▅▇", "Level", "-60 dB"), tileParams(false));
+    facts.setPadding(0, 0, 0, UiTheme.dp(activity, 12));
+    facts.addView(infoTile("♪", "Format", "PCM16"), tileParams(false, false));
+    facts.addView(infoTile("⌘", "Endpoint", "localhost:8768"), tileParams(true, false));
+    facts.addView(infoTile("▂▅▇", "Level", "-60 dB"), tileParams(false, true));
     view.addView(facts);
 
     LinearLayout noteBox = new LinearLayout(activity);
     noteBox.setOrientation(LinearLayout.HORIZONTAL);
     noteBox.setGravity(Gravity.TOP);
-    noteBox.setPadding(UiTheme.dp(activity, 10), UiTheme.dp(activity, 10),
-        UiTheme.dp(activity, 10), UiTheme.dp(activity, 10));
+    noteBox.setPadding(UiTheme.dp(activity, 12), UiTheme.dp(activity, 12),
+        UiTheme.dp(activity, 12), UiTheme.dp(activity, 12));
     noteBox.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
+
     TextView info = UiTheme.text(activity, "ⓘ", 18, UiTheme.BLUE);
     info.setGravity(Gravity.TOP);
-    noteBox.addView(info, new LinearLayout.LayoutParams(UiTheme.dp(activity, 30), -2));
+    noteBox.addView(info, new LinearLayout.LayoutParams(UiTheme.dp(activity, 32), -2));
+
     TextView note = UiTheme.text(activity,
         "Android asks for capture consent each session. Only playback permitted by other apps is available. "
             + "No microphone, recording files, or remote audio endpoint.",
         12, UiTheme.MUTED);
+    note.setLineSpacing(0, 1.08f);
     noteBox.addView(note, new LinearLayout.LayoutParams(0, -2, 1));
     view.addView(noteBox);
 
@@ -126,13 +128,13 @@ final class PlaybackAudioCard {
     LinearLayout tile = new LinearLayout(activity);
     tile.setOrientation(LinearLayout.HORIZONTAL);
     tile.setGravity(Gravity.CENTER_VERTICAL);
-    tile.setPadding(UiTheme.dp(activity, 8), UiTheme.dp(activity, 10),
-        UiTheme.dp(activity, 8), UiTheme.dp(activity, 10));
+    tile.setPadding(UiTheme.dp(activity, 10), UiTheme.dp(activity, 10),
+        UiTheme.dp(activity, 10), UiTheme.dp(activity, 10));
     tile.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
 
     TextView iconView = UiTheme.text(activity, icon, 18, UiTheme.BLUE);
     iconView.setGravity(Gravity.CENTER);
-    tile.addView(iconView, new LinearLayout.LayoutParams(UiTheme.dp(activity, 30), -2));
+    tile.addView(iconView, new LinearLayout.LayoutParams(UiTheme.dp(activity, 32), -2));
 
     LinearLayout words = new LinearLayout(activity);
     words.setOrientation(LinearLayout.VERTICAL);
@@ -145,10 +147,21 @@ final class PlaybackAudioCard {
     return tile;
   }
 
-  private LinearLayout.LayoutParams tileParams(boolean middle) {
+  private LinearLayout.LayoutParams buttonParams(boolean right) {
+    LinearLayout.LayoutParams params =
+        new LinearLayout.LayoutParams(0, UiTheme.dp(activity, BUTTON_HEIGHT), 1);
+    int halfGap = UiTheme.dp(activity, GAP / 2);
+    if (right) params.setMargins(halfGap, 0, 0, 0);
+    else params.setMargins(0, 0, halfGap, 0);
+    return params;
+  }
+
+  private LinearLayout.LayoutParams tileParams(boolean middle, boolean last) {
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
     int gap = UiTheme.dp(activity, 4);
     if (middle) params.setMargins(gap, 0, gap, 0);
+    else if (last) params.setMargins(gap, 0, 0, 0);
+    else params.setMargins(0, 0, gap, 0);
     return params;
   }
 
@@ -162,8 +175,7 @@ final class PlaybackAudioCard {
   private void updateLevel(double db) {
     double clamped = Math.max(-60.0, Math.min(0.0, db));
     levelMeter.setLevelDb(clamped);
-    String text = String.format(Locale.US, "%.0f dB", clamped);
-    levelValue.setText(text);
+    levelValue.setText(String.format(Locale.US, "%.0f dB", clamped));
   }
 
   void start() {
