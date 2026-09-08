@@ -2,9 +2,7 @@ package org.openroadcode.androidbridge;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.os.Handler;
 import android.os.Looper;
@@ -21,6 +19,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Target;
+import org.openroadcode.androidbridge.ui.UiTheme;
 
 /**
  * UI and controller for the restricted OpenRoadCode runtime service-manager API.
@@ -29,16 +28,9 @@ import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Targe
  * Pi/systemd manager while preserving the same service names and operations.
  */
 public final class TermuxServicesCard {
-  private static final int SURFACE = Color.rgb(11, 24, 33);
-  private static final int SURFACE_RAISED = Color.rgb(16, 34, 46);
-  private static final int BORDER = Color.rgb(36, 64, 79);
-  private static final int TEXT = Color.rgb(243, 247, 249);
-  private static final int MUTED = Color.rgb(147, 164, 174);
-  private static final int BLUE = Color.rgb(22, 139, 209);
-  private static final int GREEN = Color.rgb(132, 206, 31);
-  private static final int RED = Color.rgb(241, 90, 22);
-
   private static final long REFRESH_MS = 2000;
+  private static final int BUTTON_HEIGHT = 46;
+  private static final int ROW_GAP = 8;
 
   private final Activity activity;
   private final RuntimeServiceManagerSettings settings;
@@ -48,6 +40,8 @@ public final class TermuxServicesCard {
   private final LinearLayout root;
   private final TextView targetSummary;
   private final TextView managerStatus;
+  private final Button termuxButton;
+  private final Button remotePiButton;
 
   private final Runnable refreshTask = new Runnable() {
     @Override
@@ -60,39 +54,52 @@ public final class TermuxServicesCard {
   public TermuxServicesCard(Activity activity) {
     this.activity = activity;
     settings = new RuntimeServiceManagerSettings(activity);
+    root = UiTheme.card(activity);
 
-    root = new LinearLayout(activity);
-    root.setOrientation(LinearLayout.VERTICAL);
-    root.setPadding(dp(12), dp(16), dp(12), dp(16));
-    root.setBackground(rounded(SURFACE, BORDER, 14));
+    LinearLayout titleRow = new LinearLayout(activity);
+    titleRow.setOrientation(LinearLayout.HORIZONTAL);
+    titleRow.setGravity(Gravity.CENTER_VERTICAL);
 
-    TextView title = text("OPENROADCODE SERVICES", 18, TEXT);
+    TextView title = text("OPENROADCODE SERVICES", 18, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    title.setLetterSpacing(.08f);
-    root.addView(title);
+    title.setLetterSpacing(.05f);
+    titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+    root.addView(titleRow);
 
-    targetSummary = text("", 12, BLUE);
+    targetSummary = text("", 12, UiTheme.MUTED);
     targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    targetSummary.setPadding(0, dp(2), 0, dp(8));
+    targetSummary.setPadding(0, dp(2), 0, dp(10));
     root.addView(targetSummary);
-    refreshTargetSummary();
 
-    root.addView(buttonRow(
-        actionButton("TERMUX", BLUE, v -> selectTermux()),
-        actionButton("REMOTE PI", BLUE, v -> selectRemotePi()),
-        actionButton("CONFIGURE PI", MUTED, v -> configureRemotePi())));
+    termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
+    remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
+    Button configureButton = actionButton("CONFIGURE PI", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
+    root.addView(buttonRow(termuxButton, remotePiButton, configureButton));
 
-    managerStatus = statusPill("Checking service manager…", MUTED);
-    root.addView(managerStatus);
-
-    root.addView(buttonRow(
-        actionButton("START CORE", BLUE, v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
-        actionButton("STOP CORE", RED, v -> runAction(RuntimeServiceManagerClient::stopCoreStack))));
+    managerStatus = statusPill("Checking service manager…", UiTheme.MUTED);
+    LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
+    statusParams.setMargins(0, dp(2), 0, dp(10));
+    root.addView(managerStatus, statusParams);
 
     addService("openroadcode-message-broker", "Message broker");
     addService("openroadcode-navigation", "Navigation");
     addService("openroadcode-automotive", "Automotive");
     addService("openroadcode-adsb", "ADS-B");
+
+    LinearLayout coreRow = new LinearLayout(activity);
+    coreRow.setOrientation(LinearLayout.HORIZONTAL);
+    coreRow.setPadding(0, dp(4), 0, 0);
+    coreRow.addView(
+        actionButton("START CORE", UiTheme.BLUE,
+            v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
+        pairedButtonParams(false));
+    coreRow.addView(
+        actionButton("STOP CORE", UiTheme.RED,
+            v -> runAction(RuntimeServiceManagerClient::stopCoreStack)),
+        pairedButtonParams(true));
+    root.addView(coreRow);
+
+    refreshTargetSummary();
   }
 
   public View view() {
@@ -174,7 +181,8 @@ public final class TermuxServicesCard {
   }
 
   private void refreshTargetSummary() {
-    if (settings.target() == Target.REMOTE_PI) {
+    boolean remote = settings.target() == Target.REMOTE_PI;
+    if (remote) {
       String endpoint = settings.piBaseUrl();
       targetSummary.setText(endpoint.isBlank()
           ? "Remote Pi • systemd • not configured"
@@ -182,6 +190,10 @@ public final class TermuxServicesCard {
     } else {
       targetSummary.setText("Termux • runit • localhost control plane");
     }
+    UiTheme.setButtonColor(activity, termuxButton,
+        remote ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
+    UiTheme.setButtonColor(activity, remotePiButton,
+        remote ? UiTheme.BLUE : UiTheme.SURFACE_RAISED);
   }
 
   private RuntimeServiceManagerClient activeClient() {
@@ -196,32 +208,44 @@ public final class TermuxServicesCard {
   }
 
   private void addService(String id, String label) {
-    LinearLayout serviceBlock = new LinearLayout(activity);
-    serviceBlock.setOrientation(LinearLayout.VERTICAL);
-    serviceBlock.setPadding(0, dp(6), 0, dp(6));
+    LinearLayout serviceRow = new LinearLayout(activity);
+    serviceRow.setOrientation(LinearLayout.HORIZONTAL);
+    serviceRow.setGravity(Gravity.CENTER_VERTICAL);
+    serviceRow.setPadding(dp(12), dp(8), dp(8), dp(8));
+    serviceRow.setBackground(
+        UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 10));
 
-    LinearLayout row = new LinearLayout(activity);
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setGravity(Gravity.CENTER_VERTICAL);
-    row.setPadding(dp(2), dp(6), dp(2), dp(2));
+    LinearLayout description = new LinearLayout(activity);
+    description.setOrientation(LinearLayout.VERTICAL);
+    description.setGravity(Gravity.CENTER_VERTICAL);
 
-    TextView name = text(label, 14, TEXT);
+    TextView name = text(label, 13, UiTheme.TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+    description.addView(name);
 
-    TextView state = text("● UNKNOWN", 12, MUTED);
-    state.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-    state.setGravity(Gravity.END);
-    row.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
-
+    TextView state = text("●  Unknown", 11, UiTheme.MUTED);
+    state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    state.setPadding(0, dp(2), 0, 0);
+    description.addView(state);
     serviceStates.put(id, state);
-    serviceBlock.addView(row);
 
-    serviceBlock.addView(buttonRow(
-        actionButton("START", BLUE, v -> runAction(client -> client.startService(id))),
-        actionButton("STOP", RED, v -> runAction(client -> client.stopService(id)))));
+    serviceRow.addView(description, new LinearLayout.LayoutParams(0, -2, 1.35f));
 
-    root.addView(serviceBlock);
+    Button startButton = actionButton(
+        "START", UiTheme.BLUE, v -> runAction(client -> client.startService(id)));
+    Button stopButton = actionButton(
+        "STOP", UiTheme.RED, v -> runAction(client -> client.stopService(id)));
+
+    LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), .82f);
+    startParams.setMargins(dp(6), 0, dp(3), 0);
+    LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), .82f);
+    stopParams.setMargins(dp(3), 0, 0, 0);
+    serviceRow.addView(startButton, startParams);
+    serviceRow.addView(stopButton, stopParams);
+
+    LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+    rowParams.setMargins(0, 0, 0, dp(ROW_GAP));
+    root.addView(serviceRow, rowParams);
   }
 
   private void refresh() {
@@ -240,7 +264,7 @@ public final class TermuxServicesCard {
 
   private void render(JSONObject result, String targetLabel) {
     managerStatus.setText("●  " + targetLabel + " service manager available");
-    managerStatus.setTextColor(GREEN);
+    managerStatus.setTextColor(UiTheme.GREEN);
 
     JSONArray services = result.optJSONArray("services");
     if (services == null) return;
@@ -250,18 +274,18 @@ public final class TermuxServicesCard {
       if (service == null) continue;
 
       String id = service.optString("name", "");
-      TextView view = serviceStates.get(id);
-      if (view == null) continue;
+      TextView stateView = serviceStates.get(id);
+      if (stateView == null) continue;
 
       String state = service.optString("state", "unknown").toLowerCase(Locale.US);
-      view.setText("● " + state.toUpperCase(Locale.US));
+      stateView.setText("●  " + titleCase(state));
 
       if ("running".equals(state)) {
-        view.setTextColor(GREEN);
+        stateView.setTextColor(UiTheme.GREEN);
       } else if ("stopped".equals(state)) {
-        view.setTextColor(MUTED);
+        stateView.setTextColor(UiTheme.MUTED);
       } else {
-        view.setTextColor(RED);
+        stateView.setTextColor(UiTheme.RED);
       }
     }
   }
@@ -270,17 +294,17 @@ public final class TermuxServicesCard {
     String target = settings.target() == Target.REMOTE_PI ? "Remote Pi" : "Termux";
     managerStatus.setText("●  " + target + " unavailable"
         + (message == null || message.isBlank() ? "" : ": " + message));
-    managerStatus.setTextColor(RED);
+    managerStatus.setTextColor(UiTheme.RED);
 
     for (TextView state : serviceStates.values()) {
-      state.setText("● UNKNOWN");
-      state.setTextColor(MUTED);
+      state.setText("●  Unknown");
+      state.setTextColor(UiTheme.MUTED);
     }
   }
 
   private void runAction(Action action) {
     managerStatus.setText("●  Applying service change…");
-    managerStatus.setTextColor(BLUE);
+    managerStatus.setTextColor(UiTheme.BLUE);
 
     new Thread(() -> {
       try {
@@ -290,7 +314,7 @@ public final class TermuxServicesCard {
         activity.runOnUiThread(() -> {
           String message = e.getMessage();
           managerStatus.setText("●  " + (message == null ? "Service request failed" : message));
-          managerStatus.setTextColor(RED);
+          managerStatus.setTextColor(UiTheme.RED);
         });
       }
     }, "orc-service-action").start();
@@ -301,15 +325,8 @@ public final class TermuxServicesCard {
   }
 
   private Button actionButton(String label, int color, View.OnClickListener listener) {
-    Button button = new Button(activity);
-    button.setText(label);
-    button.setTextColor(TEXT);
+    Button button = UiTheme.actionButton(activity, label, color, listener);
     button.setTextSize(11);
-    button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    button.setLetterSpacing(.08f);
-    button.setAllCaps(false);
-    button.setBackground(rounded(color, color, 9));
-    button.setOnClickListener(listener);
     return button;
   }
 
@@ -317,42 +334,44 @@ public final class TermuxServicesCard {
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(Gravity.CENTER);
-    row.setPadding(0, dp(6), 0, dp(6));
+    row.setPadding(0, 0, 0, dp(10));
 
-    for (Button button : buttons) {
-      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(42), 1);
-      params.setMargins(dp(3), 0, dp(3), 0);
-      row.addView(button, params);
+    for (int i = 0; i < buttons.length; i++) {
+      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
+      int left = i == 0 ? 0 : dp(4);
+      int right = i == buttons.length - 1 ? 0 : dp(4);
+      params.setMargins(left, 0, right, 0);
+      row.addView(buttons[i], params);
     }
-
     return row;
   }
 
+  private LinearLayout.LayoutParams pairedButtonParams(boolean right) {
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(50), 1);
+    if (right) params.setMargins(dp(4), 0, 0, 0);
+    else params.setMargins(0, 0, dp(4), 0);
+    return params;
+  }
+
   private TextView statusPill(String value, int color) {
-    TextView view = text("●  " + value, 13, color);
+    TextView view = text("●  " + value, 12, color);
     view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    view.setPadding(dp(10), dp(8), dp(10), dp(8));
-    view.setBackground(rounded(SURFACE_RAISED, BORDER, 9));
+    view.setPadding(dp(10), dp(9), dp(10), dp(9));
+    view.setBackground(
+        UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
     return view;
   }
 
   private TextView text(String value, float size, int color) {
-    TextView view = new TextView(activity);
-    view.setText(value);
-    view.setTextSize(size);
-    view.setTextColor(color);
-    return view;
+    return UiTheme.text(activity, value, size, color);
   }
 
-  private GradientDrawable rounded(int fill, int stroke, int radius) {
-    GradientDrawable drawable = new GradientDrawable();
-    drawable.setColor(fill);
-    drawable.setCornerRadius(dp(radius));
-    drawable.setStroke(dp(1), stroke);
-    return drawable;
+  private String titleCase(String value) {
+    if (value.isEmpty()) return value;
+    return value.substring(0, 1).toUpperCase(Locale.US) + value.substring(1);
   }
 
   private int dp(int value) {
-    return Math.round(value * activity.getResources().getDisplayMetrics().density);
+    return UiTheme.dp(activity, value);
   }
 }
