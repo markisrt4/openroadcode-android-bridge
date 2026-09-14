@@ -65,7 +65,7 @@ public final class RuntimeServiceManagerClient {
 
   public JSONObject setServiceProfile(String service, String profile) throws Exception {
     validateService(service);
-    if (!profile.matches("live|simulated")) {
+    if (!profile.matches("phone|target|simulated")) {
       throw new IllegalArgumentException("Unsupported runtime profile: " + profile);
     }
     return request("POST", "/services/" + service + "/profile/" + profile);
