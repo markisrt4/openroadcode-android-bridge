@@ -109,7 +109,7 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "PLAYBACK AUDIO",
         "Audio bridge and playback", BLUE, playbackAudioCard.view(), false, true);
 
-    addSectionHeader(content, "SYSTEM", "Android and Termux runtime services", SILVER);
+    addSectionHeader(content, "SYSTEM", "Runtime orchestration and service control", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
     addServiceCard(content, "TERMUX SERVICES",
