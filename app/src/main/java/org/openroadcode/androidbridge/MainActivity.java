@@ -112,8 +112,8 @@ public final class MainActivity extends Activity {
     addSectionHeader(content, "SYSTEM", "Runtime orchestration and service control", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
-    addServiceCard(content, "TERMUX SERVICES",
-        "OpenRoadCode runtime processes", SILVER, termuxServicesCard.view(), false, true);
+    addServiceCard(content, "RUNTIME SERVICES",
+        "Termux and remote Linux targets", SILVER, termuxServicesCard.view(), false, true);
 
     TextView footer = text("OPENROADC0DE  •  BUILD " + BuildConfig.VERSION_NAME, 11, MUTED);
     footer.setGravity(Gravity.CENTER);
