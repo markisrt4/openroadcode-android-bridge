@@ -127,7 +127,7 @@ public final class MainActivity extends Activity {
 
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
     addServiceCard(content, "AUTOMOTIVE SERVICE",
-        "Target • profile • lifecycle", SILVER,
+        "Live / simulated input profile", SILVER,
         termuxServicesCard.view(), true, true);
   }
 
@@ -143,7 +143,7 @@ public final class MainActivity extends Activity {
 
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-navigation");
     addServiceCard(content, "NAVIGATION SERVICE",
-        "Target • profile • lifecycle", SILVER,
+        "Live / simulated input profile", SILVER,
         termuxServicesCard.view(), true, true);
   }
 
