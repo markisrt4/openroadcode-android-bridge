@@ -28,6 +28,7 @@ import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.ServiceConfig;
 import org.openroadcode.androidbridge.config.ServiceProvider;
 import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
+import org.openroadcode.androidbridge.ui.CircuitIconView;
 import org.openroadcode.androidbridge.ui.ExpandableCard;
 import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
@@ -159,13 +160,13 @@ public final class MainActivity extends Activity {
   }
 
   private void showConnectivity() {
-    addSubsystemHeader("⇄", "CONNECTIVITY", "Network exposure and bridge endpoints", BLUE);
+    addSubsystemHeader("⇄", "CONNECTIVITY", "Choose where Android bridge data is reachable", BLUE);
 
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
     remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
     addServiceCard(content, "REMOTE SENSOR ACCESS",
-        remoteEnabled ? "LAN access enabled" : "Local device only", GREEN,
+        remoteEnabled ? "Shared on local network" : "This phone only", GREEN,
         remoteAccessCard.view(), true, true);
     updateRemoteAccessStatus();
   }
@@ -190,10 +191,8 @@ public final class MainActivity extends Activity {
     backParams.setMargins(0, 0, dp(10), 0);
     row.addView(back, backParams);
 
-    TextView iconView = text(icon, 26, accent);
-    iconView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    iconView.setGravity(Gravity.CENTER);
-    row.addView(iconView, new LinearLayout.LayoutParams(dp(42), dp(46)));
+    CircuitIconView iconView = new CircuitIconView(this, icon, accent);
+    row.addView(iconView, new LinearLayout.LayoutParams(dp(52), dp(52)));
 
     LinearLayout labels = new LinearLayout(this);
     labels.setOrientation(LinearLayout.VERTICAL);
