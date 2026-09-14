@@ -110,6 +110,11 @@ public final class RuntimeServiceManagerClient {
       reader.close();
       JSONObject response = new JSONObject(body.toString());
       if (status < 200 || status >= 300) {
+        if (status == 404 && path.contains("/profile/")) {
+          throw new IllegalStateException(
+              "Runtime profile API is not available on " + targetLabel
+              + ". Update and restart the OpenRoadCode service manager.");
+        }
         throw new IllegalStateException(response.optString(
             "error", targetLabel + " service request failed"));
       }
