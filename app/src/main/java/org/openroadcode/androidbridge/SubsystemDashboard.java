@@ -6,6 +6,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import org.openroadcode.androidbridge.ui.CircuitIconView;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** Icon-first launcher for the major OpenRoadCode bridge subsystems. */
@@ -88,10 +89,8 @@ final class SubsystemDashboard {
     tile.setFocusable(true);
     tile.setOnClickListener(v -> listener.onSubsystemSelected(subsystem));
 
-    TextView iconView = UiTheme.text(context, icon, 34, accent);
-    iconView.setGravity(Gravity.CENTER);
-    iconView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    tile.addView(iconView);
+    CircuitIconView iconView = new CircuitIconView(context, icon, accent);
+    tile.addView(iconView, new LinearLayout.LayoutParams(dp(64), dp(64)));
 
     TextView titleView = UiTheme.text(context, title, 13, UiTheme.TEXT);
     titleView.setGravity(Gravity.CENTER);
