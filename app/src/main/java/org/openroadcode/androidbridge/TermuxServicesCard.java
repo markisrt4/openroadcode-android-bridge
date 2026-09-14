@@ -38,6 +38,7 @@ public final class TermuxServicesCard {
   private final Map<String, Button> simulatedButtons = new LinkedHashMap<>();
   private final Set<String> visibleServices = new LinkedHashSet<>();
   private final boolean showCoreControls;
+  private final boolean showTargetControls;
 
   private final LinearLayout root;
   private final TextView targetSummary;
@@ -65,10 +66,13 @@ public final class TermuxServicesCard {
     this.activity = activity;
     for (String service : services) visibleServices.add(service);
     showCoreControls = visibleServices.size() > 1;
+    showTargetControls = showCoreControls;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
-    TextView title = text("OPENROADCODE RUNTIME", 18, UiTheme.TEXT);
+    TextView title = text(
+        showTargetControls ? "OPENROADCODE RUNTIME" : "SERVICE CONTROL",
+        18, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     title.setLetterSpacing(.05f);
     root.addView(title);
@@ -78,19 +82,21 @@ public final class TermuxServicesCard {
     targetSummary.setPadding(0, dp(2), 0, dp(10));
     root.addView(targetSummary);
 
-    addSectionLabel("RUNTIME TARGET");
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
     remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
-    Button configureButton = actionButton(
-        "CONFIGURE", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
-    root.addView(buttonRow(termuxButton, remotePiButton, configureButton));
+    if (showTargetControls) {
+      addSectionLabel("RUNTIME TARGET");
+      Button configureButton = actionButton(
+          "CONFIGURE", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
+      root.addView(buttonRow(termuxButton, remotePiButton, configureButton));
+    }
 
     managerStatus = statusPill("Checking service manager…", UiTheme.MUTED);
     LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
     statusParams.setMargins(0, dp(1), 0, dp(11));
     root.addView(managerStatus, statusParams);
 
-    addSectionLabel("SERVICES");
+    if (showTargetControls) addSectionLabel("SERVICES");
     if (visibleServices.contains("openroadcode-message-broker")) {
       addService("openroadcode-message-broker", "Message broker",
           "Runtime message infrastructure", false);
@@ -217,15 +223,17 @@ public final class TermuxServicesCard {
     if (remote) {
       String endpoint = settings.piBaseUrl();
       targetSummary.setText(endpoint.isBlank()
-          ? "Remote Linux • systemd • not configured"
-          : "Remote Linux • systemd • " + endpoint);
+          ? "Target: Remote Linux • systemd • not configured"
+          : "Target: Remote Linux • systemd • " + endpoint);
     } else {
-      targetSummary.setText("Termux • runit • local runtime");
+      targetSummary.setText("Target: Termux • runit • local runtime");
     }
-    UiTheme.setButtonColor(activity, termuxButton,
-        remote ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
-    UiTheme.setButtonColor(activity, remotePiButton,
-        remote ? UiTheme.BLUE : UiTheme.SURFACE_RAISED);
+    if (showTargetControls) {
+      UiTheme.setButtonColor(activity, termuxButton,
+          remote ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
+      UiTheme.setButtonColor(activity, remotePiButton,
+          remote ? UiTheme.BLUE : UiTheme.SURFACE_RAISED);
+    }
   }
 
   private RuntimeServiceManagerClient activeClient() {
