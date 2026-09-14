@@ -60,7 +60,7 @@ public final class TermuxServicesCard {
     titleRow.setOrientation(LinearLayout.HORIZONTAL);
     titleRow.setGravity(Gravity.CENTER_VERTICAL);
 
-    TextView title = text("OPENROADCODE SERVICES", 18, UiTheme.TEXT);
+    TextView title = text("OPENROADCODE RUNTIME", 18, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     title.setLetterSpacing(.05f);
     titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
@@ -207,7 +207,7 @@ public final class TermuxServicesCard {
     return new RuntimeServiceManagerClient(TermuxServiceManagerClient.BASE_URL, "Termux");
   }
 
-  private void addService(String id, String label) {
+  private void addService(String id, String label, String profileHint) {
     LinearLayout serviceRow = new LinearLayout(activity);
     serviceRow.setOrientation(LinearLayout.HORIZONTAL);
     serviceRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -225,11 +225,11 @@ public final class TermuxServicesCard {
 
     TextView state = text("●  Unknown", 11, UiTheme.MUTED);
     state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    state.setPadding(0, dp(2), 0, 0);
+    state.setPadding(0, dp(3), 0, 0);
     description.addView(state);
     serviceStates.put(id, state);
 
-    serviceRow.addView(description, new LinearLayout.LayoutParams(0, -2, 1.35f));
+    serviceRow.addView(description, new LinearLayout.LayoutParams(0, -2, 1.55f));
 
     Button startButton = actionButton(
         "START", UiTheme.BLUE, v -> runAction(client -> client.startService(id)));
