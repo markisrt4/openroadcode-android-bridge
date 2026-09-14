@@ -39,6 +39,7 @@ public final class TermuxServicesCard {
   private final Set<String> visibleServices = new LinkedHashSet<>();
   private final boolean showCoreControls;
   private final boolean showTargetControls;
+  private final boolean profileOnly;
 
   private final LinearLayout root;
   private final TextView targetSummary;
@@ -67,11 +68,12 @@ public final class TermuxServicesCard {
     for (String service : services) visibleServices.add(service);
     showCoreControls = visibleServices.size() > 1;
     showTargetControls = showCoreControls;
+    profileOnly = !showTargetControls && visibleServices.size() == 1;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
     TextView title = text(
-        showTargetControls ? "OPENROADCODE RUNTIME" : "SERVICE CONTROL",
+        showTargetControls ? "OPENROADCODE RUNTIME" : "INPUT PROFILE",
         18, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     title.setLetterSpacing(.05f);
@@ -80,7 +82,7 @@ public final class TermuxServicesCard {
     targetSummary = text("", 12, UiTheme.MUTED);
     targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     targetSummary.setPadding(0, dp(2), 0, dp(10));
-    root.addView(targetSummary);
+    if (showTargetControls) root.addView(targetSummary);
 
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
     remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
@@ -91,7 +93,9 @@ public final class TermuxServicesCard {
       root.addView(buttonRow(termuxButton, remotePiButton, configureButton));
     }
 
-    managerStatus = statusPill("Checking service manager…", UiTheme.MUTED);
+    managerStatus = statusPill(
+        profileOnly ? "Checking selected profile…" : "Checking service manager…",
+        UiTheme.MUTED);
     LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
     statusParams.setMargins(0, dp(1), 0, dp(11));
     root.addView(managerStatus, statusParams);
@@ -262,14 +266,18 @@ public final class TermuxServicesCard {
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
 
-    TextView state = text("●  Unknown", 11, UiTheme.MUTED);
-    state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    state.setGravity(Gravity.END);
-    heading.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
-    serviceStates.put(id, state);
+    if (!profileOnly) {
+      TextView state = text("●  Unknown", 11, UiTheme.MUTED);
+      state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+      state.setGravity(Gravity.END);
+      heading.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
+      serviceStates.put(id, state);
+    }
     card.addView(heading);
 
-    TextView description = text(descriptionText, 10, UiTheme.SILVER);
+    TextView description = text(
+        profileOnly ? "Choose the input source used next time this service runs" : descriptionText,
+        10, UiTheme.SILVER);
     description.setPadding(0, dp(2), 0, profiles ? dp(7) : dp(6));
     card.addView(description);
 
@@ -302,18 +310,20 @@ public final class TermuxServicesCard {
       card.addView(profileRow);
     }
 
-    LinearLayout actions = new LinearLayout(activity);
-    actions.setOrientation(LinearLayout.HORIZONTAL);
-    actions.setPadding(0, dp(8), 0, 0);
-    actions.addView(
-        actionButton("START", UiTheme.BLUE,
-            v -> runAction(client -> client.startService(id))),
-        pairedButtonParams(false));
-    actions.addView(
-        actionButton("STOP", UiTheme.RED,
-            v -> runAction(client -> client.stopService(id))),
-        pairedButtonParams(true));
-    card.addView(actions);
+    if (!profileOnly) {
+      LinearLayout actions = new LinearLayout(activity);
+      actions.setOrientation(LinearLayout.HORIZONTAL);
+      actions.setPadding(0, dp(8), 0, 0);
+      actions.addView(
+          actionButton("START", UiTheme.BLUE,
+              v -> runAction(client -> client.startService(id))),
+          pairedButtonParams(false));
+      actions.addView(
+          actionButton("STOP", UiTheme.RED,
+              v -> runAction(client -> client.stopService(id))),
+          pairedButtonParams(true));
+      card.addView(actions);
+    }
 
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, 0, 0, dp(ROW_GAP));
@@ -349,8 +359,10 @@ public final class TermuxServicesCard {
   }
 
   private void render(JSONObject result, String targetLabel) {
-    managerStatus.setText("●  " + targetLabel + " service manager available");
-    managerStatus.setTextColor(UiTheme.GREEN);
+    if (!profileOnly) {
+      managerStatus.setText("●  " + targetLabel + " service manager available");
+      managerStatus.setTextColor(UiTheme.GREEN);
+    }
 
     JSONArray services = result.optJSONArray("services");
     if (services == null) return;
@@ -361,22 +373,30 @@ public final class TermuxServicesCard {
 
       String id = service.optString("name", "");
       TextView stateView = serviceStates.get(id);
-      if (stateView == null) continue;
+      TextView profileView = serviceProfiles.get(id);
+      if (stateView == null && profileView == null) continue;
 
-      String state = service.optString("state", "unknown").toLowerCase(Locale.US);
-      stateView.setText("●  " + titleCase(state));
-      if ("running".equals(state)) {
-        stateView.setTextColor(UiTheme.GREEN);
-      } else if ("stopped".equals(state)) {
-        stateView.setTextColor(UiTheme.MUTED);
-      } else {
-        stateView.setTextColor(UiTheme.RED);
+      if (stateView != null) {
+        String state = service.optString("state", "unknown").toLowerCase(Locale.US);
+        stateView.setText("●  " + titleCase(state));
+        if ("running".equals(state)) {
+          stateView.setTextColor(UiTheme.GREEN);
+        } else if ("stopped".equals(state)) {
+          stateView.setTextColor(UiTheme.MUTED);
+        } else {
+          stateView.setTextColor(UiTheme.RED);
+        }
       }
 
-      TextView profileView = serviceProfiles.get(id);
       if (profileView != null) {
         String profile = service.optString("profile", "");
         renderProfile(id, profileView, profile);
+        if (profileOnly) {
+          managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
+              + " profile selected");
+          managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.AMBER
+              : ("live".equals(profile) ? UiTheme.GREEN : UiTheme.MUTED));
+        }
       }
     }
   }
