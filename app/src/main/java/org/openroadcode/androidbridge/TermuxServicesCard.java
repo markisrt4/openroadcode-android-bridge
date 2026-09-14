@@ -68,8 +68,14 @@ public final class TermuxServicesCard {
 
     targetSummary = text("", 12, UiTheme.MUTED);
     targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    targetSummary.setPadding(0, dp(2), 0, dp(10));
+    targetSummary.setPadding(0, dp(2), 0, dp(8));
     root.addView(targetSummary);
+
+    TextView targetLabel = text("RUNTIME TARGET", 10, UiTheme.MUTED);
+    targetLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    targetLabel.setLetterSpacing(.10f);
+    targetLabel.setPadding(0, 0, 0, dp(5));
+    root.addView(targetLabel);
 
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
     remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
@@ -81,10 +87,26 @@ public final class TermuxServicesCard {
     statusParams.setMargins(0, dp(2), 0, dp(10));
     root.addView(managerStatus, statusParams);
 
-    addService("openroadcode-message-broker", "Message broker");
-    addService("openroadcode-navigation", "Navigation");
-    addService("openroadcode-automotive", "Automotive");
-    addService("openroadcode-adsb", "ADS-B");
+    TextView servicesLabel = text("SERVICES", 10, UiTheme.MUTED);
+    servicesLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    servicesLabel.setLetterSpacing(.10f);
+    servicesLabel.setPadding(0, dp(2), 0, dp(6));
+    root.addView(servicesLabel);
+
+    addService("openroadcode-message-broker", "Message broker",
+        "Infrastructure • no input profile");
+    addService("openroadcode-navigation", "Navigation",
+        "Position / motion profile");
+    addService("openroadcode-automotive", "Automotive",
+        "Vehicle data profile");
+    addService("openroadcode-adsb", "ADS-B",
+        "RF / aircraft source profile");
+
+    TextView coreLabel = text("CORE STACK", 10, UiTheme.MUTED);
+    coreLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    coreLabel.setLetterSpacing(.10f);
+    coreLabel.setPadding(0, dp(2), 0, dp(5));
+    root.addView(coreLabel);
 
     LinearLayout coreRow = new LinearLayout(activity);
     coreRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -222,6 +244,10 @@ public final class TermuxServicesCard {
     TextView name = text(label, 13, UiTheme.TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     description.addView(name);
+
+    TextView profile = text(profileHint, 10, UiTheme.SILVER);
+    profile.setPadding(0, dp(2), 0, 0);
+    description.addView(profile);
 
     TextView state = text("●  Unknown", 11, UiTheme.MUTED);
     state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
