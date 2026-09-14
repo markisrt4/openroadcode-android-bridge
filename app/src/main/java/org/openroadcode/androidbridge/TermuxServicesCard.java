@@ -21,21 +21,19 @@ import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Target;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
-/**
- * UI and controller for the restricted OpenRoadCode runtime service-manager API.
- *
- * The card can control the local Termux/runit manager or an authenticated remote
- * Pi/systemd manager while preserving the same service names and operations.
- */
+/** Runtime target, profile, and lifecycle controls for OpenRoadCode services. */
 public final class TermuxServicesCard {
   private static final long REFRESH_MS = 2000;
-  private static final int BUTTON_HEIGHT = 46;
-  private static final int ROW_GAP = 8;
+  private static final int BUTTON_HEIGHT = 44;
+  private static final int ROW_GAP = 9;
 
   private final Activity activity;
   private final RuntimeServiceManagerSettings settings;
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final Map<String, TextView> serviceStates = new LinkedHashMap<>();
+  private final Map<String, TextView> serviceProfiles = new LinkedHashMap<>();
+  private final Map<String, Button> liveButtons = new LinkedHashMap<>();
+  private final Map<String, Button> simulatedButtons = new LinkedHashMap<>();
 
   private final LinearLayout root;
   private final TextView targetSummary;
@@ -56,61 +54,41 @@ public final class TermuxServicesCard {
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
-    LinearLayout titleRow = new LinearLayout(activity);
-    titleRow.setOrientation(LinearLayout.HORIZONTAL);
-    titleRow.setGravity(Gravity.CENTER_VERTICAL);
-
     TextView title = text("OPENROADCODE RUNTIME", 18, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     title.setLetterSpacing(.05f);
-    titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-    root.addView(titleRow);
+    root.addView(title);
 
     targetSummary = text("", 12, UiTheme.MUTED);
     targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    targetSummary.setPadding(0, dp(2), 0, dp(8));
+    targetSummary.setPadding(0, dp(2), 0, dp(10));
     root.addView(targetSummary);
 
-    TextView targetLabel = text("RUNTIME TARGET", 10, UiTheme.MUTED);
-    targetLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    targetLabel.setLetterSpacing(.10f);
-    targetLabel.setPadding(0, 0, 0, dp(5));
-    root.addView(targetLabel);
-
+    addSectionLabel("RUNTIME TARGET");
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
     remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
-    Button configureButton = actionButton("CONFIGURE PI", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
+    Button configureButton = actionButton(
+        "CONFIGURE", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
     root.addView(buttonRow(termuxButton, remotePiButton, configureButton));
 
     managerStatus = statusPill("Checking service manager…", UiTheme.MUTED);
     LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
-    statusParams.setMargins(0, dp(2), 0, dp(10));
+    statusParams.setMargins(0, dp(1), 0, dp(11));
     root.addView(managerStatus, statusParams);
 
-    TextView servicesLabel = text("SERVICES", 10, UiTheme.MUTED);
-    servicesLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    servicesLabel.setLetterSpacing(.10f);
-    servicesLabel.setPadding(0, dp(2), 0, dp(6));
-    root.addView(servicesLabel);
-
+    addSectionLabel("SERVICES");
     addService("openroadcode-message-broker", "Message broker",
-        "Infrastructure • no input profile");
+        "Runtime message infrastructure", false);
     addService("openroadcode-navigation", "Navigation",
-        "Position / motion profile");
+        "Position and motion pipeline", true);
     addService("openroadcode-automotive", "Automotive",
-        "Vehicle data profile");
+        "Vehicle telemetry pipeline", true);
     addService("openroadcode-adsb", "ADS-B",
-        "RF / aircraft source profile");
+        "Aircraft receiver service", false);
 
-    TextView coreLabel = text("CORE STACK", 10, UiTheme.MUTED);
-    coreLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    coreLabel.setLetterSpacing(.10f);
-    coreLabel.setPadding(0, dp(2), 0, dp(5));
-    root.addView(coreLabel);
-
+    addSectionLabel("CORE STACK");
     LinearLayout coreRow = new LinearLayout(activity);
     coreRow.setOrientation(LinearLayout.HORIZONTAL);
-    coreRow.setPadding(0, dp(4), 0, 0);
     coreRow.addView(
         actionButton("START CORE", UiTheme.BLUE,
             v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
@@ -135,6 +113,14 @@ public final class TermuxServicesCard {
 
   public void stop() {
     handler.removeCallbacks(refreshTask);
+  }
+
+  private void addSectionLabel(String label) {
+    TextView view = text(label, 10, UiTheme.MUTED);
+    view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    view.setLetterSpacing(.10f);
+    view.setPadding(0, dp(2), 0, dp(6));
+    root.addView(view);
   }
 
   private void selectTermux() {
@@ -173,8 +159,8 @@ public final class TermuxServicesCard {
     fields.addView(token);
 
     AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Remote Pi service manager")
-        .setMessage("Enter the Pi service-manager endpoint and bearer token.")
+        .setTitle("Remote Linux service manager")
+        .setMessage("Enter the service-manager endpoint and bearer token.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
         .setPositiveButton("SAVE", null)
@@ -189,7 +175,7 @@ public final class TermuxServicesCard {
             return;
           }
           if (bearerToken.isBlank()) {
-            token.setError("The remote Pi requires a bearer token");
+            token.setError("The remote service manager requires a bearer token");
             return;
           }
           settings.setPiBaseUrl(baseUrl);
@@ -207,10 +193,10 @@ public final class TermuxServicesCard {
     if (remote) {
       String endpoint = settings.piBaseUrl();
       targetSummary.setText(endpoint.isBlank()
-          ? "Remote Pi • systemd • not configured"
-          : "Remote Pi • systemd • " + endpoint);
+          ? "Remote Linux • systemd • not configured"
+          : "Remote Linux • systemd • " + endpoint);
     } else {
-      targetSummary.setText("Termux • runit • localhost control plane");
+      targetSummary.setText("Termux • runit • local runtime");
     }
     UiTheme.setButtonColor(activity, termuxButton,
         remote ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
@@ -221,57 +207,99 @@ public final class TermuxServicesCard {
   private RuntimeServiceManagerClient activeClient() {
     if (settings.target() == Target.REMOTE_PI) {
       if (!settings.hasRemotePiConfiguration()) {
-        throw new IllegalStateException("Remote Pi service manager is not configured");
+        throw new IllegalStateException("Remote Linux service manager is not configured");
       }
       return new RuntimeServiceManagerClient(
-          settings.piBaseUrl(), "Remote Pi", settings.piToken());
+          settings.piBaseUrl(), "Remote Linux", settings.piToken());
     }
     return new RuntimeServiceManagerClient(TermuxServiceManagerClient.BASE_URL, "Termux");
   }
 
-  private void addService(String id, String label, String profileHint) {
-    LinearLayout serviceRow = new LinearLayout(activity);
-    serviceRow.setOrientation(LinearLayout.HORIZONTAL);
-    serviceRow.setGravity(Gravity.CENTER_VERTICAL);
-    serviceRow.setPadding(dp(12), dp(8), dp(8), dp(8));
-    serviceRow.setBackground(
-        UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 10));
+  private void addService(String id, String label, String descriptionText, boolean profiles) {
+    LinearLayout card = new LinearLayout(activity);
+    card.setOrientation(LinearLayout.VERTICAL);
+    card.setPadding(dp(12), dp(10), dp(12), dp(10));
+    card.setBackground(UiTheme.rounded(
+        activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 10));
 
-    LinearLayout description = new LinearLayout(activity);
-    description.setOrientation(LinearLayout.VERTICAL);
-    description.setGravity(Gravity.CENTER_VERTICAL);
+    LinearLayout heading = new LinearLayout(activity);
+    heading.setOrientation(LinearLayout.HORIZONTAL);
+    heading.setGravity(Gravity.CENTER_VERTICAL);
 
-    TextView name = text(label, 13, UiTheme.TEXT);
+    TextView name = text(label, 14, UiTheme.TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    description.addView(name);
-
-    TextView profile = text(profileHint, 10, UiTheme.SILVER);
-    profile.setPadding(0, dp(2), 0, 0);
-    description.addView(profile);
+    heading.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
 
     TextView state = text("●  Unknown", 11, UiTheme.MUTED);
     state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    state.setPadding(0, dp(3), 0, 0);
-    description.addView(state);
+    state.setGravity(Gravity.END);
+    heading.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
     serviceStates.put(id, state);
+    card.addView(heading);
 
-    serviceRow.addView(description, new LinearLayout.LayoutParams(0, -2, 1.55f));
+    TextView description = text(descriptionText, 10, UiTheme.SILVER);
+    description.setPadding(0, dp(2), 0, profiles ? dp(7) : dp(6));
+    card.addView(description);
 
-    Button startButton = actionButton(
-        "START", UiTheme.BLUE, v -> runAction(client -> client.startService(id)));
-    Button stopButton = actionButton(
-        "STOP", UiTheme.RED, v -> runAction(client -> client.stopService(id)));
+    if (profiles) {
+      LinearLayout profileRow = new LinearLayout(activity);
+      profileRow.setOrientation(LinearLayout.HORIZONTAL);
+      profileRow.setGravity(Gravity.CENTER_VERTICAL);
 
-    LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), .82f);
-    startParams.setMargins(dp(6), 0, dp(3), 0);
-    LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), .82f);
-    stopParams.setMargins(dp(3), 0, 0, 0);
-    serviceRow.addView(startButton, startParams);
-    serviceRow.addView(stopButton, stopParams);
+      TextView profile = text("INPUT  •  loading…", 10, UiTheme.MUTED);
+      profile.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+      profileRow.addView(profile, new LinearLayout.LayoutParams(0, -2, 1.3f));
+      serviceProfiles.put(id, profile);
 
-    LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
-    rowParams.setMargins(0, 0, 0, dp(ROW_GAP));
-    root.addView(serviceRow, rowParams);
+      Button live = profileButton(
+          "LIVE", UiTheme.SURFACE, v -> setProfile(id, "live"));
+      Button simulated = profileButton(
+          "SIM", UiTheme.SURFACE, v -> setProfile(id, "simulated"));
+      liveButtons.put(id, live);
+      simulatedButtons.put(id, simulated);
+
+      LinearLayout.LayoutParams profileButtonParams =
+          new LinearLayout.LayoutParams(0, dp(36), .55f);
+      profileButtonParams.setMargins(dp(4), 0, 0, 0);
+      profileRow.addView(live, profileButtonParams);
+
+      LinearLayout.LayoutParams simParams =
+          new LinearLayout.LayoutParams(0, dp(36), .65f);
+      simParams.setMargins(dp(5), 0, 0, 0);
+      profileRow.addView(simulated, simParams);
+      card.addView(profileRow);
+    }
+
+    LinearLayout actions = new LinearLayout(activity);
+    actions.setOrientation(LinearLayout.HORIZONTAL);
+    actions.setPadding(0, dp(8), 0, 0);
+    actions.addView(
+        actionButton("START", UiTheme.BLUE,
+            v -> runAction(client -> client.startService(id))),
+        pairedButtonParams(false));
+    actions.addView(
+        actionButton("STOP", UiTheme.RED,
+            v -> runAction(client -> client.stopService(id))),
+        pairedButtonParams(true));
+    card.addView(actions);
+
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+    params.setMargins(0, 0, 0, dp(ROW_GAP));
+    root.addView(card, params);
+  }
+
+  private void setProfile(String service, String profile) {
+    managerStatus.setText("●  Switching " + shortServiceName(service)
+        + " to " + ("simulated".equals(profile) ? "simulation" : "live input") + "…");
+    managerStatus.setTextColor(
+        "simulated".equals(profile) ? UiTheme.AMBER : UiTheme.BLUE);
+    runAction(client -> client.setServiceProfile(service, profile));
+  }
+
+  private String shortServiceName(String service) {
+    if (service.endsWith("navigation")) return "navigation";
+    if (service.endsWith("automotive")) return "automotive";
+    return service;
   }
 
   private void refresh() {
@@ -305,7 +333,6 @@ public final class TermuxServicesCard {
 
       String state = service.optString("state", "unknown").toLowerCase(Locale.US);
       stateView.setText("●  " + titleCase(state));
-
       if ("running".equals(state)) {
         stateView.setTextColor(UiTheme.GREEN);
       } else if ("stopped".equals(state)) {
@@ -313,11 +340,42 @@ public final class TermuxServicesCard {
       } else {
         stateView.setTextColor(UiTheme.RED);
       }
+
+      TextView profileView = serviceProfiles.get(id);
+      if (profileView != null) {
+        String profile = service.optString("profile", "");
+        renderProfile(id, profileView, profile);
+      }
     }
   }
 
+  private void renderProfile(String id, TextView view, String profile) {
+    Button live = liveButtons.get(id);
+    Button simulated = simulatedButtons.get(id);
+    if (live == null || simulated == null) return;
+
+    boolean isSimulated = "simulated".equals(profile);
+    boolean isLive = "live".equals(profile);
+
+    if (isSimulated) {
+      view.setText("◇  SIMULATED INPUT");
+      view.setTextColor(UiTheme.AMBER);
+    } else if (isLive) {
+      view.setText("●  LIVE INPUT");
+      view.setTextColor(UiTheme.GREEN);
+    } else {
+      view.setText("○  PROFILE UNKNOWN");
+      view.setTextColor(UiTheme.MUTED);
+    }
+
+    UiTheme.setButtonColor(activity, live,
+        isLive ? UiTheme.BLUE : UiTheme.SURFACE);
+    UiTheme.setButtonColor(activity, simulated,
+        isSimulated ? UiTheme.AMBER : UiTheme.SURFACE);
+  }
+
   private void renderUnavailable(String message) {
-    String target = settings.target() == Target.REMOTE_PI ? "Remote Pi" : "Termux";
+    String target = settings.target() == Target.REMOTE_PI ? "Remote Linux" : "Termux";
     managerStatus.setText("●  " + target + " unavailable"
         + (message == null || message.isBlank() ? "" : ": " + message));
     managerStatus.setTextColor(UiTheme.RED);
@@ -326,12 +384,13 @@ public final class TermuxServicesCard {
       state.setText("●  Unknown");
       state.setTextColor(UiTheme.MUTED);
     }
+    for (TextView profile : serviceProfiles.values()) {
+      profile.setText("○  PROFILE UNKNOWN");
+      profile.setTextColor(UiTheme.MUTED);
+    }
   }
 
   private void runAction(Action action) {
-    managerStatus.setText("●  Applying service change…");
-    managerStatus.setTextColor(UiTheme.BLUE);
-
     new Thread(() -> {
       try {
         action.run(activeClient());
@@ -339,7 +398,8 @@ public final class TermuxServicesCard {
       } catch (Exception e) {
         activity.runOnUiThread(() -> {
           String message = e.getMessage();
-          managerStatus.setText("●  " + (message == null ? "Service request failed" : message));
+          managerStatus.setText("●  "
+              + (message == null ? "Service request failed" : message));
           managerStatus.setTextColor(UiTheme.RED);
         });
       }
@@ -356,6 +416,13 @@ public final class TermuxServicesCard {
     return button;
   }
 
+  private Button profileButton(String label, int color, View.OnClickListener listener) {
+    Button button = UiTheme.actionButton(activity, label, color, listener);
+    button.setTextSize(10);
+    button.setLetterSpacing(.06f);
+    return button;
+  }
+
   private LinearLayout buttonRow(Button... buttons) {
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
@@ -363,7 +430,8 @@ public final class TermuxServicesCard {
     row.setPadding(0, 0, 0, dp(10));
 
     for (int i = 0; i < buttons.length; i++) {
-      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
+      LinearLayout.LayoutParams params =
+          new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
       int left = i == 0 ? 0 : dp(4);
       int right = i == buttons.length - 1 ? 0 : dp(4);
       params.setMargins(left, 0, right, 0);
@@ -373,7 +441,8 @@ public final class TermuxServicesCard {
   }
 
   private LinearLayout.LayoutParams pairedButtonParams(boolean right) {
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(50), 1);
+    LinearLayout.LayoutParams params =
+        new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
     if (right) params.setMargins(dp(4), 0, 0, 0);
     else params.setMargins(0, 0, dp(4), 0);
     return params;
