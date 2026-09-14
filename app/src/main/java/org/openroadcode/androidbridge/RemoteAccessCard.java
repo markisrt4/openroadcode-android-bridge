@@ -32,13 +32,13 @@ final class RemoteAccessCard {
     view.addView(heading);
 
     TextView subtitle = UiTheme.text(activity,
-        "Share sensor telemetry with devices on this network", 12, UiTheme.BLUE);
+        "Choose whether sensor telemetry stays local or is shared on your LAN", 12, UiTheme.BLUE);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, dp(2), 0, dp(10));
     view.addView(subtitle);
 
     remoteAccessSwitch = new Switch(activity);
-    remoteAccessSwitch.setText("Allow network clients");
+    remoteAccessSwitch.setText("Share Android sensors on local network");
     remoteAccessSwitch.setTextColor(UiTheme.TEXT);
     remoteAccessSwitch.setTextSize(15);
     remoteAccessSwitch.setPadding(dp(4), dp(4), dp(4), dp(8));
@@ -67,18 +67,21 @@ final class RemoteAccessCard {
   void setEnabled(boolean enabled) {
     binding = true;
     remoteAccessSwitch.setChecked(enabled);
+    remoteAccessSwitch.setText(enabled
+        ? "Sharing Android sensors on local network"
+        : "Keep Android sensors on this phone");
     binding = false;
   }
 
   void showStatus(boolean enabled, String address, int port) {
     if (!enabled) {
-      status.setText("●  Disabled • localhost only • 127.0.0.1:" + port);
-      status.setTextColor(UiTheme.MUTED);
+      status.setText("●  THIS PHONE ONLY • sensor API at 127.0.0.1:" + port);
+      status.setTextColor(UiTheme.BLUE);
       return;
     }
     status.setText(address == null
-        ? "●  Enabled • waiting for a network address • port " + port
-        : "●  Enabled • http://" + address + ":" + port);
+        ? "●  SHARING REQUESTED • waiting for a network address • port " + port
+        : "●  SHARED ON LOCAL NETWORK • http://" + address + ":" + port);
     status.setTextColor(address == null ? UiTheme.BLUE : UiTheme.GREEN);
   }
 
