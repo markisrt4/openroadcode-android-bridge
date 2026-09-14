@@ -15,6 +15,8 @@ import android.widget.TextView;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
@@ -34,6 +36,8 @@ public final class TermuxServicesCard {
   private final Map<String, TextView> serviceProfiles = new LinkedHashMap<>();
   private final Map<String, Button> liveButtons = new LinkedHashMap<>();
   private final Map<String, Button> simulatedButtons = new LinkedHashMap<>();
+  private final Set<String> visibleServices = new LinkedHashSet<>();
+  private final boolean showCoreControls;
 
   private final LinearLayout root;
   private final TextView targetSummary;
@@ -50,7 +54,17 @@ public final class TermuxServicesCard {
   };
 
   public TermuxServicesCard(Activity activity) {
+    this(activity,
+        "openroadcode-message-broker",
+        "openroadcode-navigation",
+        "openroadcode-automotive",
+        "openroadcode-adsb");
+  }
+
+  public TermuxServicesCard(Activity activity, String... services) {
     this.activity = activity;
+    for (String service : services) visibleServices.add(service);
+    showCoreControls = visibleServices.size() > 1;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
@@ -77,27 +91,37 @@ public final class TermuxServicesCard {
     root.addView(managerStatus, statusParams);
 
     addSectionLabel("SERVICES");
-    addService("openroadcode-message-broker", "Message broker",
-        "Runtime message infrastructure", false);
-    addService("openroadcode-navigation", "Navigation",
-        "Position and motion pipeline", true);
-    addService("openroadcode-automotive", "Automotive",
-        "Vehicle telemetry pipeline", true);
-    addService("openroadcode-adsb", "ADS-B",
-        "Aircraft receiver service", false);
+    if (visibleServices.contains("openroadcode-message-broker")) {
+      addService("openroadcode-message-broker", "Message broker",
+          "Runtime message infrastructure", false);
+    }
+    if (visibleServices.contains("openroadcode-navigation")) {
+      addService("openroadcode-navigation", "Navigation",
+          "Position and motion pipeline", true);
+    }
+    if (visibleServices.contains("openroadcode-automotive")) {
+      addService("openroadcode-automotive", "Automotive",
+          "Vehicle telemetry pipeline", true);
+    }
+    if (visibleServices.contains("openroadcode-adsb")) {
+      addService("openroadcode-adsb", "ADS-B",
+          "Aircraft receiver service", false);
+    }
 
-    addSectionLabel("CORE STACK");
-    LinearLayout coreRow = new LinearLayout(activity);
-    coreRow.setOrientation(LinearLayout.HORIZONTAL);
-    coreRow.addView(
-        actionButton("START CORE", UiTheme.BLUE,
-            v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
-        pairedButtonParams(false));
-    coreRow.addView(
-        actionButton("STOP CORE", UiTheme.RED,
-            v -> runAction(RuntimeServiceManagerClient::stopCoreStack)),
-        pairedButtonParams(true));
-    root.addView(coreRow);
+    if (showCoreControls) {
+      addSectionLabel("CORE STACK");
+      LinearLayout coreRow = new LinearLayout(activity);
+      coreRow.setOrientation(LinearLayout.HORIZONTAL);
+      coreRow.addView(
+          actionButton("START CORE", UiTheme.BLUE,
+              v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
+          pairedButtonParams(false));
+      coreRow.addView(
+          actionButton("STOP CORE", UiTheme.RED,
+              v -> runAction(RuntimeServiceManagerClient::stopCoreStack)),
+          pairedButtonParams(true));
+      root.addView(coreRow);
+    }
 
     refreshTargetSummary();
   }
