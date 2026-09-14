@@ -63,11 +63,23 @@ public final class RuntimeServiceManagerClient {
     return serviceAction(service, "restart");
   }
 
+  public JSONObject setServiceProfile(String service, String profile) throws Exception {
+    validateService(service);
+    if (!profile.matches("live|simulated")) {
+      throw new IllegalArgumentException("Unsupported runtime profile: " + profile);
+    }
+    return request("POST", "/services/" + service + "/profile/" + profile);
+  }
+
   private JSONObject serviceAction(String service, String action) throws Exception {
+    validateService(service);
+    return request("POST", "/services/" + service + "/" + action);
+  }
+
+  private static void validateService(String service) {
     if (!service.matches("openroadcode-(message-broker|navigation|automotive|adsb)")) {
       throw new IllegalArgumentException("Unsupported OpenRoadCode service: " + service);
     }
-    return request("POST", "/services/" + service + "/" + action);
   }
 
   private JSONObject request(String method, String path) throws Exception {
