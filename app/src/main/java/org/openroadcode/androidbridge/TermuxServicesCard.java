@@ -34,8 +34,7 @@ public final class TermuxServicesCard {
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final Map<String, TextView> serviceStates = new LinkedHashMap<>();
   private final Map<String, TextView> serviceProfiles = new LinkedHashMap<>();
-  private final Map<String, Button> liveButtons = new LinkedHashMap<>();
-  private final Map<String, Button> simulatedButtons = new LinkedHashMap<>();
+  private final Map<String, Map<String, Button>> profileButtons = new LinkedHashMap<>();
   private final Set<String> visibleServices = new LinkedHashSet<>();
   private final boolean showCoreControls;
   private final boolean showTargetControls;
@@ -282,32 +281,24 @@ public final class TermuxServicesCard {
     card.addView(description);
 
     if (profiles) {
-      LinearLayout profileRow = new LinearLayout(activity);
-      profileRow.setOrientation(LinearLayout.HORIZONTAL);
-      profileRow.setGravity(Gravity.CENTER_VERTICAL);
+      LinearLayout profileColumn = new LinearLayout(activity);
+      profileColumn.setOrientation(LinearLayout.VERTICAL);
 
       TextView profile = text("INPUT  •  loading…", 10, UiTheme.MUTED);
       profile.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-      profileRow.addView(profile, new LinearLayout.LayoutParams(0, -2, 1.3f));
+      profile.setPadding(0, 0, 0, dp(6));
       serviceProfiles.put(id, profile);
+      profileColumn.addView(profile);
 
-      Button live = profileButton(
-          "LIVE", UiTheme.SURFACE, v -> setProfile(id, "live"));
-      Button simulated = profileButton(
-          "SIM", UiTheme.SURFACE, v -> setProfile(id, "simulated"));
-      liveButtons.put(id, live);
-      simulatedButtons.put(id, simulated);
-
-      LinearLayout.LayoutParams profileButtonParams =
-          new LinearLayout.LayoutParams(0, dp(36), .55f);
-      profileButtonParams.setMargins(dp(4), 0, 0, 0);
-      profileRow.addView(live, profileButtonParams);
-
-      LinearLayout.LayoutParams simParams =
-          new LinearLayout.LayoutParams(0, dp(36), .65f);
-      simParams.setMargins(dp(5), 0, 0, 0);
-      profileRow.addView(simulated, simParams);
-      card.addView(profileRow);
+      LinearLayout profileRow = new LinearLayout(activity);
+      profileRow.setOrientation(LinearLayout.HORIZONTAL);
+      profileRow.setGravity(Gravity.CENTER_VERTICAL);
+      profileButtons.put(id, new LinkedHashMap<>());
+      addProfileButton(profileRow, id, "PHONE", "phone");
+      addProfileButton(profileRow, id, "TARGET", "target");
+      addProfileButton(profileRow, id, "SIM", "simulated");
+      profileColumn.addView(profileRow);
+      card.addView(profileColumn);
     }
 
     if (!profileOnly) {
@@ -330,9 +321,20 @@ public final class TermuxServicesCard {
     root.addView(card, params);
   }
 
+  private void addProfileButton(
+      LinearLayout row, String service, String label, String profile) {
+    Button button = profileButton(
+        label, UiTheme.SURFACE, v -> setProfile(service, profile));
+    profileButtons.get(service).put(profile, button);
+    LinearLayout.LayoutParams params =
+        new LinearLayout.LayoutParams(0, dp(38), 1);
+    params.setMargins(row.getChildCount() == 0 ? 0 : dp(5), 0, 0, 0);
+    row.addView(button, params);
+  }
+
   private void setProfile(String service, String profile) {
     managerStatus.setText("●  Switching " + shortServiceName(service)
-        + " to " + ("simulated".equals(profile) ? "simulation" : "live input") + "…");
+        + " input to " + titleCase(profile) + "…");
     managerStatus.setTextColor(
         "simulated".equals(profile) ? UiTheme.AMBER : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
@@ -395,35 +397,45 @@ public final class TermuxServicesCard {
           managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
               + " profile selected");
           managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.AMBER
-              : ("live".equals(profile) ? UiTheme.GREEN : UiTheme.MUTED));
+              : ("target".equals(profile) ? UiTheme.GREEN
+                  : ("phone".equals(profile) ? UiTheme.BLUE : UiTheme.MUTED)));
         }
       }
     }
   }
 
   private void renderProfile(String id, TextView view, String profile) {
-    Button live = liveButtons.get(id);
-    Button simulated = simulatedButtons.get(id);
-    if (live == null || simulated == null) return;
+    Map<String, Button> buttons = profileButtons.get(id);
+    if (buttons == null) return;
 
-    boolean isSimulated = "simulated".equals(profile);
-    boolean isLive = "live".equals(profile);
-
-    if (isSimulated) {
-      view.setText("◇  SIMULATED INPUT");
-      view.setTextColor(UiTheme.AMBER);
-    } else if (isLive) {
-      view.setText("●  LIVE INPUT");
-      view.setTextColor(UiTheme.GREEN);
-    } else {
-      view.setText("○  PROFILE UNKNOWN");
-      view.setTextColor(UiTheme.MUTED);
+    switch (profile) {
+      case "phone" -> {
+        view.setText("●  PHONE-PROVIDED INPUT");
+        view.setTextColor(UiTheme.BLUE);
+      }
+      case "target" -> {
+        view.setText("●  TARGET HARDWARE INPUT");
+        view.setTextColor(UiTheme.GREEN);
+      }
+      case "simulated" -> {
+        view.setText("◇  SIMULATED INPUT");
+        view.setTextColor(UiTheme.AMBER);
+      }
+      default -> {
+        view.setText("○  PROFILE UNKNOWN");
+        view.setTextColor(UiTheme.MUTED);
+      }
     }
 
-    UiTheme.setButtonColor(activity, live,
-        isLive ? UiTheme.BLUE : UiTheme.SURFACE);
-    UiTheme.setButtonColor(activity, simulated,
-        isSimulated ? UiTheme.AMBER : UiTheme.SURFACE);
+    for (Map.Entry<String, Button> entry : buttons.entrySet()) {
+      boolean selected = entry.getKey().equals(profile);
+      int color = UiTheme.SURFACE;
+      if (selected) {
+        color = "simulated".equals(profile) ? UiTheme.AMBER
+            : ("target".equals(profile) ? UiTheme.GREEN : UiTheme.BLUE);
+      }
+      UiTheme.setButtonColor(activity, entry.getValue(), color);
+    }
   }
 
   private void renderUnavailable(String message) {
