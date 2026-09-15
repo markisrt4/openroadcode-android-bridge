@@ -47,6 +47,8 @@ public final class TermuxServicesCard {
   private final TextView managerStatus;
   private final Button termuxButton;
   private final Button remotePiButton;
+  private Button startCoreButton;
+  private Button stopCoreButton;
 
   private final Runnable refreshTask = new Runnable() {
     @Override
@@ -128,14 +130,12 @@ public final class TermuxServicesCard {
       addSectionLabel("CORE STACK");
       LinearLayout coreRow = new LinearLayout(activity);
       coreRow.setOrientation(LinearLayout.HORIZONTAL);
-      coreRow.addView(
-          actionButton("START CORE", UiTheme.BLUE,
-              v -> runAction(RuntimeServiceManagerClient::startCoreStack)),
-          pairedButtonParams(false));
-      coreRow.addView(
-          actionButton("STOP CORE", UiTheme.RED,
-              v -> runAction(RuntimeServiceManagerClient::stopCoreStack)),
-          pairedButtonParams(true));
+      startCoreButton = actionButton("START CORE", UiTheme.BLUE,
+          v -> runAction(RuntimeServiceManagerClient::startCoreStack));
+      stopCoreButton = actionButton("STOP CORE", UiTheme.RED,
+          v -> runAction(RuntimeServiceManagerClient::stopCoreStack));
+      coreRow.addView(startCoreButton, pairedButtonParams(false));
+      coreRow.addView(stopCoreButton, pairedButtonParams(true));
       root.addView(coreRow);
     }
 
@@ -407,6 +407,7 @@ public final class TermuxServicesCard {
           stateView.setTextColor(UiTheme.RED);
         }
         renderLifecycleButtons(id, state);
+        renderCoreLifecycleButtons();
       }
 
       if (profileView != null) {
@@ -421,6 +422,30 @@ public final class TermuxServicesCard {
         }
       }
     }
+  }
+
+  private void renderCoreLifecycleButtons() {
+    if (startCoreButton == null || stopCoreButton == null) return;
+    boolean anyRunning = false;
+    boolean allRunning = true;
+    boolean haveCore = false;
+    for (String id : new String[] {
+        "openroadcode-message-broker", "openroadcode-navigation", "openroadcode-automotive"
+    }) {
+      TextView stateView = serviceStates.get(id);
+      if (stateView == null) continue;
+      haveCore = true;
+      String state = stateView.getText().toString().toLowerCase(Locale.US);
+      boolean running = state.contains("running");
+      anyRunning |= running;
+      allRunning &= running;
+    }
+    startCoreButton.setEnabled(haveCore && !allRunning);
+    stopCoreButton.setEnabled(haveCore && anyRunning);
+    UiTheme.setButtonColor(activity, startCoreButton,
+        startCoreButton.isEnabled() ? UiTheme.BLUE : UiTheme.DISABLED);
+    UiTheme.setButtonColor(activity, stopCoreButton,
+        stopCoreButton.isEnabled() ? UiTheme.RED : UiTheme.DISABLED);
   }
 
   private void renderLifecycleButtons(String id, String state) {
