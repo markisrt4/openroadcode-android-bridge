@@ -20,6 +20,7 @@ public final class UiTheme {
     public static final int SILVER = Color.rgb(184, 194, 200);
     public static final int BLUE = Color.rgb(22, 139, 209);
     public static final int GREEN = Color.rgb(132, 206, 31);
+    public static final int VIOLET = Color.rgb(145, 105, 220);
     public static final int AMBER = Color.rgb(244, 179, 66);
     public static final int RED = Color.rgb(241, 90, 22);
 
