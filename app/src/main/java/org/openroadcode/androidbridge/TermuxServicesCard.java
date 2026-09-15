@@ -416,8 +416,8 @@ public final class TermuxServicesCard {
     boolean stopped = "stopped".equals(state);
     start.setEnabled(stopped);
     stop.setEnabled(running);
-    UiTheme.setButtonColor(activity, start, stopped ? UiTheme.BLUE : UiTheme.SURFACE);
-    UiTheme.setButtonColor(activity, stop, running ? UiTheme.RED : UiTheme.SURFACE);
+    UiTheme.setButtonColor(activity, start, stopped ? UiTheme.BLUE : UiTheme.DISABLED);
+    UiTheme.setButtonColor(activity, stop, running ? UiTheme.RED : UiTheme.DISABLED);
   }
 
   private void renderProfile(String id, TextView view, String profile) {
