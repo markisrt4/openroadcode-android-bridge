@@ -354,7 +354,7 @@ public final class TermuxServicesCard {
     managerStatus.setText("●  Switching " + shortServiceName(service)
         + " input to " + titleCase(profile) + "…");
     managerStatus.setTextColor(
-        "simulated".equals(profile) ? UiTheme.AMBER : UiTheme.BLUE);
+        "simulated".equals(profile) ? UiTheme.BLUE : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
   }
 
@@ -415,7 +415,7 @@ public final class TermuxServicesCard {
         if (profileOnly) {
           managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
               + " profile selected");
-          managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.AMBER
+          managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.BLUE
               : ("local".equals(profile) ? UiTheme.GREEN
                   : ("remote".equals(profile) ? UiTheme.BLUE : UiTheme.MUTED)));
         }
@@ -451,7 +451,7 @@ public final class TermuxServicesCard {
       }
       case "simulated" -> {
         view.setText("◇  SIMULATED INPUT");
-        view.setTextColor(UiTheme.AMBER);
+        view.setTextColor(UiTheme.BLUE);
       }
       default -> {
         view.setText("○  PROFILE UNKNOWN");
@@ -463,7 +463,7 @@ public final class TermuxServicesCard {
       boolean selected = entry.getKey().equals(profile);
       int color = UiTheme.SURFACE;
       if (selected) {
-        color = "simulated".equals(profile) ? UiTheme.AMBER
+        color = "simulated".equals(profile) ? UiTheme.BLUE
             : ("local".equals(profile) ? UiTheme.GREEN : UiTheme.BLUE);
       }
       UiTheme.setButtonColor(activity, entry.getValue(), color);
