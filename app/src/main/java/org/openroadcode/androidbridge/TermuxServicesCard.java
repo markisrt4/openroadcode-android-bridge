@@ -34,6 +34,8 @@ public final class TermuxServicesCard {
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final Map<String, TextView> serviceStates = new LinkedHashMap<>();
   private final Map<String, TextView> serviceProfiles = new LinkedHashMap<>();
+  private final Map<String, Button> startButtons = new LinkedHashMap<>();
+  private final Map<String, Button> stopButtons = new LinkedHashMap<>();
   private final Map<String, Map<String, Button>> profileButtons = new LinkedHashMap<>();
   private final Set<String> visibleServices = new LinkedHashSet<>();
   private final boolean showCoreControls;
@@ -305,14 +307,14 @@ public final class TermuxServicesCard {
       LinearLayout actions = new LinearLayout(activity);
       actions.setOrientation(LinearLayout.HORIZONTAL);
       actions.setPadding(0, dp(8), 0, 0);
-      actions.addView(
-          actionButton("START", UiTheme.BLUE,
-              v -> runAction(client -> client.startService(id))),
-          pairedButtonParams(false));
-      actions.addView(
-          actionButton("STOP", UiTheme.RED,
-              v -> runAction(client -> client.stopService(id))),
-          pairedButtonParams(true));
+      Button startButton = actionButton("START", UiTheme.BLUE,
+          v -> runAction(client -> client.startService(id)));
+      Button stopButton = actionButton("STOP", UiTheme.RED,
+          v -> runAction(client -> client.stopService(id)));
+      startButtons.put(id, startButton);
+      stopButtons.put(id, stopButton);
+      actions.addView(startButton, pairedButtonParams(false));
+      actions.addView(stopButton, pairedButtonParams(true));
       card.addView(actions);
     }
 
@@ -388,6 +390,7 @@ public final class TermuxServicesCard {
         } else {
           stateView.setTextColor(UiTheme.RED);
         }
+        renderLifecycleButtons(id, state);
       }
 
       if (profileView != null) {
@@ -402,6 +405,19 @@ public final class TermuxServicesCard {
         }
       }
     }
+  }
+
+  private void renderLifecycleButtons(String id, String state) {
+    Button start = startButtons.get(id);
+    Button stop = stopButtons.get(id);
+    if (start == null || stop == null) return;
+
+    boolean running = "running".equals(state);
+    boolean stopped = "stopped".equals(state);
+    start.setEnabled(stopped);
+    stop.setEnabled(running);
+    UiTheme.setButtonColor(activity, start, stopped ? UiTheme.BLUE : UiTheme.SURFACE);
+    UiTheme.setButtonColor(activity, stop, running ? UiTheme.RED : UiTheme.SURFACE);
   }
 
   private void renderProfile(String id, TextView view, String profile) {
@@ -447,6 +463,9 @@ public final class TermuxServicesCard {
     for (TextView state : serviceStates.values()) {
       state.setText("●  Unknown");
       state.setTextColor(UiTheme.MUTED);
+    }
+    for (String id : serviceStates.keySet()) {
+      renderLifecycleButtons(id, "unknown");
     }
     for (TextView profile : serviceProfiles.values()) {
       profile.setText("○  PROFILE UNKNOWN");
