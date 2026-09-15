@@ -188,14 +188,22 @@ public final class TermuxServicesCard {
 
     EditText token = new EditText(activity);
     token.setSingleLine(true);
-    token.setHint("Service manager token");
+    token.setHint("Access token");
     token.setText(settings.piToken());
     token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
     fields.addView(token);
 
+    TextView tokenHelp = text(
+        "On the Linux/Pi target: sudo cat /etc/openroadcode/service-manager.env\n"
+            + "Paste only the value after OPENROADCODE_SERVICE_MANAGER_TOKEN=.",
+        10,
+        UiTheme.MUTED);
+    tokenHelp.setPadding(0, dp(4), 0, dp(4));
+    fields.addView(tokenHelp);
+
     AlertDialog dialog = new AlertDialog.Builder(activity)
         .setTitle("Remote Linux service manager")
-        .setMessage("Enter the service-manager endpoint and bearer token.")
+        .setMessage("Enter the service-manager endpoint and access token.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
         .setPositiveButton("SAVE", null)
@@ -210,7 +218,7 @@ public final class TermuxServicesCard {
             return;
           }
           if (bearerToken.isBlank()) {
-            token.setError("The remote service manager requires a bearer token");
+            token.setError("The remote service manager requires an access token");
             return;
           }
           settings.setPiBaseUrl(baseUrl);
