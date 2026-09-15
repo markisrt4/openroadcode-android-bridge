@@ -296,8 +296,8 @@ public final class TermuxServicesCard {
       profileRow.setOrientation(LinearLayout.HORIZONTAL);
       profileRow.setGravity(Gravity.CENTER_VERTICAL);
       profileButtons.put(id, new LinkedHashMap<>());
-      addProfileButton(profileRow, id, "PHONE", "phone");
-      addProfileButton(profileRow, id, "TARGET", "target");
+      addProfileButton(profileRow, id, "LOCAL", "local");
+      addProfileButton(profileRow, id, "REMOTE", "remote");
       addProfileButton(profileRow, id, "SIM", "simulated");
       profileColumn.addView(profileRow);
       card.addView(profileColumn);
@@ -400,8 +400,8 @@ public final class TermuxServicesCard {
           managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
               + " profile selected");
           managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.AMBER
-              : ("target".equals(profile) ? UiTheme.GREEN
-                  : ("phone".equals(profile) ? UiTheme.BLUE : UiTheme.MUTED)));
+              : ("local".equals(profile) ? UiTheme.GREEN
+                  : ("remote".equals(profile) ? UiTheme.BLUE : UiTheme.MUTED)));
         }
       }
     }
@@ -425,12 +425,12 @@ public final class TermuxServicesCard {
     if (buttons == null) return;
 
     switch (profile) {
-      case "phone" -> {
-        view.setText("●  PHONE-PROVIDED INPUT");
+      case "local" -> {
+        view.setText("●  LOCAL INPUT");
         view.setTextColor(UiTheme.BLUE);
       }
-      case "target" -> {
-        view.setText("●  TARGET HARDWARE INPUT");
+      case "remote" -> {
+        view.setText("●  REMOTE BRIDGE INPUT");
         view.setTextColor(UiTheme.GREEN);
       }
       case "simulated" -> {
@@ -448,7 +448,7 @@ public final class TermuxServicesCard {
       int color = UiTheme.SURFACE;
       if (selected) {
         color = "simulated".equals(profile) ? UiTheme.AMBER
-            : ("target".equals(profile) ? UiTheme.GREEN : UiTheme.BLUE);
+            : ("local".equals(profile) ? UiTheme.GREEN : UiTheme.BLUE);
       }
       UiTheme.setButtonColor(activity, entry.getValue(), color);
     }
