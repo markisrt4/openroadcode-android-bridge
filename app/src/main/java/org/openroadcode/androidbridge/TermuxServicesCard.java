@@ -89,9 +89,14 @@ public final class TermuxServicesCard {
     remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
     if (showTargetControls) {
       addSectionLabel("RUNTIME TARGET");
-      Button configureButton = actionButton(
-          "CONFIGURE", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
-      root.addView(buttonRow(termuxButton, remotePiButton, configureButton));
+      root.addView(buttonRow(termuxButton, remotePiButton));
+
+      Button editConnectionButton = actionButton(
+          "EDIT REMOTE CONNECTION", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
+      LinearLayout.LayoutParams editParams =
+          new LinearLayout.LayoutParams(-1, dp(BUTTON_HEIGHT));
+      editParams.setMargins(0, 0, 0, dp(10));
+      root.addView(editConnectionButton, editParams);
     }
 
     managerStatus = statusPill(
