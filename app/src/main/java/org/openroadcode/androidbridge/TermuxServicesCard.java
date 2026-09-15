@@ -249,8 +249,11 @@ public final class TermuxServicesCard {
     if (showTargetControls) {
       UiTheme.setButtonColor(activity, termuxButton,
           remote ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
+      boolean remoteConfigured = settings.hasRemotePiConfiguration();
+      remotePiButton.setEnabled(remoteConfigured);
       UiTheme.setButtonColor(activity, remotePiButton,
-          remote ? UiTheme.BLUE : UiTheme.SURFACE_RAISED);
+          remote ? UiTheme.BLUE
+              : (remoteConfigured ? UiTheme.SURFACE_RAISED : UiTheme.DISABLED));
     }
   }
 
