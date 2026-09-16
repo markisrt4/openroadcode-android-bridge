@@ -41,6 +41,7 @@ public final class TermuxServicesCard {
   private final boolean showCoreControls;
   private final boolean showTargetControls;
   private final boolean profileOnly;
+  private final Runnable beforeLocalNavigationStart;
 
   private final LinearLayout root;
   private final TextView targetSummary;
@@ -59,7 +60,7 @@ public final class TermuxServicesCard {
   };
 
   public TermuxServicesCard(Activity activity) {
-    this(activity,
+    this(activity, null,
         "openroadcode-message-broker",
         "openroadcode-navigation",
         "openroadcode-automotive",
@@ -67,7 +68,13 @@ public final class TermuxServicesCard {
   }
 
   public TermuxServicesCard(Activity activity, String... services) {
+    this(activity, null, services);
+  }
+
+  public TermuxServicesCard(
+      Activity activity, Runnable beforeLocalNavigationStart, String... services) {
     this.activity = activity;
+    this.beforeLocalNavigationStart = beforeLocalNavigationStart;
     for (String service : services) visibleServices.add(service);
     showCoreControls = visibleServices.size() > 1;
     showTargetControls = showCoreControls;
@@ -324,7 +331,7 @@ public final class TermuxServicesCard {
       actions.setOrientation(LinearLayout.HORIZONTAL);
       actions.setPadding(0, dp(8), 0, 0);
       Button startButton = actionButton("START", UiTheme.BLUE,
-          v -> runAction(client -> client.startService(id)));
+          v -> startService(id));
       Button stopButton = actionButton("STOP", UiTheme.RED,
           v -> runAction(client -> client.stopService(id)));
       startButtons.put(id, startButton);
@@ -348,6 +355,26 @@ public final class TermuxServicesCard {
         new LinearLayout.LayoutParams(0, dp(38), 1);
     params.setMargins(row.getChildCount() == 0 ? 0 : dp(5), 0, 0, 0);
     row.addView(button, params);
+  }
+
+  private void startService(String service) {
+    if ("openroadcode-navigation".equals(service)
+        && settings.target() == Target.TERMUX
+        && selectedProfile(service).equals("local")
+        && beforeLocalNavigationStart != null) {
+      beforeLocalNavigationStart.run();
+    }
+    runAction(client -> client.startService(service));
+  }
+
+  private String selectedProfile(String service) {
+    TextView view = serviceProfiles.get(service);
+    if (view == null) return "";
+    String value = view.getText().toString().toLowerCase(Locale.US);
+    if (value.contains("local")) return "local";
+    if (value.contains("remote")) return "remote";
+    if (value.contains("simulated")) return "simulated";
+    return "";
   }
 
   private void setProfile(String service, String profile) {
