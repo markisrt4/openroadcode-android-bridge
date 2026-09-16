@@ -132,16 +132,17 @@ public final class MainActivity extends Activity {
   }
 
   private void showNavigation() {
-    addSubsystemHeader("⌖", "NAVIGATION", "Position, motion, GPS, and navigation runtime", BLUE);
+    addSubsystemHeader("⌖", "NAVIGATION", "Phone motion, GPS, and navigation runtime", BLUE);
 
     ServiceConfig sensorConfig = serviceManager.sensorConfig();
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
         this::startBridge, this::stopBridge);
     sensorCard.setRunning(sensorConfig.enabled());
-    addServiceCard(content, "SENSORS & POSITION",
+    addServiceCard(content, "MOTION & POSITION",
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
 
-    termuxServicesCard = new TermuxServicesCard(this, "openroadcode-navigation");
+    termuxServicesCard = new TermuxServicesCard(
+        this, this::ensureNavigationSensorBridge, "openroadcode-navigation");
     addServiceCard(content, "NAVIGATION SERVICE",
         "Live / simulated input profile", SILVER,
         termuxServicesCard.view(), true, true);
@@ -481,6 +482,15 @@ public final class MainActivity extends Activity {
       sensorStartError = "Unable to start sensor bridge: " + e.getClass().getSimpleName();
       sensorCard.setStatus("●  " + sensorStartError, RED);
     }
+  }
+
+  private void ensureNavigationSensorBridge() {
+    if (serviceManager.sensorConfig().provider() != ServiceProvider.ANDROID_SENSORS) {
+      serviceManager.setSensorProvider(ServiceProvider.ANDROID_SENSORS);
+    }
+    serviceManager.requestSensorEnabled();
+    sensorStartFailed = false;
+    reconcileSensor(true);
   }
 
   private void startBridge() {
