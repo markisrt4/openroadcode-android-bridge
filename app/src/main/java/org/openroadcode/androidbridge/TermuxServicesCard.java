@@ -34,6 +34,7 @@ public final class TermuxServicesCard {
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final Map<String, TextView> serviceStates = new LinkedHashMap<>();
   private final Map<String, TextView> serviceProfiles = new LinkedHashMap<>();
+  private final Map<String, TextView> serviceInputHealth = new LinkedHashMap<>();
   private final Map<String, Button> startButtons = new LinkedHashMap<>();
   private final Map<String, Button> stopButtons = new LinkedHashMap<>();
   private final Map<String, Map<String, Button>> profileButtons = new LinkedHashMap<>();
@@ -315,6 +316,13 @@ public final class TermuxServicesCard {
       serviceProfiles.put(id, profile);
       profileColumn.addView(profile);
 
+      if ("openroadcode-navigation".equals(id) && !profileOnly) {
+        TextView inputHealth = text("○  Input health unavailable", 10, UiTheme.MUTED);
+        inputHealth.setPadding(0, 0, 0, dp(6));
+        serviceInputHealth.put(id, inputHealth);
+        profileColumn.addView(inputHealth);
+      }
+
       LinearLayout profileRow = new LinearLayout(activity);
       profileRow.setOrientation(LinearLayout.HORIZONTAL);
       profileRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -440,6 +448,7 @@ public final class TermuxServicesCard {
       if (profileView != null) {
         String profile = service.optString("profile", "");
         renderProfile(id, profileView, profile);
+        renderInputHealth(id, service, profile);
         if (profileOnly) {
           managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
               + " profile selected");
@@ -447,6 +456,36 @@ public final class TermuxServicesCard {
               : ("local".equals(profile) ? UiTheme.GREEN
                   : ("remote".equals(profile) ? UiTheme.BLUE : UiTheme.MUTED)));
         }
+      }
+    }
+  }
+
+  private void renderInputHealth(String id, JSONObject service, String profile) {
+    TextView view = serviceInputHealth.get(id);
+    if (view == null) return;
+    if (!"local".equals(profile)) {
+      view.setVisibility(View.GONE);
+      return;
+    }
+    view.setVisibility(View.VISIBLE);
+    String inputState = service.optString("input_state", "");
+    String detail = service.optString("input_detail", "");
+    switch (inputState) {
+      case "connected" -> {
+        view.setText("●  " + (detail.isBlank() ? "Local input connected" : detail));
+        view.setTextColor(UiTheme.GREEN);
+      }
+      case "waiting" -> {
+        view.setText("○  " + (detail.isBlank() ? "Waiting for local input" : detail));
+        view.setTextColor(UiTheme.MUTED);
+      }
+      case "stopped" -> {
+        view.setText("○  Local phone input not in use");
+        view.setTextColor(UiTheme.MUTED);
+      }
+      default -> {
+        view.setText("○  Input health unavailable");
+        view.setTextColor(UiTheme.MUTED);
       }
     }
   }
@@ -538,6 +577,10 @@ public final class TermuxServicesCard {
     for (TextView profile : serviceProfiles.values()) {
       profile.setText("○  PROFILE UNKNOWN");
       profile.setTextColor(UiTheme.MUTED);
+    }
+    for (TextView health : serviceInputHealth.values()) {
+      health.setText("○  Input health unavailable");
+      health.setTextColor(UiTheme.MUTED);
     }
   }
 
