@@ -316,7 +316,7 @@ public final class TermuxServicesCard {
       serviceProfiles.put(id, profile);
       profileColumn.addView(profile);
 
-      if ("openroadcode-navigation".equals(id) && !profileOnly) {
+      if (("openroadcode-navigation".equals(id) || "openroadcode-automotive".equals(id)) && !profileOnly) {
         TextView inputHealth = text("○  Input health unavailable", 10, UiTheme.MUTED);
         inputHealth.setPadding(0, 0, 0, dp(6));
         serviceInputHealth.put(id, inputHealth);
@@ -463,7 +463,8 @@ public final class TermuxServicesCard {
   private void renderInputHealth(String id, JSONObject service, String profile) {
     TextView view = serviceInputHealth.get(id);
     if (view == null) return;
-    if (!"local".equals(profile)) {
+    boolean automotiveSimulation = "openroadcode-automotive".equals(id) && "simulated".equals(profile);
+    if (!"local".equals(profile) && !automotiveSimulation) {
       view.setVisibility(View.GONE);
       return;
     }
@@ -480,7 +481,7 @@ public final class TermuxServicesCard {
         view.setTextColor(UiTheme.MUTED);
       }
       case "stopped" -> {
-        view.setText("○  Local phone input not in use");
+        view.setText("○  Input not in use");
         view.setTextColor(UiTheme.MUTED);
       }
       default -> {
