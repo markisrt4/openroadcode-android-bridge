@@ -60,7 +60,7 @@ public final class TermuxServicesCard {
   };
 
   public TermuxServicesCard(Activity activity) {
-    this(activity, null,
+    this(activity, (Runnable) null,
         "openroadcode-message-broker",
         "openroadcode-navigation",
         "openroadcode-automotive",
@@ -68,7 +68,7 @@ public final class TermuxServicesCard {
   }
 
   public TermuxServicesCard(Activity activity, String... services) {
-    this(activity, null, services);
+    this(activity, (Runnable) null, services);
   }
 
   public TermuxServicesCard(
