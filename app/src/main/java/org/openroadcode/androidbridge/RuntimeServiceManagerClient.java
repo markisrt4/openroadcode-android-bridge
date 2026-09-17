@@ -1,6 +1,7 @@
 package org.openroadcode.androidbridge;
 
 import java.io.BufferedReader;
+import java.io.OutputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -37,6 +38,20 @@ public final class RuntimeServiceManagerClient {
 
   public String targetLabel() {
     return targetLabel;
+  }
+
+  /** Exchange a temporary service-manager PIN for this client's bearer credential. */
+  public JSONObject pair(String pin, String clientName) throws Exception {
+    if (pin == null || !pin.trim().matches("\\d{6}")) {
+      throw new IllegalArgumentException("Pairing PIN must be exactly 6 digits");
+    }
+    if (clientName == null || clientName.isBlank()) {
+      throw new IllegalArgumentException("Client name is required");
+    }
+    JSONObject body = new JSONObject();
+    body.put("pin", pin.trim());
+    body.put("client_name", clientName.trim());
+    return request("POST", "/pair", body);
   }
 
   public JSONObject getServices() throws Exception {
@@ -83,6 +98,10 @@ public final class RuntimeServiceManagerClient {
   }
 
   private JSONObject request(String method, String path) throws Exception {
+    return request(method, path, null);
+  }
+
+  private JSONObject request(String method, String path, JSONObject requestBody) throws Exception {
     HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
     connection.setRequestMethod(method);
     connection.setConnectTimeout(1000);
@@ -93,7 +112,16 @@ public final class RuntimeServiceManagerClient {
     }
     if ("POST".equals(method)) {
       connection.setDoOutput(true);
-      connection.setFixedLengthStreamingMode(0);
+      if (requestBody == null) {
+        connection.setFixedLengthStreamingMode(0);
+      } else {
+        byte[] encoded = requestBody.toString().getBytes(StandardCharsets.UTF_8);
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        connection.setFixedLengthStreamingMode(encoded.length);
+        try (OutputStream output = connection.getOutputStream()) {
+          output.write(encoded);
+        }
+      }
     }
     try {
       int status = connection.getResponseCode();
