@@ -3,9 +3,10 @@ package org.openroadcode.androidbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Typeface;
-import android.text.InputType;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -13,9 +14,9 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.util.LinkedHashSet;
 import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -150,18 +151,14 @@ public final class TermuxServicesCard {
     refreshTargetSummary();
   }
 
-  public View view() {
-    return root;
-  }
+  public View view() { return root; }
 
   public void start() {
     handler.removeCallbacks(refreshTask);
     handler.post(refreshTask);
   }
 
-  public void stop() {
-    handler.removeCallbacks(refreshTask);
-  }
+  public void stop() { handler.removeCallbacks(refreshTask); }
 
   private void addSectionLabel(String label) {
     TextView view = text(label, 10, UiTheme.MUTED);
@@ -199,48 +196,81 @@ public final class TermuxServicesCard {
     endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
     fields.addView(endpoint);
 
-    EditText token = new EditText(activity);
-    token.setSingleLine(true);
-    token.setHint("Access token");
-    token.setText(settings.piToken());
-    token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-    fields.addView(token);
+    EditText pin = new EditText(activity);
+    pin.setSingleLine(true);
+    pin.setHint("6-digit pairing PIN");
+    pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+    fields.addView(pin);
 
-    TextView tokenHelp = text(
-        "On the Linux/Pi target: sudo cat /etc/openroadcode/service-manager.env\n"
-            + "Paste only the value after OPENROADCODE_SERVICE_MANAGER_TOKEN=.",
+    TextView pairingHelp = text(
+        "Start pairing on the OpenRoadCode service manager, then enter the temporary 6-digit PIN. "
+            + "The Android bridge will exchange it for its own client credential; the PIN is not saved.",
         10,
         UiTheme.MUTED);
-    tokenHelp.setPadding(0, dp(4), 0, dp(4));
-    fields.addView(tokenHelp);
+    pairingHelp.setPadding(0, dp(4), 0, dp(4));
+    fields.addView(pairingHelp);
 
     AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Remote Linux service manager")
-        .setMessage("Enter the service-manager endpoint and access token.")
+        .setTitle("Pair remote Linux service manager")
+        .setMessage("Enter the service-manager endpoint and temporary pairing PIN.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
-        .setPositiveButton("SAVE", null)
+        .setPositiveButton("PAIR", null)
         .create();
 
-    dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-        .setOnClickListener(v -> {
-          String baseUrl = endpoint.getText().toString().trim();
-          String bearerToken = token.getText().toString().trim();
-          if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
-            endpoint.setError("Enter a complete http:// or https:// endpoint");
-            return;
+    dialog.setOnShowListener(ignored -> {
+      Button pairButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+      pairButton.setOnClickListener(v -> {
+        String baseUrl = endpoint.getText().toString().trim();
+        String pairingPin = pin.getText().toString().trim();
+        if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
+          endpoint.setError("Enter a complete http:// or https:// endpoint");
+          return;
+        }
+        if (!pairingPin.matches("\\d{6}")) {
+          pin.setError("Enter the 6-digit pairing PIN");
+          return;
+        }
+
+        pairButton.setEnabled(false);
+        pairButton.setText("PAIRING…");
+        endpoint.setEnabled(false);
+        pin.setEnabled(false);
+
+        new Thread(() -> {
+          try {
+            RuntimeServiceManagerClient pairingClient =
+                new RuntimeServiceManagerClient(baseUrl, "Remote Linux");
+            String clientName = "OpenRoadCode Android - " + Build.MODEL;
+            JSONObject response = pairingClient.pair(pairingPin, clientName);
+            String accessToken = response.optString("access_token", "").trim();
+            if (accessToken.isBlank()) {
+              throw new IllegalStateException("Pairing response did not contain an access token");
+            }
+
+            activity.runOnUiThread(() -> {
+              settings.setPiBaseUrl(baseUrl);
+              settings.setPiToken(accessToken);
+              settings.setTarget(Target.REMOTE_PI);
+              refreshTargetSummary();
+              dialog.dismiss();
+              managerStatus.setText("●  Remote Linux paired");
+              managerStatus.setTextColor(UiTheme.GREEN);
+              refresh();
+            });
+          } catch (Exception e) {
+            String message = e.getMessage();
+            activity.runOnUiThread(() -> {
+              pairButton.setEnabled(true);
+              pairButton.setText("PAIR");
+              endpoint.setEnabled(true);
+              pin.setEnabled(true);
+              pin.setError(message == null || message.isBlank() ? "Pairing failed" : message);
+            });
           }
-          if (bearerToken.isBlank()) {
-            token.setError("The remote service manager requires an access token");
-            return;
-          }
-          settings.setPiBaseUrl(baseUrl);
-          settings.setPiToken(bearerToken);
-          settings.setTarget(Target.REMOTE_PI);
-          refreshTargetSummary();
-          dialog.dismiss();
-          refresh();
-        }));
+        }, "orc-service-pairing").start();
+      });
+    });
     dialog.show();
   }
 
@@ -338,8 +368,7 @@ public final class TermuxServicesCard {
       LinearLayout actions = new LinearLayout(activity);
       actions.setOrientation(LinearLayout.HORIZONTAL);
       actions.setPadding(0, dp(8), 0, 0);
-      Button startButton = actionButton("START", UiTheme.BLUE,
-          v -> startService(id));
+      Button startButton = actionButton("START", UiTheme.BLUE, v -> startService(id));
       Button stopButton = actionButton("STOP", UiTheme.RED,
           v -> runAction(client -> client.stopService(id)));
       startButtons.put(id, startButton);
@@ -356,11 +385,9 @@ public final class TermuxServicesCard {
 
   private void addProfileButton(
       LinearLayout row, String service, String label, String profile) {
-    Button button = profileButton(
-        label, UiTheme.SURFACE, v -> setProfile(service, profile));
+    Button button = profileButton(label, UiTheme.SURFACE, v -> setProfile(service, profile));
     profileButtons.get(service).put(profile, button);
-    LinearLayout.LayoutParams params =
-        new LinearLayout.LayoutParams(0, dp(38), 1);
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(38), 1);
     params.setMargins(row.getChildCount() == 0 ? 0 : dp(5), 0, 0, 0);
     row.addView(button, params);
   }
@@ -388,8 +415,7 @@ public final class TermuxServicesCard {
   private void setProfile(String service, String profile) {
     managerStatus.setText("●  Switching " + shortServiceName(service)
         + " input to " + titleCase(profile) + "…");
-    managerStatus.setTextColor(
-        "simulated".equals(profile) ? UiTheme.VIOLET : UiTheme.BLUE);
+    managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.VIOLET : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
   }
 
@@ -418,33 +444,24 @@ public final class TermuxServicesCard {
       managerStatus.setText("●  " + targetLabel + " service manager available");
       managerStatus.setTextColor(UiTheme.GREEN);
     }
-
     JSONArray services = result.optJSONArray("services");
     if (services == null) return;
-
     for (int i = 0; i < services.length(); i++) {
       JSONObject service = services.optJSONObject(i);
       if (service == null) continue;
-
       String id = service.optString("name", "");
       TextView stateView = serviceStates.get(id);
       TextView profileView = serviceProfiles.get(id);
       if (stateView == null && profileView == null) continue;
-
       if (stateView != null) {
         String state = service.optString("state", "unknown").toLowerCase(Locale.US);
         stateView.setText("●  " + titleCase(state));
-        if ("running".equals(state)) {
-          stateView.setTextColor(UiTheme.GREEN);
-        } else if ("stopped".equals(state)) {
-          stateView.setTextColor(UiTheme.MUTED);
-        } else {
-          stateView.setTextColor(UiTheme.RED);
-        }
+        if ("running".equals(state)) stateView.setTextColor(UiTheme.GREEN);
+        else if ("stopped".equals(state)) stateView.setTextColor(UiTheme.MUTED);
+        else stateView.setTextColor(UiTheme.RED);
         renderLifecycleButtons(id, state);
         renderCoreLifecycleButtons();
       }
-
       if (profileView != null) {
         String profile = service.optString("profile", "");
         renderProfile(id, profileView, profile);
@@ -463,7 +480,8 @@ public final class TermuxServicesCard {
   private void renderInputHealth(String id, JSONObject service, String profile) {
     TextView view = serviceInputHealth.get(id);
     if (view == null) return;
-    boolean automotiveSimulation = "openroadcode-automotive".equals(id) && "simulated".equals(profile);
+    boolean automotiveSimulation =
+        "openroadcode-automotive".equals(id) && "simulated".equals(profile);
     if (!"local".equals(profile) && !automotiveSimulation) {
       view.setVisibility(View.GONE);
       return;
@@ -519,7 +537,6 @@ public final class TermuxServicesCard {
     Button start = startButtons.get(id);
     Button stop = stopButtons.get(id);
     if (start == null || stop == null) return;
-
     boolean running = "running".equals(state);
     boolean stopped = "stopped".equals(state);
     start.setEnabled(stopped);
@@ -531,7 +548,6 @@ public final class TermuxServicesCard {
   private void renderProfile(String id, TextView view, String profile) {
     Map<String, Button> buttons = profileButtons.get(id);
     if (buttons == null) return;
-
     switch (profile) {
       case "local" -> {
         view.setText("●  LOCAL INPUT");
@@ -550,7 +566,6 @@ public final class TermuxServicesCard {
         view.setTextColor(UiTheme.MUTED);
       }
     }
-
     for (Map.Entry<String, Button> entry : buttons.entrySet()) {
       boolean selected = entry.getKey().equals(profile);
       int color = UiTheme.SURFACE;
@@ -567,14 +582,11 @@ public final class TermuxServicesCard {
     managerStatus.setText("●  " + target + " unavailable"
         + (message == null || message.isBlank() ? "" : ": " + message));
     managerStatus.setTextColor(UiTheme.RED);
-
     for (TextView state : serviceStates.values()) {
       state.setText("●  Unknown");
       state.setTextColor(UiTheme.MUTED);
     }
-    for (String id : serviceStates.keySet()) {
-      renderLifecycleButtons(id, "unknown");
-    }
+    for (String id : serviceStates.keySet()) renderLifecycleButtons(id, "unknown");
     for (TextView profile : serviceProfiles.values()) {
       profile.setText("○  PROFILE UNKNOWN");
       profile.setTextColor(UiTheme.MUTED);
@@ -623,10 +635,8 @@ public final class TermuxServicesCard {
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(Gravity.CENTER);
     row.setPadding(0, 0, 0, dp(10));
-
     for (int i = 0; i < buttons.length; i++) {
-      LinearLayout.LayoutParams params =
-          new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
+      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
       int left = i == 0 ? 0 : dp(4);
       int right = i == buttons.length - 1 ? 0 : dp(4);
       params.setMargins(left, 0, right, 0);
@@ -636,8 +646,7 @@ public final class TermuxServicesCard {
   }
 
   private LinearLayout.LayoutParams pairedButtonParams(boolean right) {
-    LinearLayout.LayoutParams params =
-        new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(BUTTON_HEIGHT), 1);
     if (right) params.setMargins(dp(4), 0, 0, 0);
     else params.setMargins(0, 0, dp(4), 0);
     return params;
@@ -647,8 +656,7 @@ public final class TermuxServicesCard {
     TextView view = text("●  " + value, 12, color);
     view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     view.setPadding(dp(10), dp(9), dp(10), dp(9));
-    view.setBackground(
-        UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
+    view.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
     return view;
   }
 
@@ -661,7 +669,5 @@ public final class TermuxServicesCard {
     return value.substring(0, 1).toUpperCase(Locale.US) + value.substring(1);
   }
 
-  private int dp(int value) {
-    return UiTheme.dp(activity, value);
-  }
+  private int dp(int value) { return UiTheme.dp(activity, value); }
 }
