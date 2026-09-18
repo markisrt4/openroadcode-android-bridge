@@ -22,6 +22,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Target;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.RuntimeDevice;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** Runtime target, profile, and lifecycle controls for OpenRoadCode services. */
@@ -97,13 +98,13 @@ public final class TermuxServicesCard {
     if (showTargetControls) root.addView(targetSummary);
 
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
-    remotePiButton = actionButton("REMOTE PI", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
+    remotePiButton = actionButton("REMOTE", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
     if (showTargetControls) {
       addSectionLabel("RUNTIME TARGET");
       root.addView(buttonRow(termuxButton, remotePiButton));
 
       Button editConnectionButton = actionButton(
-          "EDIT REMOTE CONNECTION", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
+          "PAIRED DEVICES", UiTheme.SURFACE_RAISED, v -> showRemoteDevices());
       LinearLayout.LayoutParams editParams =
           new LinearLayout.LayoutParams(-1, dp(BUTTON_HEIGHT));
       editParams.setMargins(0, 0, 0, dp(10));
@@ -176,12 +177,36 @@ public final class TermuxServicesCard {
 
   private void selectRemotePi() {
     if (!settings.hasRemotePiConfiguration()) {
-      configureRemotePi();
+      showRemoteDevices();
       return;
     }
     settings.setTarget(Target.REMOTE_PI);
     refreshTargetSummary();
     refresh();
+  }
+
+  private void showRemoteDevices() {
+    java.util.List<RuntimeDevice> devices = settings.devices();
+    String[] labels = new String[devices.size() + 1];
+    for (int i = 0; i < devices.size(); i++) {
+      RuntimeDevice device = devices.get(i);
+      labels[i] = device.name() + "\n" + device.baseUrl();
+    }
+    labels[devices.size()] = "+ Pair new device";
+    new AlertDialog.Builder(activity)
+        .setTitle("Paired OpenRoadCode devices")
+        .setItems(labels, (dialog, which) -> {
+          if (which == devices.size()) {
+            configureRemotePi();
+            return;
+          }
+          RuntimeDevice device = devices.get(which);
+          settings.setActiveDevice(device.deviceId());
+          refreshTargetSummary();
+          refresh();
+        })
+        .setNegativeButton("CLOSE", null)
+        .show();
   }
 
   private void configureRemotePi() {
@@ -192,7 +217,6 @@ public final class TermuxServicesCard {
     EditText endpoint = new EditText(activity);
     endpoint.setSingleLine(true);
     endpoint.setHint("http://pi-address:8769");
-    endpoint.setText(settings.piBaseUrl());
     endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
     fields.addView(endpoint);
 
@@ -244,13 +268,13 @@ public final class TermuxServicesCard {
             String clientName = "OpenRoadCode Android - " + Build.MODEL;
             JSONObject response = pairingClient.pair(pairingPin, clientName);
             String accessToken = response.optString("access_token", "").trim();
+            String clientId = response.optString("client_id", "").trim();
             if (accessToken.isBlank()) {
               throw new IllegalStateException("Pairing response did not contain an access token");
             }
 
             activity.runOnUiThread(() -> {
-              settings.setPiBaseUrl(baseUrl);
-              settings.setPiToken(accessToken);
+              settings.saveDevice(remoteDeviceName(baseUrl), baseUrl, clientId, accessToken);
               settings.setTarget(Target.REMOTE_PI);
               refreshTargetSummary();
               dialog.dismiss();
@@ -274,13 +298,22 @@ public final class TermuxServicesCard {
     dialog.show();
   }
 
+  private String remoteDeviceName(String baseUrl) {
+    try {
+      String host = new java.net.URL(baseUrl).getHost();
+      return host == null || host.isBlank() ? "Remote Linux" : host;
+    } catch (Exception ignored) {
+      return "Remote Linux";
+    }
+  }
+
   private void refreshTargetSummary() {
     boolean remote = settings.target() == Target.REMOTE_PI;
     if (remote) {
-      String endpoint = settings.piBaseUrl();
-      targetSummary.setText(endpoint.isBlank()
+      RuntimeDevice device = settings.activeDevice();
+      targetSummary.setText(device == null
           ? "Target: Remote Linux • systemd • not configured"
-          : "Target: Remote Linux • systemd • " + endpoint);
+          : "Target: " + device.name() + " • systemd • " + device.baseUrl());
     } else {
       targetSummary.setText("Target: Termux • runit • local runtime");
     }
@@ -300,8 +333,12 @@ public final class TermuxServicesCard {
       if (!settings.hasRemotePiConfiguration()) {
         throw new IllegalStateException("Remote Linux service manager is not configured");
       }
+      RuntimeDevice device = settings.activeDevice();
+      if (device == null) {
+        throw new IllegalStateException("Remote Linux service manager is not configured");
+      }
       return new RuntimeServiceManagerClient(
-          settings.piBaseUrl(), "Remote Linux", settings.piToken());
+          device.baseUrl(), device.name(), device.accessToken());
     }
     return new RuntimeServiceManagerClient(TermuxServiceManagerClient.BASE_URL, "Termux");
   }
