@@ -97,12 +97,11 @@ final class RtlSdrCard {
 
   private void connect() {
     manager.open();
-    context.startForegroundService(new Intent(context, RtlSdrUsbProxyService.class));
     refresh();
   }
 
   private void stop() {
-    context.stopService(new Intent(context, RtlSdrUsbProxyService.class));
+    ((OpenRoadCodeBridgeApplication) context.getApplicationContext()).stopRtlSdrProxy();
     manager.disconnect();
     refresh();
   }
