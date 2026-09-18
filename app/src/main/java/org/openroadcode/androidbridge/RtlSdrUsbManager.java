@@ -48,12 +48,19 @@ public final class RtlSdrUsbManager implements AutoCloseable {
 
         public String deviceLabel() {
             if (device == null) return "No RTL-SDR detected";
+            String manufacturer = device.getManufacturerName();
+            String product = device.getProductName();
+            String serial = device.getSerialNumber();
+            String identity = ((manufacturer == null ? "" : manufacturer + " ") +
+                    (product == null ? "" : product)).trim();
+            if (identity.isEmpty()) identity = device.getDeviceName();
             return String.format(
                     Locale.US,
-                    "VID 0x%04X  PID 0x%04X  %s",
+                    "%s • VID 0x%04X PID 0x%04X%s",
+                    identity,
                     device.getVendorId(),
                     device.getProductId(),
-                    device.getDeviceName());
+                    serial == null || serial.isEmpty() ? "" : " • S/N " + serial);
         }
     }
 
@@ -72,6 +79,7 @@ public final class RtlSdrUsbManager implements AutoCloseable {
     private UsbDevice selectedDevice;
     private UsbDeviceConnection connection;
     private boolean receiverRegistered;
+    private boolean permissionPending;
 
     private final BroadcastReceiver permissionReceiver = new BroadcastReceiver() {
         @Override
@@ -86,6 +94,7 @@ public final class RtlSdrUsbManager implements AutoCloseable {
                 device = oldDevice;
             }
             boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
+            permissionPending = false;
             if (!granted || device == null) {
                 publish(Status.ERROR, selectedDevice, "USB permission denied", -1);
                 return;
@@ -113,6 +122,9 @@ public final class RtlSdrUsbManager implements AutoCloseable {
         if (connection != null) {
             return publish(Status.OPEN, selectedDevice, "RTL-SDR USB connection open", connection.getFileDescriptor());
         }
+        if (permissionPending) {
+            return publish(Status.PERMISSION_PENDING, selectedDevice, "Waiting for Android USB permission", -1);
+        }
         return publish(Status.DETECTED, selectedDevice, "RTL-SDR detected", -1);
     }
 
@@ -136,11 +148,13 @@ public final class RtlSdrUsbManager implements AutoCloseable {
                 0,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+        permissionPending = true;
         publish(Status.PERMISSION_PENDING, selectedDevice, "Waiting for Android USB permission", -1);
         usbManager.requestPermission(selectedDevice, permissionIntent);
     }
 
     public void disconnect() {
+        permissionPending = false;
         closeConnection();
         selectedDevice = findRtlSdr();
         if (selectedDevice == null) {
