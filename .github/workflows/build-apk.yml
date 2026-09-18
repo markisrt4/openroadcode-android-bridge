@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [master, main, android-camera-streaming]
+    branches: ['**']
     tags:
       - 'v*'
   pull_request:
