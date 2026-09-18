@@ -52,7 +52,7 @@ final class SubsystemDashboard {
             UiTheme.BLUE, NAVIGATION)));
 
     root.addView(row(
-        tile("◉", "MEDIA I/O", "Camera • playback audio",
+        tile("◉", "MEDIA I/O", "Camera • playback audio • RTL-SDR",
             UiTheme.RED, MEDIA),
         tile("⇄", "CONNECTIVITY", "LAN access • bridge endpoints",
             UiTheme.BLUE, CONNECTIVITY)));
