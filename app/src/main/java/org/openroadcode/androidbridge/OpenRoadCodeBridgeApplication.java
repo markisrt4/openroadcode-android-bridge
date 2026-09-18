@@ -18,8 +18,7 @@ public final class OpenRoadCodeBridgeApplication extends Application {
             Log.i(TAG, state.status + " | " + state.message + " | " + device +
                     (state.fileDescriptor >= 0 ? " | fd=" + state.fileDescriptor : ""));
             if (state.status == RtlSdrUsbManager.Status.OPEN && !proxyStarted) {
-                proxyStarted = true;
-                startForegroundService(new Intent(this, RtlSdrUsbProxyService.class));
+                startRtlSdrProxy();
             }
         });
 
@@ -27,12 +26,22 @@ public final class OpenRoadCodeBridgeApplication extends Application {
         if (state.status == RtlSdrUsbManager.Status.DETECTED) {
             rtlSdrUsbManager.open();
         } else if (state.status == RtlSdrUsbManager.Status.OPEN && !proxyStarted) {
-            proxyStarted = true;
-            startForegroundService(new Intent(this, RtlSdrUsbProxyService.class));
+            startRtlSdrProxy();
         }
     }
 
     public RtlSdrUsbManager getRtlSdrUsbManager() {
         return rtlSdrUsbManager;
+    }
+
+    public void startRtlSdrProxy() {
+        if (proxyStarted) return;
+        proxyStarted = true;
+        startForegroundService(new Intent(this, RtlSdrUsbProxyService.class));
+    }
+
+    public void stopRtlSdrProxy() {
+        stopService(new Intent(this, RtlSdrUsbProxyService.class));
+        proxyStarted = false;
     }
 }
