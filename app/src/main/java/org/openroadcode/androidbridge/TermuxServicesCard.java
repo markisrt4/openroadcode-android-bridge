@@ -103,12 +103,11 @@ public final class TermuxServicesCard {
       addSectionLabel("RUNTIME TARGET");
       root.addView(buttonRow(termuxButton, remotePiButton));
 
-      Button editConnectionButton = actionButton(
+      Button pairedDevicesButton = actionButton(
           "PAIRED DEVICES", UiTheme.SURFACE_RAISED, v -> showRemoteDevices());
-      LinearLayout.LayoutParams editParams =
-          new LinearLayout.LayoutParams(-1, dp(BUTTON_HEIGHT));
-      editParams.setMargins(0, 0, 0, dp(10));
-      root.addView(editConnectionButton, editParams);
+      Button addDeviceButton = actionButton(
+          "+ ADD DEVICE", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
+      root.addView(buttonRow(pairedDevicesButton, addDeviceButton));
     }
 
     managerStatus = statusPill(
@@ -187,19 +186,14 @@ public final class TermuxServicesCard {
 
   private void showRemoteDevices() {
     java.util.List<RuntimeDevice> devices = settings.devices();
-    String[] labels = new String[devices.size() + 1];
+    String[] labels = new String[devices.size()];
     for (int i = 0; i < devices.size(); i++) {
       RuntimeDevice device = devices.get(i);
       labels[i] = device.name() + "\n" + device.baseUrl();
     }
-    labels[devices.size()] = "+ Pair new device";
     new AlertDialog.Builder(activity)
         .setTitle("Paired OpenRoadCode devices")
         .setItems(labels, (dialog, which) -> {
-          if (which == devices.size()) {
-            configureRemotePi();
-            return;
-          }
           RuntimeDevice device = devices.get(which);
           settings.setActiveDevice(device.deviceId());
           refreshTargetSummary();
@@ -213,6 +207,12 @@ public final class TermuxServicesCard {
     LinearLayout fields = new LinearLayout(activity);
     fields.setOrientation(LinearLayout.VERTICAL);
     fields.setPadding(dp(20), dp(8), dp(20), 0);
+
+    EditText deviceName = new EditText(activity);
+    deviceName.setSingleLine(true);
+    deviceName.setHint("Device name (for example, Car Pi 5)");
+    deviceName.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+    fields.addView(deviceName);
 
     EditText endpoint = new EditText(activity);
     endpoint.setSingleLine(true);
@@ -235,8 +235,8 @@ public final class TermuxServicesCard {
     fields.addView(pairingHelp);
 
     AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Pair remote Linux service manager")
-        .setMessage("Enter the service-manager endpoint and temporary pairing PIN.")
+        .setTitle("Add OpenRoadCode device")
+        .setMessage("Name the device, then enter its service-manager endpoint and temporary pairing PIN.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
         .setPositiveButton("PAIR", null)
@@ -245,8 +245,13 @@ public final class TermuxServicesCard {
     dialog.setOnShowListener(ignored -> {
       Button pairButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
       pairButton.setOnClickListener(v -> {
+        String name = deviceName.getText().toString().trim();
         String baseUrl = endpoint.getText().toString().trim();
         String pairingPin = pin.getText().toString().trim();
+        if (name.isBlank()) {
+          deviceName.setError("Enter a name for this device");
+          return;
+        }
         if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
           endpoint.setError("Enter a complete http:// or https:// endpoint");
           return;
@@ -258,6 +263,7 @@ public final class TermuxServicesCard {
 
         pairButton.setEnabled(false);
         pairButton.setText("PAIRING…");
+        deviceName.setEnabled(false);
         endpoint.setEnabled(false);
         pin.setEnabled(false);
 
@@ -274,7 +280,7 @@ public final class TermuxServicesCard {
             }
 
             activity.runOnUiThread(() -> {
-              settings.saveDevice(remoteDeviceName(baseUrl), baseUrl, clientId, accessToken);
+              settings.saveDevice(name, baseUrl, clientId, accessToken);
               settings.setTarget(Target.REMOTE_PI);
               refreshTargetSummary();
               dialog.dismiss();
@@ -287,6 +293,7 @@ public final class TermuxServicesCard {
             activity.runOnUiThread(() -> {
               pairButton.setEnabled(true);
               pairButton.setText("PAIR");
+              deviceName.setEnabled(true);
               endpoint.setEnabled(true);
               pin.setEnabled(true);
               pin.setError(message == null || message.isBlank() ? "Pairing failed" : message);
@@ -478,7 +485,7 @@ public final class TermuxServicesCard {
 
   private void render(JSONObject result, String targetLabel) {
     if (!profileOnly) {
-      managerStatus.setText("●  " + targetLabel + " service manager available");
+      managerStatus.setText("●  " + targetLabel + " connected");
       managerStatus.setTextColor(UiTheme.GREEN);
     }
     JSONArray services = result.optJSONArray("services");
@@ -615,7 +622,10 @@ public final class TermuxServicesCard {
   }
 
   private void renderUnavailable(String message) {
-    String target = settings.target() == Target.REMOTE_PI ? "Remote Linux" : "Termux";
+    RuntimeDevice active = settings.activeDevice();
+    String target = settings.target() == Target.REMOTE_PI
+        ? (active == null ? "Remote" : active.name())
+        : "Termux";
     managerStatus.setText("●  " + target + " unavailable"
         + (message == null || message.isBlank() ? "" : ": " + message));
     managerStatus.setTextColor(UiTheme.RED);
