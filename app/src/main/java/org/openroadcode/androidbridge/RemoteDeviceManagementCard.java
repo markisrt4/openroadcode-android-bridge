@@ -3,6 +3,8 @@ package org.openroadcode.androidbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Build;
+import android.content.Intent;
+import android.net.Uri;
 import android.text.InputType;
 import android.view.View;
 import android.widget.Button;
@@ -86,55 +88,91 @@ public final class RemoteDeviceManagementCard {
     EditText name = textField("Device name");
     EditText endpoint = textField("http://device-address:8769");
     endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-    EditText pin = textField("6-digit pairing PIN");
-    pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
     fields.addView(name);
     fields.addView(endpoint);
-    fields.addView(pin);
 
     AlertDialog dialog = new AlertDialog.Builder(activity)
         .setTitle("Add OpenRoadCode device")
-        .setMessage("Enter a name, service-manager endpoint, and temporary pairing PIN.")
+        .setMessage("Enter the device name and service-manager endpoint. Your browser will open to approve pairing.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
-        .setPositiveButton("PAIR", null)
+        .setPositiveButton("PAIR IN BROWSER", null)
         .create();
     dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-        .setOnClickListener(v -> pair(dialog, name, endpoint, pin)));
+        .setOnClickListener(v -> pairInBrowser(dialog, name, endpoint)));
     dialog.show();
   }
 
-  private void pair(AlertDialog dialog, EditText name, EditText endpoint, EditText pin) {
+  private void pairInBrowser(AlertDialog dialog, EditText name, EditText endpoint) {
     String deviceName = name.getText().toString().trim();
     String baseUrl = endpoint.getText().toString().trim();
-    String pairingPin = pin.getText().toString().trim();
     if (deviceName.isBlank()) { name.setError("Enter a device name"); return; }
     if (!validEndpoint(baseUrl)) { endpoint.setError("Enter a complete http:// or https:// endpoint"); return; }
-    if (!pairingPin.matches("\\d{6}")) { pin.setError("Enter the 6-digit pairing PIN"); return; }
 
     Button pairButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
     pairButton.setEnabled(false);
-    pairButton.setText("PAIRING…");
+    pairButton.setText("STARTING…");
     new Thread(() -> {
       try {
         RuntimeServiceManagerClient client = new RuntimeServiceManagerClient(baseUrl, deviceName);
-        JSONObject response = client.pair(pairingPin, "OpenRoadCode Android - " + Build.MODEL);
-        String token = response.optString("access_token", "").trim();
-        String clientId = response.optString("client_id", "").trim();
-        if (token.isBlank()) throw new IllegalStateException("Pairing response did not contain an access token");
+        JSONObject started = client.startBrowserPairing("OpenRoadCode Android - " + Build.MODEL);
+        String sessionId = started.optString("session_id", "").trim();
+        String approvalUrl = started.optString("approval_url", "").trim();
+        if (sessionId.isBlank() || approvalUrl.isBlank()) {
+          throw new IllegalStateException("Service manager returned an incomplete browser pairing session");
+        }
         activity.runOnUiThread(() -> {
-          settings.saveDevice(deviceName, baseUrl, clientId, token);
-          dialog.dismiss();
-          changed();
+          pairButton.setText("WAITING…");
+          activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(approvalUrl)));
         });
+        pollBrowserPairing(client, sessionId, deviceName, baseUrl, dialog, pairButton, endpoint);
       } catch (Exception e) {
-        activity.runOnUiThread(() -> {
-          pairButton.setEnabled(true);
-          pairButton.setText("PAIR");
-          pin.setError(e.getMessage() == null ? "Pairing failed" : e.getMessage());
-        });
+        pairingFailed(pairButton, endpoint, e);
       }
-    }, "orc-service-pairing").start();
+    }, "orc-browser-pairing").start();
+  }
+
+  private void pollBrowserPairing(
+      RuntimeServiceManagerClient client,
+      String sessionId,
+      String deviceName,
+      String baseUrl,
+      AlertDialog dialog,
+      Button pairButton,
+      EditText endpoint) {
+    long deadline = System.currentTimeMillis() + 300_000L;
+    try {
+      while (System.currentTimeMillis() < deadline && dialog.isShowing()) {
+        JSONObject response = client.browserPairingStatus(sessionId);
+        if ("approved".equals(response.optString("status"))) {
+          String token = response.optString("access_token", "").trim();
+          String clientId = response.optString("client_id", "").trim();
+          if (token.isBlank() || clientId.isBlank()) {
+            throw new IllegalStateException("Pairing approval did not contain client credentials");
+          }
+          activity.runOnUiThread(() -> {
+            settings.saveDevice(deviceName, baseUrl, clientId, token);
+            dialog.dismiss();
+            changed();
+          });
+          return;
+        }
+        Thread.sleep(1000L);
+      }
+      if (dialog.isShowing()) {
+        throw new IllegalStateException("Browser pairing expired before approval");
+      }
+    } catch (Exception e) {
+      if (dialog.isShowing()) pairingFailed(pairButton, endpoint, e);
+    }
+  }
+
+  private void pairingFailed(Button pairButton, EditText endpoint, Exception error) {
+    activity.runOnUiThread(() -> {
+      pairButton.setEnabled(true);
+      pairButton.setText("PAIR IN BROWSER");
+      endpoint.setError(error.getMessage() == null ? "Pairing failed" : error.getMessage());
+    });
   }
 
   private void editActiveDevice() {
