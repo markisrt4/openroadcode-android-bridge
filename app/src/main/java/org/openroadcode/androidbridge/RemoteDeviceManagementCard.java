@@ -40,7 +40,7 @@ public final class RemoteDeviceManagementCard {
     actions.setOrientation(LinearLayout.HORIZONTAL);
     Button add = button("+ ADD DEVICE", v -> addDevice());
     Button edit = button("EDIT DEVICE", v -> editActiveDevice());
-    Button delete = button("DELETE DEVICE", v -> deleteActiveDevice());
+    Button delete = button("DELETE", v -> deleteActiveDevice());
     actions.addView(add, rowButtonParams(false));
     actions.addView(edit, rowButtonParams(true));
     actions.addView(delete, rowButtonParams(true));
