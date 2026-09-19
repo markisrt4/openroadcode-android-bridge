@@ -103,11 +103,6 @@ public final class TermuxServicesCard {
       addSectionLabel("RUNTIME TARGET");
       root.addView(buttonRow(termuxButton, remotePiButton));
 
-      Button pairedDevicesButton = actionButton(
-          "PAIRED DEVICES", UiTheme.SURFACE_RAISED, v -> showRemoteDevices());
-      Button addDeviceButton = actionButton(
-          "+ ADD DEVICE", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
-      root.addView(buttonRow(pairedDevicesButton, addDeviceButton));
     }
 
     managerStatus = statusPill(
@@ -159,6 +154,11 @@ public final class TermuxServicesCard {
   }
 
   public void stop() { handler.removeCallbacks(refreshTask); }
+
+  public void refreshConfiguration() {
+    refreshTargetSummary();
+    refresh();
+  }
 
   private void addSectionLabel(String label) {
     TextView view = text(label, 10, UiTheme.MUTED);
