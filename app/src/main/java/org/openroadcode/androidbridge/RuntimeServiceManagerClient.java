@@ -54,6 +54,24 @@ public final class RuntimeServiceManagerClient {
     return request("POST", "/pair", body);
   }
 
+  /** Start a browser-approved pairing session for this client. */
+  public JSONObject startBrowserPairing(String clientName) throws Exception {
+    if (clientName == null || clientName.isBlank()) {
+      throw new IllegalArgumentException("Client name is required");
+    }
+    JSONObject body = new JSONObject();
+    body.put("client_name", clientName.trim());
+    return request("POST", "/pairing/browser/start", body);
+  }
+
+  /** Poll a browser pairing session until the administrator approves it. */
+  public JSONObject browserPairingStatus(String sessionId) throws Exception {
+    if (sessionId == null || sessionId.isBlank()) {
+      throw new IllegalArgumentException("Pairing session ID is required");
+    }
+    return request("GET", "/pairing/browser/status/" + sessionId.trim());
+  }
+
   public JSONObject getServices() throws Exception {
     return request("GET", "/services");
   }
