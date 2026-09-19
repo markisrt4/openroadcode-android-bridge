@@ -186,20 +186,91 @@ public final class TermuxServicesCard {
 
   private void showRemoteDevices() {
     java.util.List<RuntimeDevice> devices = settings.devices();
+    if (devices.isEmpty()) {
+      new AlertDialog.Builder(activity)
+          .setTitle("Paired OpenRoadCode devices")
+          .setMessage("No remote devices are paired yet.")
+          .setPositiveButton("CLOSE", null)
+          .show();
+      return;
+    }
+    RuntimeDevice active = settings.activeDevice();
     String[] labels = new String[devices.size()];
     for (int i = 0; i < devices.size(); i++) {
       RuntimeDevice device = devices.get(i);
-      labels[i] = device.name() + "\n" + device.baseUrl();
+      String selected = active != null && active.deviceId().equals(device.deviceId()) ? "●  " : "";
+      labels[i] = selected + device.name() + "\n" + device.baseUrl();
     }
     new AlertDialog.Builder(activity)
         .setTitle("Paired OpenRoadCode devices")
-        .setItems(labels, (dialog, which) -> {
-          RuntimeDevice device = devices.get(which);
-          settings.setActiveDevice(device.deviceId());
-          refreshTargetSummary();
-          refresh();
+        .setItems(labels, (dialog, which) -> showRemoteDeviceActions(devices.get(which)))
+        .setNegativeButton("CLOSE", null)
+        .show();
+  }
+
+  private void showRemoteDeviceActions(RuntimeDevice device) {
+    String[] actions = {"USE DEVICE", "RENAME", "FORGET"};
+    new AlertDialog.Builder(activity)
+        .setTitle(device.name())
+        .setMessage(device.baseUrl())
+        .setItems(actions, (dialog, which) -> {
+          if (which == 0) {
+            settings.setActiveDevice(device.deviceId());
+            refreshTargetSummary();
+            refresh();
+          } else if (which == 1) {
+            renameRemoteDevice(device);
+          } else {
+            confirmForgetRemoteDevice(device);
+          }
         })
         .setNegativeButton("CLOSE", null)
+        .show();
+  }
+
+  private void renameRemoteDevice(RuntimeDevice device) {
+    EditText name = new EditText(activity);
+    name.setSingleLine(true);
+    name.setText(device.name());
+    name.setSelectAllOnFocus(true);
+    name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+    int horizontal = dp(20);
+    LinearLayout container = new LinearLayout(activity);
+    container.setPadding(horizontal, dp(4), horizontal, 0);
+    container.addView(name, new LinearLayout.LayoutParams(-1, -2));
+
+    AlertDialog dialog = new AlertDialog.Builder(activity)
+        .setTitle("Rename device")
+        .setView(container)
+        .setNegativeButton("CANCEL", null)
+        .setPositiveButton("SAVE", null)
+        .create();
+    dialog.setOnShowListener(ignored ->
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+          String value = name.getText().toString().trim();
+          if (value.isBlank()) {
+            name.setError("Enter a device name");
+            return;
+          }
+          settings.renameDevice(device.deviceId(), value);
+          refreshTargetSummary();
+          dialog.dismiss();
+          showRemoteDevices();
+        }));
+    dialog.show();
+  }
+
+  private void confirmForgetRemoteDevice(RuntimeDevice device) {
+    new AlertDialog.Builder(activity)
+        .setTitle("Forget " + device.name() + "?")
+        .setMessage("This removes the saved pairing from this Android app.")
+        .setNegativeButton("CANCEL", null)
+        .setPositiveButton("FORGET", (dialog, which) -> {
+          settings.forgetDevice(device.deviceId());
+          refreshTargetSummary();
+          refresh();
+          showRemoteDevices();
+        })
         .show();
   }
 
