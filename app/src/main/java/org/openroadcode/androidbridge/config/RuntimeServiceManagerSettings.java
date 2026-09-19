@@ -163,12 +163,13 @@ public final class RuntimeServiceManagerSettings {
     String token = preferences.getString(KEY_PI_TOKEN, "");
     if (baseUrl.isBlank() || token == null || token.isBlank()) return;
 
+    Target legacyTarget = target();
     RuntimeDevice migrated = saveDevice(
         "Remote Linux", baseUrl, "", token);
     SharedPreferences.Editor editor = preferences.edit()
         .remove(KEY_PI_BASE_URL)
         .remove(KEY_PI_TOKEN);
-    if (target() != Target.REMOTE_PI) {
+    if (legacyTarget != Target.REMOTE_PI) {
       editor.putString(KEY_TARGET, Target.TERMUX.name());
     } else {
       editor.putString(KEY_ACTIVE_DEVICE_ID, migrated.deviceId());
