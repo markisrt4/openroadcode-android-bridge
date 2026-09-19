@@ -123,6 +123,21 @@ public final class RuntimeServiceManagerSettings {
         .apply();
   }
 
+  public boolean renameDevice(String deviceId, String name) {
+    String normalizedName = name == null ? "" : name.trim();
+    if (normalizedName.isBlank()) return false;
+    List<RuntimeDevice> devices = devices();
+    for (int i = 0; i < devices.size(); i++) {
+      RuntimeDevice device = devices.get(i);
+      if (!device.deviceId().equals(deviceId)) continue;
+      devices.set(i, new RuntimeDevice(
+          device.deviceId(), normalizedName, device.baseUrl(), device.clientId(), device.accessToken()));
+      persistDevices(devices);
+      return true;
+    }
+    return false;
+  }
+
   public boolean forgetDevice(String deviceId) {
     List<RuntimeDevice> devices = devices();
     boolean removed = devices.removeIf(device -> device.deviceId().equals(deviceId));
