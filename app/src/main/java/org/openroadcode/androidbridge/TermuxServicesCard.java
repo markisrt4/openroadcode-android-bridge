@@ -99,6 +99,7 @@ public final class TermuxServicesCard {
 
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
     remotePiButton = actionButton("REMOTE", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
+    remotePiButton.setSingleLine(true);
     if (showTargetControls) {
       addSectionLabel("RUNTIME TARGET");
       root.addView(buttonRow(termuxButton, remotePiButton));
@@ -398,6 +399,8 @@ public final class TermuxServicesCard {
     if (showTargetControls) {
       UiTheme.setButtonColor(activity, termuxButton,
           remote ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
+      RuntimeDevice active = settings.activeDevice();
+      remotePiButton.setText(active == null ? "REMOTE" : active.name().toUpperCase(Locale.US));
       boolean remoteConfigured = settings.hasRemotePiConfiguration();
       remotePiButton.setEnabled(remoteConfigured);
       UiTheme.setButtonColor(activity, remotePiButton,
@@ -501,6 +504,9 @@ public final class TermuxServicesCard {
   private void addProfileButton(
       LinearLayout row, String service, String label, String profile) {
     Button button = profileButton(label, UiTheme.SURFACE, v -> setProfile(service, profile));
+    button.setSingleLine(false);
+    button.setMaxLines(2);
+    button.setPadding(dp(3), 0, dp(3), 0);
     profileButtons.get(service).put(profile, button);
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(38), 1);
     params.setMargins(row.getChildCount() == 0 ? 0 : dp(5), 0, 0, 0);
@@ -521,8 +527,8 @@ public final class TermuxServicesCard {
     TextView view = serviceProfiles.get(service);
     if (view == null) return "";
     String value = view.getText().toString().toLowerCase(Locale.US);
-    if (value.contains("local")) return "local";
-    if (value.contains("remote")) return "remote";
+    if (value.contains("android bridge")) return "local";
+    if (value.contains("device hardware")) return "remote";
     if (value.contains("simulated")) return "simulated";
     return "";
   }
@@ -706,7 +712,7 @@ public final class TermuxServicesCard {
     }
     for (String id : serviceStates.keySet()) renderLifecycleButtons(id, "unknown");
     for (TextView profile : serviceProfiles.values()) {
-      profile.setText("○  PROFILE UNKNOWN");
+      profile.setText("○  INPUT SOURCE UNKNOWN");
       profile.setTextColor(UiTheme.MUTED);
     }
     for (TextView health : serviceInputHealth.values()) {
@@ -743,8 +749,8 @@ public final class TermuxServicesCard {
 
   private Button profileButton(String label, int color, View.OnClickListener listener) {
     Button button = UiTheme.actionButton(activity, label, color, listener);
-    button.setTextSize(10);
-    button.setLetterSpacing(.06f);
+    button.setTextSize(9);
+    button.setLetterSpacing(.02f);
     return button;
   }
 
