@@ -472,9 +472,9 @@ public final class TermuxServicesCard {
       profileRow.setOrientation(LinearLayout.HORIZONTAL);
       profileRow.setGravity(Gravity.CENTER_VERTICAL);
       profileButtons.put(id, new LinkedHashMap<>());
-      addProfileButton(profileRow, id, "LOCAL", "local");
-      addProfileButton(profileRow, id, "REMOTE", "remote");
-      addProfileButton(profileRow, id, "SIM", "simulated");
+      addProfileButton(profileRow, id, "ANDROID BRIDGE", "local");
+      addProfileButton(profileRow, id, "DEVICE HARDWARE", "remote");
+      addProfileButton(profileRow, id, "SIMULATED", "simulated");
       profileColumn.addView(profileRow);
       card.addView(profileColumn);
     }
@@ -529,7 +529,7 @@ public final class TermuxServicesCard {
 
   private void setProfile(String service, String profile) {
     managerStatus.setText("●  Switching " + shortServiceName(service)
-        + " input to " + titleCase(profile) + "…");
+        + " input source…");
     managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.VIOLET : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
   }
@@ -579,7 +579,7 @@ public final class TermuxServicesCard {
       }
       if (profileView != null) {
         String profile = service.optString("profile", "");
-        renderProfile(id, profileView, profile);
+        renderProfile(id, profileView, profile, service.optJSONObject("profile_labels"));
         renderInputHealth(id, service, profile);
         if (profileOnly) {
           managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
@@ -660,26 +660,26 @@ public final class TermuxServicesCard {
     UiTheme.setButtonColor(activity, stop, running ? UiTheme.RED : UiTheme.DISABLED);
   }
 
-  private void renderProfile(String id, TextView view, String profile) {
+  private void renderProfile(String id, TextView view, String profile, JSONObject labels) {
     Map<String, Button> buttons = profileButtons.get(id);
     if (buttons == null) return;
-    switch (profile) {
-      case "local" -> {
-        view.setText("●  LOCAL INPUT");
-        view.setTextColor(UiTheme.BLUE);
-      }
-      case "remote" -> {
-        view.setText("●  REMOTE BRIDGE INPUT");
-        view.setTextColor(UiTheme.GREEN);
-      }
-      case "simulated" -> {
-        view.setText("◇  SIMULATED INPUT");
-        view.setTextColor(UiTheme.BLUE);
-      }
-      default -> {
-        view.setText("○  PROFILE UNKNOWN");
-        view.setTextColor(UiTheme.MUTED);
-      }
+    String label = labels == null ? "" : labels.optString(profile, "");
+    if (label.isBlank()) {
+      label = switch (profile) {
+        case "local" -> "Android Bridge";
+        case "remote" -> "Device Hardware";
+        case "simulated" -> "Simulated";
+        default -> "";
+      };
+    }
+    if (label.isBlank()) {
+      view.setText("○  INPUT SOURCE UNKNOWN");
+      view.setTextColor(UiTheme.MUTED);
+    } else {
+      view.setText(("simulated".equals(profile) ? "◇  " : "●  ")
+          + label.toUpperCase(Locale.US));
+      view.setTextColor("simulated".equals(profile) ? UiTheme.BLUE
+          : ("local".equals(profile) ? UiTheme.GREEN : UiTheme.BLUE));
     }
     for (Map.Entry<String, Button> entry : buttons.entrySet()) {
       boolean selected = entry.getKey().equals(profile);
