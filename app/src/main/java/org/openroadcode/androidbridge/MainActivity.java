@@ -125,10 +125,6 @@ public final class MainActivity extends Activity {
         serviceManager.vehicleConfig().provider().displayName(), GREEN,
         bluetoothCard.view(), true, false);
 
-    termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
-    addServiceCard(content, "AUTOMOTIVE SERVICE",
-        "Live / simulated input profile", SILVER,
-        termuxServicesCard.view(), true, true);
   }
 
   private void showNavigation() {
@@ -141,11 +137,6 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "MOTION & POSITION",
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
 
-    termuxServicesCard = new TermuxServicesCard(
-        this, this::ensureNavigationSensorBridge, "openroadcode-navigation");
-    addServiceCard(content, "NAVIGATION SERVICE",
-        "Live / simulated input profile", SILVER,
-        termuxServicesCard.view(), true, true);
   }
 
   private void showMedia() {
