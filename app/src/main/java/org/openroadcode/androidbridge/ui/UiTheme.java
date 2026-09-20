@@ -13,12 +13,15 @@ public final class UiTheme {
     public static final int BG = Color.rgb(6, 16, 24);
     public static final int SURFACE = Color.rgb(11, 24, 33);
     public static final int SURFACE_RAISED = Color.rgb(16, 34, 46);
+    public static final int DISABLED = Color.rgb(34, 43, 49);
     public static final int BORDER = Color.rgb(36, 64, 79);
     public static final int TEXT = Color.rgb(243, 247, 249);
     public static final int MUTED = Color.rgb(147, 164, 174);
     public static final int SILVER = Color.rgb(184, 194, 200);
     public static final int BLUE = Color.rgb(22, 139, 209);
     public static final int GREEN = Color.rgb(132, 206, 31);
+    public static final int VIOLET = Color.rgb(145, 105, 220);
+    public static final int AMBER = Color.rgb(244, 179, 66);
     public static final int RED = Color.rgb(241, 90, 22);
 
     private UiTheme() {}

@@ -376,7 +376,7 @@ final class BluetoothCard {
   private void updateButtons(boolean running, boolean connected) {
     boolean simulated = serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE;
     String idle = simulated ? "START SIM" : "START SPP";
-    String pending = simulated ? "STARTING" : "CONNECTING";
+    String pending = simulated ? "STARTING…" : "CONNECT…";
     startButton.setText(running ? (connected ? "RUNNING" : pending) : idle);
     setButtonColor(startButton, running ? SURFACE_RAISED : BLUE);
     setButtonColor(stopButton, running ? RED : SURFACE_RAISED);

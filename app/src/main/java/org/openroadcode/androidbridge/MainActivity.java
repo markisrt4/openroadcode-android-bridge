@@ -10,6 +10,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -27,6 +28,7 @@ import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.ServiceConfig;
 import org.openroadcode.androidbridge.config.ServiceProvider;
 import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
+import org.openroadcode.androidbridge.ui.CircuitIconView;
 import org.openroadcode.androidbridge.ui.ExpandableCard;
 import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
@@ -38,6 +40,7 @@ public final class MainActivity extends Activity {
   private static final String LOCATION_URL = "http://127.0.0.1:8766/location";
   private static final int BG = UiTheme.BG, MUTED = UiTheme.MUTED, SILVER = UiTheme.SILVER;
   private static final int BLUE = UiTheme.BLUE, GREEN = UiTheme.GREEN, RED = UiTheme.RED;
+
   private final Handler dashboardHandler = new Handler(Looper.getMainLooper());
   private boolean dashboardActive;
   private boolean sensorPollInFlight;
@@ -45,21 +48,27 @@ public final class MainActivity extends Activity {
   private boolean sensorPermissionRequired;
   private boolean sensorStartFailed;
   private String sensorStartError = "";
+  private String currentScreen = "dashboard";
+
   private final Runnable dashboardRefresh = new Runnable() {
     @Override public void run() {
       if (!dashboardActive) return;
-      refreshDashboard();
+      if (sensorCard != null) refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
       if (playbackAudioCard != null) playbackAudioCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
   };
+
+  private ScrollView scrollView;
+  private LinearLayout content;
   private SensorCard sensorCard;
   private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
+  private RemoteDeviceManagementCard remoteDeviceManagementCard;
   private BridgeServiceManager serviceManager;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
@@ -68,61 +77,169 @@ public final class MainActivity extends Activity {
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
 
-    ScrollView scrollView = new ScrollView(this);
+    scrollView = new ScrollView(this);
     scrollView.setBackgroundColor(BG);
-    LinearLayout content = new LinearLayout(this);
+    content = new LinearLayout(this);
     content.setOrientation(LinearLayout.VERTICAL);
     content.setPadding(dp(10), dp(18), dp(10), dp(28));
+    scrollView.addView(content);
+    setContentView(scrollView);
+
+    showDashboard();
+  }
+
+  private void showDashboard() {
+    stopVisibleCards();
+    currentScreen = "dashboard";
+    resetContent();
+    addBrandHeader(content);
+    content.addView(new SubsystemDashboard(this, this::showSubsystem).view());
+    addFooter();
+    scrollView.scrollTo(0, 0);
+  }
+
+  private void showSubsystem(String subsystem) {
+    stopVisibleCards();
+    currentScreen = subsystem;
+    resetContent();
     addBrandHeader(content);
 
-    addSectionHeader(content, "DATA SOURCES", "Choose what feeds OpenRoadCode", BLUE);
+    switch (subsystem) {
+      case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
+      case SubsystemDashboard.NAVIGATION -> showNavigation();
+      case SubsystemDashboard.MEDIA -> showMedia();
+      case SubsystemDashboard.CONNECTIVITY -> showConnectivity();
+      case SubsystemDashboard.RUNTIME -> showRuntime();
+      default -> showDashboard();
+    }
+
+    addFooter();
+    scrollView.scrollTo(0, 0);
+    if (dashboardActive) startVisibleCards();
+  }
+
+  private void showAutomotive() {
+    addSubsystemHeader("▣", "AUTOMOTIVE", "Vehicle bridge and automotive runtime", GREEN);
+
+    bluetoothCard = new BluetoothCard(this, serviceManager);
+    addServiceCard(content, "VEHICLE DATA",
+        serviceManager.vehicleConfig().provider().displayName(), GREEN,
+        bluetoothCard.view(), true, false);
+
+    termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
+    addServiceCard(content, "AUTOMOTIVE SERVICE",
+        "Live / simulated input profile", SILVER,
+        termuxServicesCard.view(), true, true);
+  }
+
+  private void showNavigation() {
+    addSubsystemHeader("⌖", "NAVIGATION", "Phone motion, GPS, and navigation runtime", BLUE);
 
     ServiceConfig sensorConfig = serviceManager.sensorConfig();
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
         this::startBridge, this::stopBridge);
     sensorCard.setRunning(sensorConfig.enabled());
-    addServiceCard(content, "SENSORS & POSITION",
-        sensorConfig.provider().displayName(), BLUE, sensorCard.view(), false, false);
+    addServiceCard(content, "MOTION & POSITION",
+        sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
 
-    bluetoothCard = new BluetoothCard(this, serviceManager);
-    addServiceCard(content, "VEHICLE DATA",
-        serviceManager.vehicleConfig().provider().displayName(), GREEN,
-        bluetoothCard.view(), false, true);
+    termuxServicesCard = new TermuxServicesCard(
+        this, this::ensureNavigationSensorBridge, "openroadcode-navigation");
+    addServiceCard(content, "NAVIGATION SERVICE",
+        "Live / simulated input profile", SILVER,
+        termuxServicesCard.view(), true, true);
+  }
 
-    addSectionHeader(content, "CONNECTIVITY", "Expose bridge services beyond this device", GREEN);
+  private void showMedia() {
+    addSubsystemHeader("◉", "MEDIA I/O", "Camera and playback-audio bridges", RED);
+
+    cameraCard = new CameraCard(this);
+    addServiceCard(content, "CAMERA",
+        "Video capture and stream", RED, cameraCard.view(), true, false);
+
+    playbackAudioCard = new PlaybackAudioCard(this);
+    addServiceCard(content, "PLAYBACK AUDIO",
+        "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, true);
+  }
+
+  private void showConnectivity() {
+    addSubsystemHeader("⇄", "CONNECTIVITY", "Choose where Android bridge data is reachable", BLUE);
 
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
     remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    addServiceCard(content, "REMOTE ACCESS",
-        remoteEnabled ? "LAN access enabled" : "Local device only", GREEN,
-        remoteAccessCard.view(), false, true);
+    addServiceCard(content, "REMOTE SENSOR ACCESS",
+        remoteEnabled ? "Shared on local network" : "This phone only", GREEN,
+        remoteAccessCard.view(), true, true);
     updateRemoteAccessStatus();
+  }
 
-    addSectionHeader(content, "MEDIA I/O", "Camera and audio paths", RED);
-
-    cameraCard = new CameraCard(this);
-    addServiceCard(content, "CAMERA",
-        "Video capture and stream", RED, cameraCard.view(), false, false);
-
-    playbackAudioCard = new PlaybackAudioCard(this);
-    addServiceCard(content, "PLAYBACK AUDIO",
-        "Audio bridge and playback", BLUE, playbackAudioCard.view(), false, true);
-
-    addSectionHeader(content, "SYSTEM", "Android and Termux runtime services", SILVER);
+  private void showRuntime() {
+    addSubsystemHeader("⚙", "RUNTIME", "Termux and remote Linux service orchestration", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
-    addServiceCard(content, "TERMUX SERVICES",
-        "OpenRoadCode runtime processes", SILVER, termuxServicesCard.view(), false, true);
+    remoteDeviceManagementCard = new RemoteDeviceManagementCard(
+        this, termuxServicesCard::refreshConfiguration);
+    addServiceCard(content, "REMOTE DEVICES",
+        "Pair • choose • edit • delete", BLUE,
+        remoteDeviceManagementCard.view(), true, false);
+    addServiceCard(content, "OPENROADCODE SERVICES",
+        "Runtime target • input sources • core stack", SILVER,
+        termuxServicesCard.view(), true, true);
+  }
 
-    TextView footer = text("OPENROADC0DE  •  BUILD " + BuildConfig.VERSION_NAME, 11, MUTED);
-    footer.setGravity(Gravity.CENTER);
-    footer.setLetterSpacing(.12f);
-    footer.setPadding(0, dp(8), 0, 0);
-    content.addView(footer);
+  private void addSubsystemHeader(String icon, String title, String subtitle, int accent) {
+    LinearLayout row = new LinearLayout(this);
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    row.setPadding(0, 0, 0, dp(12));
 
-    scrollView.addView(content);
-    setContentView(scrollView);
+    Button back = UiTheme.actionButton(this, "‹", UiTheme.SURFACE_RAISED, v -> showDashboard());
+    back.setTextSize(24);
+    LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(dp(46), dp(46));
+    backParams.setMargins(0, 0, dp(10), 0);
+    row.addView(back, backParams);
+
+    CircuitIconView iconView = new CircuitIconView(this, icon, accent);
+    row.addView(iconView, new LinearLayout.LayoutParams(dp(52), dp(52)));
+
+    LinearLayout labels = new LinearLayout(this);
+    labels.setOrientation(LinearLayout.VERTICAL);
+
+    TextView heading = text(title, 17, UiTheme.TEXT);
+    heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    heading.setLetterSpacing(.08f);
+    labels.addView(heading);
+
+    TextView detail = text(subtitle, 11, MUTED);
+    detail.setPadding(0, dp(2), 0, 0);
+    labels.addView(detail);
+
+    row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+    content.addView(row);
+  }
+
+  private void resetContent() {
+    content.removeAllViews();
+    sensorCard = null;
+    remoteAccessCard = null;
+    cameraCard = null;
+    playbackAudioCard = null;
+    bluetoothCard = null;
+    termuxServicesCard = null;
+    remoteDeviceManagementCard = null;
+  }
+
+  private void stopVisibleCards() {
+    if (bluetoothCard != null) bluetoothCard.stop();
+    if (termuxServicesCard != null) termuxServicesCard.stop();
+  }
+
+  private void startVisibleCards() {
+    updateRemoteAccessStatus();
+    if (sensorCard != null) reconcileSensor(false);
+    if (cameraCard != null) cameraCard.refresh();
+    if (playbackAudioCard != null) playbackAudioCard.refresh();
+    if (bluetoothCard != null) bluetoothCard.start();
+    if (termuxServicesCard != null) termuxServicesCard.start();
   }
 
   private void selectSensorProvider(ServiceProvider provider) {
@@ -131,6 +248,7 @@ public final class MainActivity extends Activity {
     serviceManager.setSensorProvider(provider);
     sensorPermissionRequired = false;
     sensorStartFailed = false;
+    if (sensorCard == null) return;
     sensorCard.clear();
     if (serviceManager.sensorRequested()) reconcileSensor(true);
     else {
@@ -144,12 +262,14 @@ public final class MainActivity extends Activity {
     brand.setOrientation(LinearLayout.HORIZONTAL);
     brand.setGravity(Gravity.CENTER_VERTICAL);
     brand.setPadding(0, dp(4), 0, dp(18));
+
     ImageView mark = new ImageView(this);
     mark.setImageResource(R.drawable.ic_openroadcode);
     mark.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
     LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(54), dp(54));
     markParams.setMargins(0, 0, dp(2), 0);
     brand.addView(mark, markParams);
+
     LinearLayout words = new LinearLayout(this);
     words.setOrientation(LinearLayout.VERTICAL);
     LinearLayout titleRow = new LinearLayout(this);
@@ -158,37 +278,21 @@ public final class MainActivity extends Activity {
     addBrandWord(titleRow, " ROAD", RED);
     addBrandWord(titleRow, " CODE", GREEN);
     words.addView(titleRow);
+
     TextView subtitle = text("ANDROID HARDWARE BRIDGE", 11, SILVER);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setLetterSpacing(.14f);
     words.addView(subtitle);
     brand.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+
     ImageView badge = new ImageView(this);
     badge.setImageResource(R.drawable.ic_linux_sensor_bridge);
     badge.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
     LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(46), dp(46));
     badgeParams.setMargins(dp(4), 0, 0, 0);
     brand.addView(badge, badgeParams);
+
     parent.addView(brand);
-  }
-
-  private void addSectionHeader(LinearLayout parent, String title, String subtitle, int accent) {
-    LinearLayout section = new LinearLayout(this);
-    section.setOrientation(LinearLayout.VERTICAL);
-    section.setPadding(dp(2), dp(4), dp(2), dp(8));
-
-    TextView heading = text(title, 13, accent);
-    heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    heading.setLetterSpacing(.12f);
-    section.addView(heading);
-
-    TextView detail = text(subtitle, 11, MUTED);
-    detail.setPadding(0, dp(2), 0, 0);
-    section.addView(detail);
-
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-    params.setMargins(0, dp(4), 0, 0);
-    parent.addView(section, params);
   }
 
   private void addServiceCard(
@@ -211,6 +315,14 @@ public final class MainActivity extends Activity {
     row.addView(word);
   }
 
+  private void addFooter() {
+    TextView footer = text("OPENROADC0DE  •  BUILD " + BuildConfig.VERSION_NAME, 11, MUTED);
+    footer.setGravity(Gravity.CENTER);
+    footer.setLetterSpacing(.12f);
+    footer.setPadding(0, dp(8), 0, 0);
+    content.addView(footer);
+  }
+
   private LinearLayout.LayoutParams cardParams() {
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, 0, 0, dp(10));
@@ -223,28 +335,35 @@ public final class MainActivity extends Activity {
     return params;
   }
 
-  private TextView text(String value, float size, int color) { return UiTheme.text(this, value, size, color); }
-  private int dp(int value) { return UiTheme.dp(this, value); }
+  private TextView text(String value, float size, int color) {
+    return UiTheme.text(this, value, size, color);
+  }
+
+  private int dp(int value) {
+    return UiTheme.dp(this, value);
+  }
 
   @Override protected void onResume() {
     super.onResume();
-    updateRemoteAccessStatus();
     dashboardActive = true;
-    reconcileSensor(false);
+    startVisibleCards();
     dashboardHandler.removeCallbacks(dashboardRefresh);
     dashboardHandler.post(dashboardRefresh);
-    if (cameraCard != null) cameraCard.refresh();
-    if (playbackAudioCard != null) playbackAudioCard.refresh();
-    if (bluetoothCard != null) bluetoothCard.start();
-    if (termuxServicesCard != null) termuxServicesCard.start();
   }
 
   @Override protected void onPause() {
     dashboardActive = false;
     dashboardHandler.removeCallbacks(dashboardRefresh);
-    if (bluetoothCard != null) bluetoothCard.stop();
-    if (termuxServicesCard != null) termuxServicesCard.stop();
+    stopVisibleCards();
     super.onPause();
+  }
+
+  @Override public void onBackPressed() {
+    if (!"dashboard".equals(currentScreen)) {
+      showDashboard();
+      return;
+    }
+    super.onBackPressed();
   }
 
   private JSONObject getJson(String url) throws Exception {
@@ -255,11 +374,13 @@ public final class MainActivity extends Activity {
     try (BufferedReader reader = new BufferedReader(
         new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
       return new JSONObject(reader.readLine());
-    } finally { connection.disconnect(); }
+    } finally {
+      connection.disconnect();
+    }
   }
 
   private void refreshDashboard() {
-    if (sensorPollInFlight) return;
+    if (sensorCard == null || sensorPollInFlight) return;
     sensorPollInFlight = true;
     final long generation = serviceManager.sensorGeneration();
     final ServiceProvider provider = serviceManager.sensorConfig().provider();
@@ -272,7 +393,8 @@ public final class MainActivity extends Activity {
       final JSONObject sample = imu, fix = position;
       runOnUiThread(() -> {
         sensorPollInFlight = false;
-        if (!dashboardActive || generation != serviceManager.sensorGeneration()) return;
+        if (!dashboardActive || sensorCard == null
+            || generation != serviceManager.sensorGeneration()) return;
         if (!serviceManager.sensorRequested()) {
           sensorCard.setRunning(false);
           sensorCard.setStatus("●  Bridge stopped", MUTED);
@@ -322,8 +444,10 @@ public final class MainActivity extends Activity {
   }
 
   private boolean hasLocationPermission() {
-    return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+        == PackageManager.PERMISSION_GRANTED
+        || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED;
   }
 
   private boolean sensorNeedsLocationPermission() {
@@ -331,6 +455,7 @@ public final class MainActivity extends Activity {
   }
 
   private void reconcileSensor(boolean requestPermission) {
+    if (sensorCard == null) return;
     if (!serviceManager.sensorRequested()) {
       sensorCard.setRunning(false);
       sensorCard.setStatus("●  Bridge stopped", MUTED);
@@ -366,6 +491,15 @@ public final class MainActivity extends Activity {
     }
   }
 
+  private void ensureNavigationSensorBridge() {
+    if (serviceManager.sensorConfig().provider() != ServiceProvider.ANDROID_SENSORS) {
+      serviceManager.setSensorProvider(ServiceProvider.ANDROID_SENSORS);
+    }
+    serviceManager.requestSensorEnabled();
+    sensorStartFailed = false;
+    reconcileSensor(true);
+  }
+
   private void startBridge() {
     serviceManager.requestSensorEnabled();
     sensorStartFailed = false;
@@ -376,6 +510,7 @@ public final class MainActivity extends Activity {
     serviceManager.disableSensor();
     sensorPermissionRequired = false;
     sensorStartFailed = false;
+    if (sensorCard == null) return;
     sensorCard.setRunning(false);
     sensorCard.setStatus("●  Bridge stopped", MUTED);
     sensorCard.clear();
@@ -384,12 +519,12 @@ public final class MainActivity extends Activity {
   private void setRemoteAccess(boolean enabled) {
     getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
-    remoteAccessCard.setEnabled(enabled);
+    if (remoteAccessCard != null) remoteAccessCard.setEnabled(enabled);
     updateRemoteAccessStatus();
     if (!serviceManager.sensorRequested()) return;
     serviceManager.suspendSensor();
     sensorStartFailed = false;
-    reconcileSensor(true);
+    if (sensorCard != null) reconcileSensor(true);
   }
 
   private void updateRemoteAccessStatus() {
@@ -397,7 +532,8 @@ public final class MainActivity extends Activity {
     boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
     remoteAccessCard.setEnabled(enabled);
-    remoteAccessCard.showStatus(enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
+    remoteAccessCard.showStatus(
+        enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
   }
 
   private String findLanAddress() {
@@ -413,14 +549,18 @@ public final class MainActivity extends Activity {
     return null;
   }
 
-  @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grants) {
+  @Override public void onRequestPermissionsResult(
+      int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
-    if (playbackAudioCard != null && playbackAudioCard.onRequestPermissionsResult(requestCode, grants)) return;
-    if (bluetoothCard != null && bluetoothCard.onRequestPermissionsResult(requestCode, grants)) return;
-    if (cameraCard != null && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
+    if (playbackAudioCard != null
+        && playbackAudioCard.onRequestPermissionsResult(requestCode, grants)) return;
+    if (bluetoothCard != null
+        && bluetoothCard.onRequestPermissionsResult(requestCode, grants)) return;
+    if (cameraCard != null
+        && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (requestCode == LOCATION_PERMISSION_REQUEST) {
       locationPermissionPending = false;
-      if (!serviceManager.sensorRequested()) return;
+      if (!serviceManager.sensorRequested() || sensorCard == null) return;
       if (hasLocationPermission() || !sensorNeedsLocationPermission()) {
         sensorPermissionRequired = false;
         sensorStartFailed = false;
@@ -437,6 +577,7 @@ public final class MainActivity extends Activity {
 
   @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
     super.onActivityResult(requestCode, resultCode, data);
-    if (playbackAudioCard != null && playbackAudioCard.onActivityResult(requestCode, resultCode, data)) return;
+    if (playbackAudioCard != null
+        && playbackAudioCard.onActivityResult(requestCode, resultCode, data)) return;
   }
 }

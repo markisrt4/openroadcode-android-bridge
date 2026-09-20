@@ -1,6 +1,7 @@
 package org.openroadcode.androidbridge;
 
 import java.io.BufferedReader;
+import java.io.OutputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -39,6 +40,45 @@ public final class RuntimeServiceManagerClient {
     return targetLabel;
   }
 
+  /** Exchange a temporary service-manager PIN for this client's bearer credential. */
+  public JSONObject pair(String pin, String clientName) throws Exception {
+    if (pin == null || !pin.trim().matches("\\d{6}")) {
+      throw new IllegalArgumentException("Pairing PIN must be exactly 6 digits");
+    }
+    if (clientName == null || clientName.isBlank()) {
+      throw new IllegalArgumentException("Client name is required");
+    }
+    JSONObject body = new JSONObject();
+    body.put("pin", pin.trim());
+    body.put("client_name", clientName.trim());
+    return request("POST", "/pair", body);
+  }
+
+  /** Start a browser-approved pairing session for this client. */
+  public JSONObject startBrowserPairing(String clientName) throws Exception {
+    if (clientName == null || clientName.isBlank()) {
+      throw new IllegalArgumentException("Client name is required");
+    }
+    JSONObject body = new JSONObject();
+    body.put("client_name", clientName.trim());
+    return request("POST", "/pairing/browser/start", body);
+  }
+
+  /** Poll a browser pairing session until the administrator approves it. */
+  public JSONObject browserPairingStatus(String sessionId, String pollToken) throws Exception {
+    if (sessionId == null || sessionId.isBlank()) {
+      throw new IllegalArgumentException("Pairing session ID is required");
+    }
+    if (pollToken == null || pollToken.isBlank()) {
+      throw new IllegalArgumentException("Pairing poll token is required");
+    }
+    return request(
+        "GET",
+        "/pairing/browser/status/" + sessionId.trim(),
+        null,
+        pollToken.trim());
+  }
+
   public JSONObject getServices() throws Exception {
     return request("GET", "/services");
   }
@@ -63,14 +103,35 @@ public final class RuntimeServiceManagerClient {
     return serviceAction(service, "restart");
   }
 
-  private JSONObject serviceAction(String service, String action) throws Exception {
-    if (!service.matches("openroadcode-(message-broker|navigation|automotive|adsb)")) {
-      throw new IllegalArgumentException("Unsupported OpenRoadCode service: " + service);
+  public JSONObject setServiceProfile(String service, String profile) throws Exception {
+    validateService(service);
+    if (!profile.matches("local|remote|simulated")) {
+      throw new IllegalArgumentException("Unsupported runtime profile: " + profile);
     }
+    return request("POST", "/services/" + service + "/profile/" + profile);
+  }
+
+  private JSONObject serviceAction(String service, String action) throws Exception {
+    validateService(service);
     return request("POST", "/services/" + service + "/" + action);
   }
 
+  private static void validateService(String service) {
+    if (!service.matches("openroadcode-(message-broker|navigation|automotive|adsb)")) {
+      throw new IllegalArgumentException("Unsupported OpenRoadCode service: " + service);
+    }
+  }
+
   private JSONObject request(String method, String path) throws Exception {
+    return request(method, path, null);
+  }
+
+  private JSONObject request(String method, String path, JSONObject requestBody) throws Exception {
+    return request(method, path, requestBody, null);
+  }
+
+  private JSONObject request(
+      String method, String path, JSONObject requestBody, String pairingToken) throws Exception {
     HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
     connection.setRequestMethod(method);
     connection.setConnectTimeout(1000);
@@ -79,9 +140,21 @@ public final class RuntimeServiceManagerClient {
     if (bearerToken != null) {
       connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
     }
+    if (pairingToken != null) {
+      connection.setRequestProperty("X-OpenRoadCode-Pairing-Token", pairingToken);
+    }
     if ("POST".equals(method)) {
       connection.setDoOutput(true);
-      connection.setFixedLengthStreamingMode(0);
+      if (requestBody == null) {
+        connection.setFixedLengthStreamingMode(0);
+      } else {
+        byte[] encoded = requestBody.toString().getBytes(StandardCharsets.UTF_8);
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        connection.setFixedLengthStreamingMode(encoded.length);
+        try (OutputStream output = connection.getOutputStream()) {
+          output.write(encoded);
+        }
+      }
     }
     try {
       int status = connection.getResponseCode();
@@ -98,6 +171,11 @@ public final class RuntimeServiceManagerClient {
       reader.close();
       JSONObject response = new JSONObject(body.toString());
       if (status < 200 || status >= 300) {
+        if (status == 404 && path.contains("/profile/")) {
+          throw new IllegalStateException(
+              "Runtime profile API is not available on " + targetLabel
+              + ". Update and restart the OpenRoadCode service manager.");
+        }
         throw new IllegalStateException(response.optString(
             "error", targetLabel + " service request failed"));
       }
