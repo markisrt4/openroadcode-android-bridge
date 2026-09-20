@@ -174,18 +174,16 @@ public final class MainActivity extends Activity {
         remoteAccessCard.view(), true, true);
     updateRemoteAccessStatus();
 
-    termuxServicesCard = new TermuxServicesCard(this);
+    RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this);
     addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
-        "Runtime targets • pairing • remote Linux", SILVER,
-        termuxServicesCard.view(), true, true);
+        "Pairing • remote Linux connection", SILVER,
+        remoteDevices.view(), true, true);
   }
 
   private void showRuntime() {
     addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
 
-    termuxServicesCard = new TermuxServicesCard(this, false,
-        "openroadcode-message-broker", "openroadcode-navigation",
-        "openroadcode-automotive", "openroadcode-adsb");
+    termuxServicesCard = new TermuxServicesCard(this);
     addServiceCard(content, "OPENROADCODE SERVICES",
         "Targets • profiles • core stack", SILVER,
         termuxServicesCard.view(), true, true);
