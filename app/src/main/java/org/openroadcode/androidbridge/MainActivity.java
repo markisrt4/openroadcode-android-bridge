@@ -65,7 +65,6 @@ public final class MainActivity extends Activity {
   private LinearLayout content;
   private SensorCard sensorCard;
   private EnvironmentalSensorCard environmentalSensorCard;
-  private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
@@ -166,14 +165,6 @@ public final class MainActivity extends Activity {
     addSubsystemHeader("⚙", "CONFIGURATION",
         "Devices, remote access, pairing, and persistent bridge settings", SILVER);
 
-    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    addServiceCard(content, "REMOTE SENSOR ACCESS",
-        remoteEnabled ? "Shared on local network" : "This phone only", GREEN,
-        remoteAccessCard.view(), true, true);
-    updateRemoteAccessStatus();
-
     RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this);
     addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
         "Pairing • remote Linux connection", SILVER,
@@ -223,7 +214,6 @@ public final class MainActivity extends Activity {
     content.removeAllViews();
     sensorCard = null;
     environmentalSensorCard = null;
-    remoteAccessCard = null;
     cameraCard = null;
     playbackAudioCard = null;
     bluetoothCard = null;
@@ -236,7 +226,6 @@ public final class MainActivity extends Activity {
   }
 
   private void startVisibleCards() {
-    updateRemoteAccessStatus();
     if (sensorCard != null) reconcileSensor(false);
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();
