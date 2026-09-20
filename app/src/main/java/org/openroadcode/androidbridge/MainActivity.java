@@ -30,6 +30,7 @@ import org.openroadcode.androidbridge.config.ServiceProvider;
 import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
 import org.openroadcode.androidbridge.ui.CircuitIconView;
 import org.openroadcode.androidbridge.ui.ExpandableCard;
+import org.openroadcode.androidbridge.ui.EnvironmentalSensorCard;
 import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
@@ -53,7 +54,7 @@ public final class MainActivity extends Activity {
   private final Runnable dashboardRefresh = new Runnable() {
     @Override public void run() {
       if (!dashboardActive) return;
-      if (sensorCard != null) refreshDashboard();
+      if (sensorCard != null || environmentalSensorCard != null) refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
       if (playbackAudioCard != null) playbackAudioCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
@@ -63,6 +64,7 @@ public final class MainActivity extends Activity {
   private ScrollView scrollView;
   private LinearLayout content;
   private SensorCard sensorCard;
+  private EnvironmentalSensorCard environmentalSensorCard;
   private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
@@ -107,6 +109,7 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
       case SubsystemDashboard.NAVIGATION -> showNavigation();
       case SubsystemDashboard.MEDIA -> showMedia();
+      case SubsystemDashboard.ENVIRONMENTAL -> showEnvironmental();
       case SubsystemDashboard.RUNTIME -> showRuntime();
       case SubsystemDashboard.CONFIGURATION -> showConfiguration();
       default -> showDashboard();
@@ -139,6 +142,14 @@ public final class MainActivity extends Activity {
 
   }
 
+  private void showEnvironmental() {
+    addSubsystemHeader("☀", "ENVIRONMENTAL", "Ambient light and environmental telemetry", GREEN);
+
+    environmentalSensorCard = new EnvironmentalSensorCard(this);
+    addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
+        environmentalSensorCard.view(), true, true);
+  }
+
   private void showMedia() {
     addSubsystemHeader("◉", "MEDIA I/O", "Camera and playback-audio bridges", RED);
 
@@ -162,12 +173,19 @@ public final class MainActivity extends Activity {
         remoteEnabled ? "Shared on local network" : "This phone only", GREEN,
         remoteAccessCard.view(), true, true);
     updateRemoteAccessStatus();
+
+    termuxServicesCard = new TermuxServicesCard(this);
+    addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
+        "Runtime targets • pairing • remote Linux", SILVER,
+        termuxServicesCard.view(), true, true);
   }
 
   private void showRuntime() {
     addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
 
-    termuxServicesCard = new TermuxServicesCard(this);
+    termuxServicesCard = new TermuxServicesCard(this, false,
+        "openroadcode-message-broker", "openroadcode-navigation",
+        "openroadcode-automotive", "openroadcode-adsb");
     addServiceCard(content, "OPENROADCODE SERVICES",
         "Targets • profiles • core stack", SILVER,
         termuxServicesCard.view(), true, true);
@@ -206,6 +224,7 @@ public final class MainActivity extends Activity {
   private void resetContent() {
     content.removeAllViews();
     sensorCard = null;
+    environmentalSensorCard = null;
     remoteAccessCard = null;
     cameraCard = null;
     playbackAudioCard = null;
@@ -365,7 +384,7 @@ public final class MainActivity extends Activity {
   }
 
   private void refreshDashboard() {
-    if (sensorCard == null || sensorPollInFlight) return;
+    if ((sensorCard == null && environmentalSensorCard == null) || sensorPollInFlight) return;
     sensorPollInFlight = true;
     final long generation = serviceManager.sensorGeneration();
     final ServiceProvider provider = serviceManager.sensorConfig().provider();
@@ -378,8 +397,13 @@ public final class MainActivity extends Activity {
       final JSONObject sample = imu, fix = position;
       runOnUiThread(() -> {
         sensorPollInFlight = false;
-        if (!dashboardActive || sensorCard == null
+        if (!dashboardActive || (sensorCard == null && environmentalSensorCard == null)
             || generation != serviceManager.sensorGeneration()) return;
+        if (environmentalSensorCard != null) {
+          if (sample == null) environmentalSensorCard.clear();
+          else environmentalSensorCard.displaySample(sample);
+          if (sensorCard == null) return;
+        }
         if (!serviceManager.sensorRequested()) {
           sensorCard.setRunning(false);
           sensorCard.setStatus("●  Bridge stopped", MUTED);
