@@ -512,38 +512,7 @@ public final class MainActivity extends Activity {
     sensorCard.clear();
   }
 
-  private void setRemoteAccess(boolean enabled) {
-    getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
-    if (remoteAccessCard != null) remoteAccessCard.setEnabled(enabled);
-    updateRemoteAccessStatus();
-    if (!serviceManager.sensorRequested()) return;
-    serviceManager.suspendSensor();
-    sensorStartFailed = false;
-    if (sensorCard != null) reconcileSensor(true);
-  }
 
-  private void updateRemoteAccessStatus() {
-    if (remoteAccessCard == null) return;
-    boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    remoteAccessCard.setEnabled(enabled);
-    remoteAccessCard.showStatus(
-        enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
-  }
-
-  private String findLanAddress() {
-    try {
-      for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-        if (!network.isUp() || network.isLoopback()) continue;
-        for (InetAddress address : Collections.list(network.getInetAddresses())) {
-          if (address instanceof Inet4Address && !address.isLoopbackAddress())
-            return address.getHostAddress();
-        }
-      }
-    } catch (Exception ignored) { }
-    return null;
-  }
 
   @Override public void onRequestPermissionsResult(
       int requestCode, String[] permissions, int[] grants) {
