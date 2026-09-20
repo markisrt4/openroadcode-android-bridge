@@ -107,8 +107,8 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
       case SubsystemDashboard.NAVIGATION -> showNavigation();
       case SubsystemDashboard.MEDIA -> showMedia();
-      case SubsystemDashboard.CONNECTIVITY -> showConnectivity();
       case SubsystemDashboard.RUNTIME -> showRuntime();
+      case SubsystemDashboard.CONFIGURATION -> showConfiguration();
       default -> showDashboard();
     }
 
@@ -160,8 +160,9 @@ public final class MainActivity extends Activity {
         "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, true);
   }
 
-  private void showConnectivity() {
-    addSubsystemHeader("⇄", "CONNECTIVITY", "Choose where Android bridge data is reachable", BLUE);
+  private void showConfiguration() {
+    addSubsystemHeader("⚙", "CONFIGURATION",
+        "Devices, remote access, pairing, and persistent bridge settings", SILVER);
 
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
@@ -173,7 +174,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showRuntime() {
-    addSubsystemHeader("⚙", "RUNTIME", "Termux and remote Linux service orchestration", SILVER);
+    addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
     addServiceCard(content, "OPENROADCODE SERVICES",
