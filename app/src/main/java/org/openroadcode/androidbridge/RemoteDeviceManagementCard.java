@@ -50,6 +50,12 @@ public final class RemoteDeviceManagementCard {
     status.setPadding(0, dp(8), 0, dp(8));
     root.addView(status);
 
+    Button select = UiTheme.actionButton(activity, "SELECT REMOTE", UiTheme.SURFACE_RAISED,
+        v -> selectRemoteDevice());
+    LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(-1, dp(44));
+    selectParams.setMargins(0, 0, 0, dp(8));
+    root.addView(select, selectParams);
+
     Button pair = UiTheme.actionButton(activity, "ADD REMOTE", UiTheme.BLUE, v -> configure());
     Button edit = UiTheme.actionButton(activity, "EDIT REMOTE", UiTheme.SURFACE_RAISED,
         v -> editActiveDevice());
@@ -93,6 +99,31 @@ public final class RemoteDeviceManagementCard {
     status.setTextColor(devices.isEmpty() ? UiTheme.MUTED : UiTheme.GREEN);
   }
 
+
+  private void selectRemoteDevice() {
+    List<RuntimeDevice> devices = settings.devices();
+    if (devices.isEmpty()) {
+      showDevices();
+      return;
+    }
+    RuntimeDevice active = settings.activeDevice();
+    String[] labels = new String[devices.size()];
+    int checked = -1;
+    for (int i = 0; i < devices.size(); i++) {
+      RuntimeDevice device = devices.get(i);
+      labels[i] = device.name() + "\n" + device.baseUrl();
+      if (active != null && active.deviceId().equals(device.deviceId())) checked = i;
+    }
+    new AlertDialog.Builder(activity)
+        .setTitle("Select remote device")
+        .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+          settings.setActiveDevice(devices.get(which).deviceId());
+          refresh();
+          dialog.dismiss();
+        })
+        .setNegativeButton("CANCEL", null)
+        .show();
+  }
 
   private void editActiveDevice() {
     RuntimeDevice active = settings.activeDevice();
