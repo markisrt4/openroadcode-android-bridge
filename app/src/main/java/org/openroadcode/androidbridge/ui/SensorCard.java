@@ -23,7 +23,7 @@ public final class SensorCard {
     private final Context context;
     private final LinearLayout root;
     private final TextView status;
-    private final TextView[] values = new TextView[7];
+    private final TextView[] values = new TextView[6];
     private final Button start, stop;
     private final Spinner providerSpinner;
     private boolean bindingProvider;
@@ -104,12 +104,12 @@ public final class SensorCard {
         root.addView(providerSpinner, providerParams);
 
         String[] names = {"Accelerometer", "Linear acceleration", "Gyroscope", "Magnetometer",
-                "Barometer", "Ambient light", "Position"};
-        String[] units = {"m/s²", "m/s²", "rad/s", "µT", "hPa", "lux",
+                "Barometer", "Position"};
+        String[] units = {"m/s²", "m/s²", "rad/s", "µT", "hPa",
                 "lat / lon • accuracy • sats"};
-        String[] icons = {"↗", "⇢", "↻", "⌖", "◉", "☀", "◎"};
+        String[] icons = {"↗", "⇢", "↻", "⌖", "◉", "◎"};
         int[] accents = {UiTheme.BLUE, UiTheme.GREEN, UiTheme.RED, UiTheme.BLUE,
-                UiTheme.GREEN, UiTheme.BLUE, UiTheme.RED};
+                UiTheme.GREEN, UiTheme.RED};
         for (int i = 0; i < values.length; i++) {
             LinearLayout row = new LinearLayout(context);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -177,17 +177,15 @@ public final class SensorCard {
                 ? vector(r.optJSONObject("magnetic_field_uT")) : "Not available");
         values[4].setText(r.optBoolean("pressure_available")
                 ? String.format(Locale.US, "%.2f", r.optDouble("pressure_hpa")) : "Not available");
-        values[5].setText(r.optBoolean("ambient_light_available")
-                ? String.format(Locale.US, "%.1f", r.optDouble("ambient_light_lux")) : "Not available");
     }
 
     public void displayPosition(JSONObject r) {
         if (!r.optBoolean("permission_granted", true)) {
-            values[6].setText("Permission required");
+            values[5].setText("Permission required");
             return;
         }
         if (!r.optBoolean("ready")) {
-            values[6].setText(r.optBoolean("available") ? "Waiting for fix" : "Provider unavailable");
+            values[5].setText(r.optBoolean("available") ? "Waiting for fix" : "Provider unavailable");
             return;
         }
         double accuracy = r.optDouble("horizontal_accuracy_m", Double.NaN);
@@ -195,7 +193,7 @@ public final class SensorCard {
         int used = r.optInt("satellites_used_in_fix", -1);
         String sats = visible < 0 ? "sats —"
                 : (used >= 0 ? "sats " + used + "/" + visible : "sats " + visible);
-        values[6].setText(String.format(Locale.US, "%.6f, %.6f\n%s  %s\n%s",
+        values[5].setText(String.format(Locale.US, "%.6f, %.6f\n%s  %s\n%s",
                 r.optDouble("latitude"), r.optDouble("longitude"),
                 Double.isNaN(accuracy) ? "accuracy —"
                         : String.format(Locale.US, "±%.1f m", accuracy),
