@@ -62,7 +62,7 @@ public final class TermuxServicesCard {
   };
 
   public TermuxServicesCard(Activity activity) {
-    this(activity, (Runnable) null,
+    this(activity, true, (Runnable) null,
         "openroadcode-message-broker",
         "openroadcode-navigation",
         "openroadcode-automotive",
@@ -70,17 +70,27 @@ public final class TermuxServicesCard {
   }
 
   public TermuxServicesCard(Activity activity, String... services) {
-    this(activity, (Runnable) null, services);
+    this(activity, true, (Runnable) null, services);
+  }
+
+  public TermuxServicesCard(Activity activity, boolean showTargetControls, String... services) {
+    this(activity, showTargetControls, (Runnable) null, services);
   }
 
   public TermuxServicesCard(
       Activity activity, Runnable beforeLocalNavigationStart, String... services) {
+    this(activity, true, beforeLocalNavigationStart, services);
+  }
+
+  private TermuxServicesCard(
+      Activity activity, boolean targetControls, Runnable beforeLocalNavigationStart,
+      String... services) {
     this.activity = activity;
     this.beforeLocalNavigationStart = beforeLocalNavigationStart;
     for (String service : services) visibleServices.add(service);
     showCoreControls = visibleServices.size() > 1;
-    showTargetControls = showCoreControls;
-    profileOnly = !showTargetControls && visibleServices.size() == 1;
+    showTargetControls = showCoreControls && targetControls;
+    profileOnly = !showCoreControls && visibleServices.size() == 1;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
