@@ -18,6 +18,7 @@ final class SubsystemDashboard {
   static final String AUTOMOTIVE = "automotive";
   static final String NAVIGATION = "navigation";
   static final String MEDIA = "media";
+  static final String ENVIRONMENTAL = "environmental";
   static final String RUNTIME = "runtime";
   static final String CONFIGURATION = "configuration";
 
@@ -59,10 +60,16 @@ final class SubsystemDashboard {
             UiTheme.BLUE, NAVIGATION, true)));
 
     root.addView(row(
+        tile("☀", "ENVIRONMENTAL", "Ambient light • environment sensors",
+            UiTheme.GREEN, ENVIRONMENTAL, true),
         tile("▶", "MEDIA I/O", "Camera • playback audio",
-            UiTheme.RED, MEDIA, true),
-        tile("≡", "RUNTIME", "Termux • Linux • running services",
-            UiTheme.SILVER, RUNTIME, false)));
+            UiTheme.RED, MEDIA, true)));
+
+    LinearLayout runtime = tile("≡", "RUNTIME", "Termux • Linux • running services",
+        UiTheme.SILVER, RUNTIME, false);
+    LinearLayout.LayoutParams runtimeParams = new LinearLayout.LayoutParams(-1, dp(126));
+    runtimeParams.setMargins(0, dp(5), 0, 0);
+    root.addView(runtime, runtimeParams);
 
     return root;
   }
