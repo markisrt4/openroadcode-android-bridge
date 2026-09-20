@@ -12,6 +12,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.RuntimeDevice;
+import java.util.List;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** Persistent remote runtime device pairing and connection configuration. */
@@ -48,20 +50,122 @@ public final class RemoteDeviceManagementCard {
     status.setPadding(0, dp(8), 0, dp(8));
     root.addView(status);
 
-    Button pair = UiTheme.actionButton(activity, "PAIR / EDIT REMOTE LINUX", UiTheme.BLUE,
-        v -> configure());
-    LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(44));
-    root.addView(pair, p);
+    Button manage = UiTheme.actionButton(activity, "MANAGE DEVICES", UiTheme.SURFACE_RAISED,
+        v -> showDevices());
+    Button pair = UiTheme.actionButton(activity, "ADD DEVICE", UiTheme.BLUE, v -> configure());
+    LinearLayout actions = new LinearLayout(activity);
+    actions.setOrientation(LinearLayout.HORIZONTAL);
+    LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, dp(44), 1);
+    left.setMargins(0, 0, dp(4), 0);
+    LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, dp(44), 1);
+    right.setMargins(dp(4), 0, 0, 0);
+    actions.addView(manage, left);
+    actions.addView(pair, right);
+    root.addView(actions);
     refresh();
   }
 
   public View view() { return root; }
 
   private void refresh() {
-    String url = settings.piBaseUrl();
-    endpoint.setText(url.isBlank() ? "Remote Linux: not configured" : "Remote Linux: " + url);
-    status.setText(settings.hasRemotePiConfiguration() ? "●  Paired credential stored" : "○  Not paired");
-    status.setTextColor(settings.hasRemotePiConfiguration() ? UiTheme.GREEN : UiTheme.MUTED);
+    List<RuntimeDevice> devices = settings.devices();
+    RuntimeDevice active = settings.activeDevice();
+    endpoint.setText(devices.isEmpty()
+        ? "No remote devices configured"
+        : devices.size() + " paired device" + (devices.size() == 1 ? "" : "s")
+            + (active == null ? "" : " • active: " + active.name()));
+    status.setText(devices.isEmpty() ? "○  Not paired" : "●  Paired credentials stored");
+    status.setTextColor(devices.isEmpty() ? UiTheme.MUTED : UiTheme.GREEN);
+  }
+
+
+  private void showDevices() {
+    List<RuntimeDevice> devices = settings.devices();
+    if (devices.isEmpty()) {
+      new AlertDialog.Builder(activity)
+          .setTitle("Paired OpenRoadCode devices")
+          .setMessage("No remote devices are paired yet.")
+          .setPositiveButton("CLOSE", null)
+          .show();
+      return;
+    }
+    RuntimeDevice active = settings.activeDevice();
+    String[] labels = new String[devices.size()];
+    for (int i = 0; i < devices.size(); i++) {
+      RuntimeDevice device = devices.get(i);
+      String selected = active != null && active.deviceId().equals(device.deviceId()) ? "●  " : "";
+      labels[i] = selected + device.name() + "\n" + device.baseUrl();
+    }
+    new AlertDialog.Builder(activity)
+        .setTitle("Paired OpenRoadCode devices")
+        .setItems(labels, (dialog, which) -> showDeviceActions(devices.get(which)))
+        .setNegativeButton("CLOSE", null)
+        .show();
+  }
+
+  private void showDeviceActions(RuntimeDevice device) {
+    String[] actions = {"EDIT", "FORGET"};
+    new AlertDialog.Builder(activity)
+        .setTitle(device.name())
+        .setMessage(device.baseUrl())
+        .setItems(actions, (dialog, which) -> {
+          if (which == 0) editDevice(device);
+          else confirmForget(device);
+        })
+        .setNegativeButton("CLOSE", null)
+        .show();
+  }
+
+  private void editDevice(RuntimeDevice device) {
+    LinearLayout fields = new LinearLayout(activity);
+    fields.setOrientation(LinearLayout.VERTICAL);
+    fields.setPadding(dp(20), dp(8), dp(20), 0);
+    EditText name = new EditText(activity);
+    name.setSingleLine(true);
+    name.setText(device.name());
+    fields.addView(name);
+    EditText url = new EditText(activity);
+    url.setSingleLine(true);
+    url.setText(device.baseUrl());
+    url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+    fields.addView(url);
+    AlertDialog dialog = new AlertDialog.Builder(activity)
+        .setTitle("Edit device")
+        .setView(fields)
+        .setNegativeButton("CANCEL", null)
+        .setPositiveButton("SAVE", null)
+        .create();
+    dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        .setOnClickListener(v -> {
+          String newName = name.getText().toString().trim();
+          String newUrl = url.getText().toString().trim();
+          if (newName.isBlank()) {
+            name.setError("Enter a device name");
+            return;
+          }
+          if (!(newUrl.startsWith("http://") || newUrl.startsWith("https://"))) {
+            url.setError("Enter a complete http:// or https:// endpoint");
+            return;
+          }
+          settings.updateDevice(device.deviceId(), newName, newUrl);
+          refresh();
+          dialog.dismiss();
+          showDevices();
+        }));
+    dialog.show();
+  }
+
+  private void confirmForget(RuntimeDevice device) {
+    new AlertDialog.Builder(activity)
+        .setTitle("Forget " + device.name() + "?")
+        .setMessage("This removes the saved pairing from this Android app.")
+        .setNegativeButton("CANCEL", null)
+        .setPositiveButton("FORGET", (dialog, which) -> {
+          settings.forgetDevice(device.deviceId());
+          refresh();
+          showDevices();
+        })
+        .show();
   }
 
   private void configure() {
@@ -69,10 +173,15 @@ public final class RemoteDeviceManagementCard {
     fields.setOrientation(LinearLayout.VERTICAL);
     fields.setPadding(dp(20), dp(8), dp(20), 0);
 
+    EditText deviceName = new EditText(activity);
+    deviceName.setSingleLine(true);
+    deviceName.setHint("Device name (for example, Car Pi 5)");
+    deviceName.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+    fields.addView(deviceName);
+
     EditText url = new EditText(activity);
     url.setSingleLine(true);
     url.setHint("http://pi-address:8769");
-    url.setText(settings.piBaseUrl());
     url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
     fields.addView(url);
 
@@ -98,8 +207,13 @@ public final class RemoteDeviceManagementCard {
 
     dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         .setOnClickListener(v -> {
+          String name = deviceName.getText().toString().trim();
           String baseUrl = url.getText().toString().trim();
           String pairingPin = pin.getText().toString().trim();
+          if (name.isBlank()) {
+            deviceName.setError("Enter a name for this device");
+            return;
+          }
           if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
             url.setError("Enter a complete http:// or https:// endpoint");
             return;
@@ -116,10 +230,10 @@ public final class RemoteDeviceManagementCard {
               RuntimeServiceManagerClient client = new RuntimeServiceManagerClient(baseUrl, "Remote Linux");
               JSONObject response = client.pair(pairingPin, "OpenRoadCode Android - " + Build.MODEL);
               String token = response.optString("access_token", "").trim();
+              String clientId = response.optString("client_id", "").trim();
               if (token.isBlank()) throw new IllegalStateException("Pairing response contained no access token");
               activity.runOnUiThread(() -> {
-                settings.setPiBaseUrl(baseUrl);
-                settings.setPiToken(token);
+                settings.saveDevice(name, baseUrl, clientId, token);
                 refresh();
                 dialog.dismiss();
               });
