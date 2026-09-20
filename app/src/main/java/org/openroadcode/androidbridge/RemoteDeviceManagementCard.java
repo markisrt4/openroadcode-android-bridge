@@ -117,15 +117,16 @@ public final class RemoteDeviceManagementCard {
         RuntimeServiceManagerClient client = new RuntimeServiceManagerClient(baseUrl, deviceName);
         JSONObject started = client.startBrowserPairing("OpenRoadCode Android - " + Build.MODEL);
         String sessionId = started.optString("session_id", "").trim();
+        String pollToken = started.optString("poll_token", "").trim();
         String approvalUrl = started.optString("approval_url", "").trim();
-        if (sessionId.isBlank() || approvalUrl.isBlank()) {
+        if (sessionId.isBlank() || pollToken.isBlank() || approvalUrl.isBlank()) {
           throw new IllegalStateException("Service manager returned an incomplete browser pairing session");
         }
         activity.runOnUiThread(() -> {
           pairButton.setText("WAITING…");
           activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(approvalUrl)));
         });
-        pollBrowserPairing(client, sessionId, deviceName, baseUrl, dialog, pairButton, endpoint);
+        pollBrowserPairing(client, sessionId, pollToken, deviceName, baseUrl, dialog, pairButton, endpoint);
       } catch (Exception e) {
         pairingFailed(pairButton, endpoint, e);
       }
@@ -135,6 +136,7 @@ public final class RemoteDeviceManagementCard {
   private void pollBrowserPairing(
       RuntimeServiceManagerClient client,
       String sessionId,
+      String pollToken,
       String deviceName,
       String baseUrl,
       AlertDialog dialog,
@@ -143,7 +145,7 @@ public final class RemoteDeviceManagementCard {
     long deadline = System.currentTimeMillis() + 300_000L;
     try {
       while (System.currentTimeMillis() < deadline && dialog.isShowing()) {
-        JSONObject response = client.browserPairingStatus(sessionId);
+        JSONObject response = client.browserPairingStatus(sessionId, pollToken);
         if ("approved".equals(response.optString("status"))) {
           String token = response.optString("access_token", "").trim();
           String clientId = response.optString("client_id", "").trim();
