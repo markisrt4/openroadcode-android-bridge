@@ -50,18 +50,33 @@ public final class RemoteDeviceManagementCard {
     status.setPadding(0, dp(8), 0, dp(8));
     root.addView(status);
 
-    Button manage = UiTheme.actionButton(activity, "MANAGE DEVICES", UiTheme.SURFACE_RAISED,
-        v -> showDevices());
-    Button pair = UiTheme.actionButton(activity, "ADD DEVICE", UiTheme.BLUE, v -> configure());
-    LinearLayout actions = new LinearLayout(activity);
-    actions.setOrientation(LinearLayout.HORIZONTAL);
+    Button pair = UiTheme.actionButton(activity, "ADD REMOTE", UiTheme.BLUE, v -> configure());
+    Button edit = UiTheme.actionButton(activity, "EDIT REMOTE", UiTheme.SURFACE_RAISED,
+        v -> editActiveDevice());
+    Button delete = UiTheme.actionButton(activity, "DELETE REMOTE", UiTheme.RED,
+        v -> deleteActiveDevice());
+
+    LinearLayout primaryActions = new LinearLayout(activity);
+    primaryActions.setOrientation(LinearLayout.HORIZONTAL);
     LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, dp(44), 1);
     left.setMargins(0, 0, dp(4), 0);
     LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, dp(44), 1);
     right.setMargins(dp(4), 0, 0, 0);
-    actions.addView(manage, left);
-    actions.addView(pair, right);
-    root.addView(actions);
+    primaryActions.addView(pair, left);
+    primaryActions.addView(edit, right);
+    root.addView(primaryActions);
+
+    LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+    deleteParams.setMargins(0, dp(8), 0, 0);
+    root.addView(delete, deleteParams);
+
+    boolean haveDevice = settings.activeDevice() != null;
+    edit.setEnabled(haveDevice);
+    delete.setEnabled(haveDevice);
+    UiTheme.setButtonColor(activity, edit,
+        haveDevice ? UiTheme.SURFACE_RAISED : UiTheme.DISABLED);
+    UiTheme.setButtonColor(activity, delete,
+        haveDevice ? UiTheme.RED : UiTheme.DISABLED);
     refresh();
   }
 
@@ -78,6 +93,24 @@ public final class RemoteDeviceManagementCard {
     status.setTextColor(devices.isEmpty() ? UiTheme.MUTED : UiTheme.GREEN);
   }
 
+
+  private void editActiveDevice() {
+    RuntimeDevice active = settings.activeDevice();
+    if (active == null) {
+      showDevices();
+      return;
+    }
+    editDevice(active);
+  }
+
+  private void deleteActiveDevice() {
+    RuntimeDevice active = settings.activeDevice();
+    if (active == null) {
+      showDevices();
+      return;
+    }
+    confirmForget(active);
+  }
 
   private void showDevices() {
     List<RuntimeDevice> devices = settings.devices();
