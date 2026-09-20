@@ -54,6 +54,31 @@ public final class RuntimeServiceManagerClient {
     return request("POST", "/pair", body);
   }
 
+  /** Start a browser-approved pairing session for this client. */
+  public JSONObject startBrowserPairing(String clientName) throws Exception {
+    if (clientName == null || clientName.isBlank()) {
+      throw new IllegalArgumentException("Client name is required");
+    }
+    JSONObject body = new JSONObject();
+    body.put("client_name", clientName.trim());
+    return request("POST", "/pairing/browser/start", body);
+  }
+
+  /** Poll a browser pairing session until the administrator approves it. */
+  public JSONObject browserPairingStatus(String sessionId, String pollToken) throws Exception {
+    if (sessionId == null || sessionId.isBlank()) {
+      throw new IllegalArgumentException("Pairing session ID is required");
+    }
+    if (pollToken == null || pollToken.isBlank()) {
+      throw new IllegalArgumentException("Pairing poll token is required");
+    }
+    return request(
+        "GET",
+        "/pairing/browser/status/" + sessionId.trim(),
+        null,
+        pollToken.trim());
+  }
+
   public JSONObject getServices() throws Exception {
     return request("GET", "/services");
   }
@@ -102,6 +127,11 @@ public final class RuntimeServiceManagerClient {
   }
 
   private JSONObject request(String method, String path, JSONObject requestBody) throws Exception {
+    return request(method, path, requestBody, null);
+  }
+
+  private JSONObject request(
+      String method, String path, JSONObject requestBody, String pairingToken) throws Exception {
     HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
     connection.setRequestMethod(method);
     connection.setConnectTimeout(1000);
@@ -109,6 +139,9 @@ public final class RuntimeServiceManagerClient {
     connection.setUseCaches(false);
     if (bearerToken != null) {
       connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+    }
+    if (pairingToken != null) {
+      connection.setRequestProperty("X-OpenRoadCode-Pairing-Token", pairingToken);
     }
     if ("POST".equals(method)) {
       connection.setDoOutput(true);
