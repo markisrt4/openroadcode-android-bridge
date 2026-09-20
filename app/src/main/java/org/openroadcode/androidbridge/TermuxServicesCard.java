@@ -112,12 +112,6 @@ public final class TermuxServicesCard {
       addSectionLabel("RUNTIME TARGET");
       root.addView(buttonRow(termuxButton, remotePiButton));
 
-      Button editConnectionButton = actionButton(
-          "EDIT REMOTE CONNECTION", UiTheme.SURFACE_RAISED, v -> configureRemotePi());
-      LinearLayout.LayoutParams editParams =
-          new LinearLayout.LayoutParams(-1, dp(BUTTON_HEIGHT));
-      editParams.setMargins(0, 0, 0, dp(10));
-      root.addView(editConnectionButton, editParams);
     }
 
     managerStatus = statusPill(
@@ -186,7 +180,8 @@ public final class TermuxServicesCard {
 
   private void selectRemotePi() {
     if (!settings.hasRemotePiConfiguration()) {
-      configureRemotePi();
+      managerStatus.setText("●  Configure Remote Linux under Configuration first");
+      managerStatus.setTextColor(UiTheme.RED);
       return;
     }
     settings.setTarget(Target.REMOTE_PI);
