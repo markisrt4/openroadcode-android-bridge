@@ -305,14 +305,22 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String[] parts = requestLine.split(" ");
         String path = parts.length >= 2 && "GET".equals(parts[0]) ? parts[1] : "";
         if ("/stream/imu".equals(path)) { streamImu(socket); return; }
-        boolean valid = "/imu".equals(path) || "/location".equals(path) || "/health".equals(path)\n                || "/injector/environmental".equals(path);
+        boolean valid = "/imu".equals(path) || "/location".equals(path) || "/health".equals(path)
+                || "/injector/environmental".equals(path);
         String json = "/imu".equals(path) ? sampleJson()
                 : "/location".equals(path) ? locationJson()
-                : "/health".equals(path) ? healthJson()\n                : "/injector/environmental".equals(path) ? environmentalInjectionJson()\n                : "{\"error\":\"not found\"}";
+                : "/health".equals(path) ? healthJson()
+                : "/injector/environmental".equals(path) ? environmentalInjectionJson()
+                : "{\"error\":\"not found\"}";
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
         String status = valid ? "200 OK" : "404 Not Found";
         String headers = String.format(Locale.US,
-                "HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 %s\r
+Content-Type: application/json\r
+Content-Length: %d\r
+Connection: close\r
+\r
+",
                 status, body.length);
         OutputStream output = socket.getOutputStream();
         output.write(headers.getBytes(StandardCharsets.US_ASCII));
@@ -322,11 +330,17 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     private void streamImu(Socket socket) throws IOException {
         OutputStream output = socket.getOutputStream();
-        output.write("HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+        output.write("HTTP/1.1 200 OK\r
+Content-Type: application/x-ndjson\r
+Cache-Control: no-cache\r
+Connection: close\r
+\r
+"
                 .getBytes(StandardCharsets.US_ASCII));
         output.flush();
         while (!socket.isClosed()) {
-            output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
+            output.write((sampleJson() + "
+").getBytes(StandardCharsets.UTF_8));
             output.flush();
             try { Thread.sleep(STREAM_PERIOD_MS); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
