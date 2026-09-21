@@ -69,6 +69,7 @@ public final class MainActivity extends Activity {
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
+  private RemoteDeviceManagementCard remoteDeviceManagementCard;
   private BridgeServiceManager serviceManager;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
@@ -175,8 +176,13 @@ public final class MainActivity extends Activity {
     addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
+    remoteDeviceManagementCard = new RemoteDeviceManagementCard(
+        this, termuxServicesCard::refreshConfiguration);
+    addServiceCard(content, "REMOTE DEVICES",
+        "Pair • choose • edit • delete", BLUE,
+        remoteDeviceManagementCard.view(), true, false);
     addServiceCard(content, "OPENROADCODE SERVICES",
-        "Targets • profiles • core stack", SILVER,
+        "Runtime target • input sources • core stack", SILVER,
         termuxServicesCard.view(), true, true);
   }
 
@@ -218,6 +224,7 @@ public final class MainActivity extends Activity {
     playbackAudioCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
+    remoteDeviceManagementCard = null;
   }
 
   private void stopVisibleCards() {

@@ -2,199 +2,196 @@ package org.openroadcode.androidbridge;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.graphics.Typeface;
 import android.os.Build;
+import android.content.Intent;
+import android.net.Uri;
 import android.text.InputType;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.util.List;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.RuntimeDevice;
-import java.util.List;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
-/** Persistent remote runtime device pairing and connection configuration. */
+/** Pairing and saved-device management for remote OpenRoadCode runtimes. */
 public final class RemoteDeviceManagementCard {
   private final Activity activity;
   private final RuntimeServiceManagerSettings settings;
+  private final Runnable onChanged;
   private final LinearLayout root;
-  private final TextView status;
-  private final TextView endpoint;
+  private final TextView selectedDevice;
 
-  public RemoteDeviceManagementCard(Activity activity) {
+  public RemoteDeviceManagementCard(Activity activity, Runnable onChanged) {
     this.activity = activity;
+    this.onChanged = onChanged;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
-    TextView title = UiTheme.text(activity, "REMOTE DEVICE MANAGEMENT", 18, UiTheme.TEXT);
-    title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    title.setLetterSpacing(.05f);
-    root.addView(title);
+    selectedDevice = UiTheme.text(activity, "", 12, UiTheme.MUTED);
+    selectedDevice.setPadding(0, 0, 0, dp(10));
+    root.addView(selectedDevice);
 
-    TextView help = UiTheme.text(activity,
-        "Pair and manage the remote Linux service manager available to Runtime.",
-        11, UiTheme.MUTED);
-    help.setPadding(0, dp(2), 0, dp(10));
-    root.addView(help);
+    Button choose = button("CHOOSE PAIRED DEVICE", v -> chooseDevice());
+    root.addView(choose, fullButtonParams());
 
-    endpoint = UiTheme.text(activity, "", 12, UiTheme.TEXT);
-    endpoint.setPadding(dp(10), dp(9), dp(10), dp(9));
-    endpoint.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 9));
-    root.addView(endpoint);
+    LinearLayout actions = new LinearLayout(activity);
+    actions.setOrientation(LinearLayout.HORIZONTAL);
+    Button add = button("+ ADD DEVICE", v -> addDevice());
+    Button edit = button("EDIT DEVICE", v -> editActiveDevice());
+    Button delete = button("DELETE", v -> deleteActiveDevice());
+    actions.addView(add, rowButtonParams(false));
+    actions.addView(edit, rowButtonParams(true));
+    actions.addView(delete, rowButtonParams(true));
+    root.addView(actions);
 
-    status = UiTheme.text(activity, "", 12, UiTheme.MUTED);
-    status.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    status.setPadding(0, dp(8), 0, dp(8));
-    root.addView(status);
-
-    Button select = UiTheme.actionButton(activity, "SELECT REMOTE", UiTheme.SURFACE_RAISED,
-        v -> selectRemoteDevice());
-    LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(-1, dp(44));
-    selectParams.setMargins(0, 0, 0, dp(8));
-    root.addView(select, selectParams);
-
-    Button pair = UiTheme.actionButton(activity, "ADD REMOTE", UiTheme.BLUE, v -> configure());
-    Button edit = UiTheme.actionButton(activity, "EDIT REMOTE", UiTheme.SURFACE_RAISED,
-        v -> editActiveDevice());
-    Button delete = UiTheme.actionButton(activity, "DELETE REMOTE", UiTheme.RED,
-        v -> deleteActiveDevice());
-
-    LinearLayout primaryActions = new LinearLayout(activity);
-    primaryActions.setOrientation(LinearLayout.HORIZONTAL);
-    LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, dp(44), 1);
-    left.setMargins(0, 0, dp(4), 0);
-    LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, dp(44), 1);
-    right.setMargins(dp(4), 0, 0, 0);
-    primaryActions.addView(pair, left);
-    primaryActions.addView(edit, right);
-    root.addView(primaryActions);
-
-    LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
-    deleteParams.setMargins(0, dp(8), 0, 0);
-    root.addView(delete, deleteParams);
-
-    boolean haveDevice = settings.activeDevice() != null;
-    edit.setEnabled(haveDevice);
-    delete.setEnabled(haveDevice);
-    UiTheme.setButtonColor(activity, edit,
-        haveDevice ? UiTheme.SURFACE_RAISED : UiTheme.DISABLED);
-    UiTheme.setButtonColor(activity, delete,
-        haveDevice ? UiTheme.RED : UiTheme.DISABLED);
     refresh();
   }
 
   public View view() { return root; }
 
-  private void refresh() {
-    List<RuntimeDevice> devices = settings.devices();
+  public void refresh() {
     RuntimeDevice active = settings.activeDevice();
-    endpoint.setText(devices.isEmpty()
-        ? "No remote devices configured"
-        : devices.size() + " paired device" + (devices.size() == 1 ? "" : "s")
-            + (active == null ? "" : " • active: " + active.name()));
-    status.setText(devices.isEmpty() ? "○  Not paired" : "●  Paired credentials stored");
-    status.setTextColor(devices.isEmpty() ? UiTheme.MUTED : UiTheme.GREEN);
+    selectedDevice.setText(active == null
+        ? "Selected device: none"
+        : "Selected device: " + active.name() + "\n" + active.baseUrl());
   }
 
-
-  private void selectRemoteDevice() {
+  private void chooseDevice() {
     List<RuntimeDevice> devices = settings.devices();
     if (devices.isEmpty()) {
-      showDevices();
+      message("Paired OpenRoadCode devices", "No remote devices are paired yet.");
       return;
     }
     RuntimeDevice active = settings.activeDevice();
     String[] labels = new String[devices.size()];
-    int checked = -1;
     for (int i = 0; i < devices.size(); i++) {
       RuntimeDevice device = devices.get(i);
-      labels[i] = device.name() + "\n" + device.baseUrl();
-      if (active != null && active.deviceId().equals(device.deviceId())) checked = i;
+      boolean selected = active != null && active.deviceId().equals(device.deviceId());
+      labels[i] = (selected ? "●  " : "") + device.name() + "\n" + device.baseUrl();
     }
     new AlertDialog.Builder(activity)
-        .setTitle("Select remote device")
-        .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+        .setTitle("Choose paired device")
+        .setItems(labels, (dialog, which) -> {
           settings.setActiveDevice(devices.get(which).deviceId());
-          refresh();
-          dialog.dismiss();
+          changed();
         })
-        .setNegativeButton("CANCEL", null)
+        .setNegativeButton("CLOSE", null)
         .show();
+  }
+
+  private void addDevice() {
+    LinearLayout fields = fields();
+    EditText name = textField("Device name");
+    EditText endpoint = textField("http://device-address:8769");
+    endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+    fields.addView(name);
+    fields.addView(endpoint);
+
+    AlertDialog dialog = new AlertDialog.Builder(activity)
+        .setTitle("Add OpenRoadCode device")
+        .setMessage("Enter the device name and service-manager endpoint. Your browser will open to approve pairing.")
+        .setView(fields)
+        .setNegativeButton("CANCEL", null)
+        .setPositiveButton("PAIR IN BROWSER", null)
+        .create();
+    dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        .setOnClickListener(v -> pairInBrowser(dialog, name, endpoint)));
+    dialog.show();
+  }
+
+  private void pairInBrowser(AlertDialog dialog, EditText name, EditText endpoint) {
+    String deviceName = name.getText().toString().trim();
+    String baseUrl = endpoint.getText().toString().trim();
+    if (deviceName.isBlank()) { name.setError("Enter a device name"); return; }
+    if (!validEndpoint(baseUrl)) { endpoint.setError("Enter a complete http:// or https:// endpoint"); return; }
+
+    Button pairButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+    pairButton.setEnabled(false);
+    pairButton.setText("STARTING…");
+    new Thread(() -> {
+      try {
+        RuntimeServiceManagerClient client = new RuntimeServiceManagerClient(baseUrl, deviceName);
+        JSONObject started = client.startBrowserPairing("OpenRoadCode Android - " + Build.MODEL);
+        String sessionId = started.optString("session_id", "").trim();
+        String pollToken = started.optString("poll_token", "").trim();
+        String approvalUrl = started.optString("approval_url", "").trim();
+        if (sessionId.isBlank() || pollToken.isBlank() || approvalUrl.isBlank()) {
+          throw new IllegalStateException("Service manager returned an incomplete browser pairing session");
+        }
+        activity.runOnUiThread(() -> {
+          pairButton.setText("WAITING…");
+          activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(approvalUrl)));
+        });
+        pollBrowserPairing(client, sessionId, pollToken, deviceName, baseUrl, dialog, pairButton, endpoint);
+      } catch (Exception e) {
+        pairingFailed(pairButton, endpoint, e);
+      }
+    }, "orc-browser-pairing").start();
+  }
+
+  private void pollBrowserPairing(
+      RuntimeServiceManagerClient client,
+      String sessionId,
+      String pollToken,
+      String deviceName,
+      String baseUrl,
+      AlertDialog dialog,
+      Button pairButton,
+      EditText endpoint) {
+    long deadline = System.currentTimeMillis() + 300_000L;
+    try {
+      while (System.currentTimeMillis() < deadline && dialog.isShowing()) {
+        JSONObject response = client.browserPairingStatus(sessionId, pollToken);
+        if ("approved".equals(response.optString("status"))) {
+          String token = response.optString("access_token", "").trim();
+          String clientId = response.optString("client_id", "").trim();
+          if (token.isBlank() || clientId.isBlank()) {
+            throw new IllegalStateException("Pairing approval did not contain client credentials");
+          }
+          activity.runOnUiThread(() -> {
+            settings.saveDevice(deviceName, baseUrl, clientId, token);
+            dialog.dismiss();
+            changed();
+          });
+          return;
+        }
+        Thread.sleep(1000L);
+      }
+      if (dialog.isShowing()) {
+        throw new IllegalStateException("Browser pairing expired before approval");
+      }
+    } catch (Exception e) {
+      if (dialog.isShowing()) pairingFailed(pairButton, endpoint, e);
+    }
+  }
+
+  private void pairingFailed(Button pairButton, EditText endpoint, Exception error) {
+    activity.runOnUiThread(() -> {
+      pairButton.setEnabled(true);
+      pairButton.setText("PAIR IN BROWSER");
+      endpoint.setError(error.getMessage() == null ? "Pairing failed" : error.getMessage());
+    });
   }
 
   private void editActiveDevice() {
-    RuntimeDevice active = settings.activeDevice();
-    if (active == null) {
-      showDevices();
-      return;
-    }
-    editDevice(active);
-  }
+    RuntimeDevice device = settings.activeDevice();
+    if (device == null) { message("Edit device", "Choose or add a remote device first."); return; }
 
-  private void deleteActiveDevice() {
-    RuntimeDevice active = settings.activeDevice();
-    if (active == null) {
-      showDevices();
-      return;
-    }
-    confirmForget(active);
-  }
-
-  private void showDevices() {
-    List<RuntimeDevice> devices = settings.devices();
-    if (devices.isEmpty()) {
-      new AlertDialog.Builder(activity)
-          .setTitle("Paired OpenRoadCode devices")
-          .setMessage("No remote devices are paired yet.")
-          .setPositiveButton("CLOSE", null)
-          .show();
-      return;
-    }
-    RuntimeDevice active = settings.activeDevice();
-    String[] labels = new String[devices.size()];
-    for (int i = 0; i < devices.size(); i++) {
-      RuntimeDevice device = devices.get(i);
-      String selected = active != null && active.deviceId().equals(device.deviceId()) ? "●  " : "";
-      labels[i] = selected + device.name() + "\n" + device.baseUrl();
-    }
-    new AlertDialog.Builder(activity)
-        .setTitle("Paired OpenRoadCode devices")
-        .setItems(labels, (dialog, which) -> showDeviceActions(devices.get(which)))
-        .setNegativeButton("CLOSE", null)
-        .show();
-  }
-
-  private void showDeviceActions(RuntimeDevice device) {
-    String[] actions = {"EDIT", "FORGET"};
-    new AlertDialog.Builder(activity)
-        .setTitle(device.name())
-        .setMessage(device.baseUrl())
-        .setItems(actions, (dialog, which) -> {
-          if (which == 0) editDevice(device);
-          else confirmForget(device);
-        })
-        .setNegativeButton("CLOSE", null)
-        .show();
-  }
-
-  private void editDevice(RuntimeDevice device) {
-    LinearLayout fields = new LinearLayout(activity);
-    fields.setOrientation(LinearLayout.VERTICAL);
-    fields.setPadding(dp(20), dp(8), dp(20), 0);
-    EditText name = new EditText(activity);
-    name.setSingleLine(true);
+    LinearLayout fields = fields();
+    EditText name = textField("Device name");
     name.setText(device.name());
+    EditText endpoint = textField("Service-manager endpoint");
+    endpoint.setText(device.baseUrl());
+    endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
     fields.addView(name);
-    EditText url = new EditText(activity);
-    url.setSingleLine(true);
-    url.setText(device.baseUrl());
-    url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-    fields.addView(url);
+    fields.addView(endpoint);
+
     AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Edit device")
+        .setTitle("Edit " + device.name())
         .setView(fields)
         .setNegativeButton("CANCEL", null)
         .setPositiveButton("SAVE", null)
@@ -202,116 +199,75 @@ public final class RemoteDeviceManagementCard {
     dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         .setOnClickListener(v -> {
           String newName = name.getText().toString().trim();
-          String newUrl = url.getText().toString().trim();
-          if (newName.isBlank()) {
-            name.setError("Enter a device name");
-            return;
-          }
-          if (!(newUrl.startsWith("http://") || newUrl.startsWith("https://"))) {
-            url.setError("Enter a complete http:// or https:// endpoint");
-            return;
-          }
+          String newUrl = endpoint.getText().toString().trim();
+          if (newName.isBlank()) { name.setError("Enter a device name"); return; }
+          if (!validEndpoint(newUrl)) { endpoint.setError("Enter a complete http:// or https:// endpoint"); return; }
           settings.updateDevice(device.deviceId(), newName, newUrl);
-          refresh();
           dialog.dismiss();
-          showDevices();
+          changed();
         }));
     dialog.show();
   }
 
-  private void confirmForget(RuntimeDevice device) {
+  private void deleteActiveDevice() {
+    RuntimeDevice device = settings.activeDevice();
+    if (device == null) { message("Delete device", "Choose or add a remote device first."); return; }
     new AlertDialog.Builder(activity)
-        .setTitle("Forget " + device.name() + "?")
+        .setTitle("Delete " + device.name() + "?")
         .setMessage("This removes the saved pairing from this Android app.")
         .setNegativeButton("CANCEL", null)
-        .setPositiveButton("FORGET", (dialog, which) -> {
+        .setPositiveButton("DELETE", (dialog, which) -> {
           settings.forgetDevice(device.deviceId());
-          refresh();
-          showDevices();
+          changed();
         })
         .show();
   }
 
-  private void configure() {
+  private void changed() {
+    refresh();
+    if (onChanged != null) onChanged.run();
+  }
+
+  private void message(String title, String body) {
+    new AlertDialog.Builder(activity).setTitle(title).setMessage(body)
+        .setPositiveButton("CLOSE", null).show();
+  }
+
+  private LinearLayout fields() {
     LinearLayout fields = new LinearLayout(activity);
     fields.setOrientation(LinearLayout.VERTICAL);
     fields.setPadding(dp(20), dp(8), dp(20), 0);
+    return fields;
+  }
 
-    EditText deviceName = new EditText(activity);
-    deviceName.setSingleLine(true);
-    deviceName.setHint("Device name (for example, Car Pi 5)");
-    deviceName.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-    fields.addView(deviceName);
+  private EditText textField(String hint) {
+    EditText field = new EditText(activity);
+    field.setSingleLine(true);
+    field.setHint(hint);
+    field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+    return field;
+  }
 
-    EditText url = new EditText(activity);
-    url.setSingleLine(true);
-    url.setHint("http://pi-address:8769");
-    url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-    fields.addView(url);
+  private boolean validEndpoint(String value) {
+    return value.startsWith("http://") || value.startsWith("https://");
+  }
 
-    EditText pin = new EditText(activity);
-    pin.setSingleLine(true);
-    pin.setHint("6-digit pairing PIN");
-    pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-    fields.addView(pin);
+  private Button button(String label, View.OnClickListener listener) {
+    Button button = UiTheme.actionButton(activity, label, UiTheme.SURFACE_RAISED, listener);
+    button.setTextSize(10);
+    return button;
+  }
 
-    TextView help = UiTheme.text(activity,
-        "Start pairing on the OpenRoadCode service manager, then enter its temporary PIN. "
-            + "The PIN is exchanged for this Android client's credential and is not saved.",
-        10, UiTheme.MUTED);
-    help.setPadding(0, dp(4), 0, dp(4));
-    fields.addView(help);
+  private LinearLayout.LayoutParams fullButtonParams() {
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(44));
+    params.setMargins(0, 0, 0, dp(8));
+    return params;
+  }
 
-    AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Pair remote Linux service manager")
-        .setView(fields)
-        .setNegativeButton("CANCEL", null)
-        .setPositiveButton("PAIR", null)
-        .create();
-
-    dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-        .setOnClickListener(v -> {
-          String name = deviceName.getText().toString().trim();
-          String baseUrl = url.getText().toString().trim();
-          String pairingPin = pin.getText().toString().trim();
-          if (name.isBlank()) {
-            deviceName.setError("Enter a name for this device");
-            return;
-          }
-          if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
-            url.setError("Enter a complete http:// or https:// endpoint");
-            return;
-          }
-          if (!pairingPin.matches("\\d{6}")) {
-            pin.setError("Enter the 6-digit pairing PIN");
-            return;
-          }
-          Button button = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-          button.setEnabled(false);
-          button.setText("PAIRING…");
-          new Thread(() -> {
-            try {
-              RuntimeServiceManagerClient client = new RuntimeServiceManagerClient(baseUrl, "Remote Linux");
-              JSONObject response = client.pair(pairingPin, "OpenRoadCode Android - " + Build.MODEL);
-              String token = response.optString("access_token", "").trim();
-              String clientId = response.optString("client_id", "").trim();
-              if (token.isBlank()) throw new IllegalStateException("Pairing response contained no access token");
-              activity.runOnUiThread(() -> {
-                settings.saveDevice(name, baseUrl, clientId, token);
-                refresh();
-                dialog.dismiss();
-              });
-            } catch (Exception e) {
-              String message = e.getMessage();
-              activity.runOnUiThread(() -> {
-                button.setEnabled(true);
-                button.setText("PAIR");
-                pin.setError(message == null || message.isBlank() ? "Pairing failed" : message);
-              });
-            }
-          }, "orc-service-pairing").start();
-        }));
-    dialog.show();
+  private LinearLayout.LayoutParams rowButtonParams(boolean withLeftMargin) {
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
+    if (withLeftMargin) params.setMargins(dp(5), 0, 0, 0);
+    return params;
   }
 
   private int dp(int value) { return UiTheme.dp(activity, value); }
