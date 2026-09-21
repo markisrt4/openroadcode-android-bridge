@@ -166,7 +166,7 @@ public final class MainActivity extends Activity {
     addSubsystemHeader("⚙", "CONFIGURATION",
         "Devices, remote access, pairing, and persistent bridge settings", SILVER);
 
-    RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this);
+    RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
     addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
         "Pairing • remote Linux connection", SILVER,
         remoteDevices.view(), true, true);
