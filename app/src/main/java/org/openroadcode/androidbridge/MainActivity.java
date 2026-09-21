@@ -193,7 +193,9 @@ public final class MainActivity extends Activity {
   }
 
   private void injectScenario(String subsystem, String scenario) {
-    // Transport is intentionally added with the subsystem contract, not hidden in the UI.
+    if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
+      InjectionState.setEnvironmentalRadarScenario(this, scenario);
+    }
     android.widget.Toast.makeText(
         this, subsystem.toUpperCase(java.util.Locale.ROOT) + " • " + scenario,
         android.widget.Toast.LENGTH_SHORT).show();
