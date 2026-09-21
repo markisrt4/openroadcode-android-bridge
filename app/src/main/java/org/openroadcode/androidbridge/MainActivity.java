@@ -180,6 +180,19 @@ public final class MainActivity extends Activity {
         termuxServicesCard.view(), true, true);
   }
 
+  private void addInjector(String subsystem, int accent) {
+    SubsystemInjectorCard injector = new SubsystemInjectorCard(this, subsystem, this::injectScenario);
+    addServiceCard(content, "INJECTOR", "Development and simulation inputs", accent,
+        injector.view(), true, true);
+  }
+
+  private void injectScenario(String subsystem, String scenario) {
+    // Transport is intentionally added with the subsystem contract, not hidden in the UI.
+    android.widget.Toast.makeText(
+        this, subsystem.toUpperCase(java.util.Locale.ROOT) + " • " + scenario,
+        android.widget.Toast.LENGTH_SHORT).show();
+  }
+
   private void addSubsystemHeader(String icon, String title, String subtitle, int accent) {
     LinearLayout row = new LinearLayout(this);
     row.setGravity(Gravity.CENTER_VERTICAL);
