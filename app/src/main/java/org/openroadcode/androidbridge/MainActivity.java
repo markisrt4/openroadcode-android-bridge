@@ -127,6 +127,7 @@ public final class MainActivity extends Activity {
         serviceManager.vehicleConfig().provider().displayName(), GREEN,
         bluetoothCard.view(), true, false);
 
+    addInjector(SubsystemDashboard.AUTOMOTIVE, GREEN);
   }
 
   private void showNavigation() {
@@ -139,6 +140,7 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "MOTION & POSITION",
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
 
+    addInjector(SubsystemDashboard.NAVIGATION, BLUE);
   }
 
   private void showEnvironmental() {
@@ -146,7 +148,9 @@ public final class MainActivity extends Activity {
 
     environmentalSensorCard = new EnvironmentalSensorCard(this);
     addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
-        environmentalSensorCard.view(), true, true);
+        environmentalSensorCard.view(), true, false);
+
+    addInjector(SubsystemDashboard.ENVIRONMENTAL, GREEN);
   }
 
   private void showMedia() {
@@ -158,7 +162,9 @@ public final class MainActivity extends Activity {
 
     playbackAudioCard = new PlaybackAudioCard(this);
     addServiceCard(content, "PLAYBACK AUDIO",
-        "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, true);
+        "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, false);
+
+    addInjector(SubsystemDashboard.MEDIA, RED);
   }
 
   private void showConfiguration() {
