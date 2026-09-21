@@ -305,10 +305,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String[] parts = requestLine.split(" ");
         String path = parts.length >= 2 && "GET".equals(parts[0]) ? parts[1] : "";
         if ("/stream/imu".equals(path)) { streamImu(socket); return; }
-        boolean valid = "/imu".equals(path) || "/location".equals(path) || "/health".equals(path);
+        boolean valid = "/imu".equals(path) || "/location".equals(path) || "/health".equals(path)\n                || "/injector/environmental".equals(path);
         String json = "/imu".equals(path) ? sampleJson()
                 : "/location".equals(path) ? locationJson()
-                : "/health".equals(path) ? healthJson() : "{\"error\":\"not found\"}";
+                : "/health".equals(path) ? healthJson()\n                : "/injector/environmental".equals(path) ? environmentalInjectionJson()\n                : "{\"error\":\"not found\"}";
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
         String status = valid ? "200 OK" : "404 Not Found";
         String headers = String.format(Locale.US,
@@ -392,6 +392,16 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             return root.toString();
         } catch (JSONException e) {
             return "{\"error\":\"failed to encode location\"}";
+        }
+    }
+
+    private String environmentalInjectionJson() {
+        try {
+            JSONObject root = new JSONObject();
+            root.put("radar_scenario", InjectionState.environmentalRadarScenario(this));
+            return root.toString();
+        } catch (JSONException e) {
+            return "{\"error\":\"failed to encode environmental injection state\"}";
         }
     }
 
