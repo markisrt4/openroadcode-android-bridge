@@ -48,9 +48,18 @@ public final class RtlSdrUsbManager implements AutoCloseable {
 
         public String deviceLabel() {
             if (device == null) return "No RTL-SDR detected";
-            String manufacturer = device.getManufacturerName();
-            String product = device.getProductName();
-            String serial = device.getSerialNumber();
+            String manufacturer = null;
+            String product = null;
+            String serial = null;
+            try {
+                manufacturer = device.getManufacturerName();
+                product = device.getProductName();
+                serial = device.getSerialNumber();
+            } catch (SecurityException ignored) {
+                // Android protects USB string descriptors until this app owns
+                // permission for the device. VID/PID and device name remain
+                // sufficient to identify a newly attached RTL-SDR safely.
+            }
             String identity = ((manufacturer == null ? "" : manufacturer + " ") +
                     (product == null ? "" : product)).trim();
             if (identity.isEmpty()) identity = device.getDeviceName();
