@@ -127,7 +127,7 @@ public final class MainActivity extends Activity {
         serviceManager.vehicleConfig().provider().displayName(), GREEN,
         bluetoothCard.view(), true, false);
 
-    addInjector(SubsystemDashboard.AUTOMOTIVE, GREEN);
+    addSimulation(SubsystemDashboard.AUTOMOTIVE, GREEN);
   }
 
   private void showNavigation() {
@@ -140,7 +140,7 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "MOTION & POSITION",
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
 
-    addInjector(SubsystemDashboard.NAVIGATION, BLUE);
+    addSimulation(SubsystemDashboard.NAVIGATION, BLUE);
   }
 
   private void showEnvironmental() {
@@ -150,7 +150,7 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
         environmentalSensorCard.view(), true, false);
 
-    addInjector(SubsystemDashboard.ENVIRONMENTAL, GREEN);
+    addSimulation(SubsystemDashboard.ENVIRONMENTAL, GREEN);
   }
 
   private void showMedia() {
@@ -164,7 +164,7 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "PLAYBACK AUDIO",
         "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, false);
 
-    addInjector(SubsystemDashboard.MEDIA, RED);
+    addSimulation(SubsystemDashboard.MEDIA, RED);
   }
 
   private void showConfiguration() {
@@ -186,13 +186,15 @@ public final class MainActivity extends Activity {
         termuxServicesCard.view(), true, true);
   }
 
-  private void addInjector(String subsystem, int accent) {
-    SubsystemInjectorCard injector = new SubsystemInjectorCard(this, subsystem, this::injectScenario);
-    addServiceCard(content, "INJECTOR", "Development and simulation inputs", accent,
-        injector.view(), true, true);
+  private void addSimulation(String subsystem, int accent) {
+    SubsystemInjectorCard simulation = new SubsystemInjectorCard(this, subsystem, this::simulateScenario);
+    String title = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem) ? "WEATHER SIM" : "SIMULATION";
+    String subtitle = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)
+        ? "Deterministic weather scenarios" : "Development simulation inputs";
+    addServiceCard(content, title, subtitle, accent, simulation.view(), true, true);
   }
 
-  private void injectScenario(String subsystem, String scenario) {
+  private void simulateScenario(String subsystem, String scenario) {
     if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
       InjectionState.setEnvironmentalRadarScenario(this, scenario);
     }
