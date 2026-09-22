@@ -9,10 +9,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
-/** Bottom-of-subsystem development controls for deterministic input injection. */
+/** Bottom-of-subsystem development controls for deterministic simulation. */
 final class SubsystemInjectorCard {
   interface Listener {
-    void onInject(String subsystem, String scenario);
+    void onSimulate(String subsystem, String scenario);
   }
 
   private final Context context;
@@ -31,7 +31,7 @@ final class SubsystemInjectorCard {
     root.setPadding(dp(2), dp(4), dp(2), dp(4));
 
     TextView note = UiTheme.text(context,
-        "Development input override • injected values replace live input",
+        simulationNote(),
         11, UiTheme.MUTED);
     note.setPadding(0, 0, 0, dp(8));
     root.addView(note);
@@ -40,14 +40,42 @@ final class SubsystemInjectorCard {
     actions.setGravity(Gravity.CENTER_VERTICAL);
     for (String scenario : scenarios()) {
       Button button = UiTheme.actionButton(context, scenario, UiTheme.SURFACE_RAISED,
-          v -> listener.onInject(subsystem, scenario));
+          v -> {
+            listener.onSimulate(subsystem, scenario);
+            updateSelection(actions, scenario);
+          });
       button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
       LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
       params.setMargins(dp(2), 0, dp(2), 0);
+      button.setTag(scenario);
       actions.addView(button, params);
     }
     root.addView(actions);
+    updateSelection(actions, currentScenario());
     return root;
+  }
+
+  private String simulationNote() {
+    if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
+      return "Weather simulation • select a deterministic radar scenario";
+    }
+    return "Development simulation • simulated values replace live input";
+  }
+
+  private String currentScenario() {
+    if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
+      return InjectionState.environmentalRadarScenario(context);
+    }
+    return "";
+  }
+
+  private void updateSelection(LinearLayout actions, String selected) {
+    for (int index = 0; index < actions.getChildCount(); index++) {
+      View child = actions.getChildAt(index);
+      if (!(child instanceof Button button)) continue;
+      boolean active = selected.equals(button.getTag());
+      UiTheme.setButtonColor(context, button, active ? UiTheme.GREEN : UiTheme.SURFACE_RAISED);
+    }
   }
 
   private String[] scenarios() {
