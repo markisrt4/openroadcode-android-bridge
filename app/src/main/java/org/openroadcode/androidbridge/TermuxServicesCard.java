@@ -3,6 +3,7 @@ package org.openroadcode.androidbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Typeface;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -334,10 +335,25 @@ public final class TermuxServicesCard {
   }
 
   private void setProfile(String service, String profile) {
+    if ("openroadcode-navigation".equals(service)
+        && "local".equals(profile)
+        && settings.target() == Target.REMOTE_PI) {
+      ensureRemoteSensorBridge();
+    }
     managerStatus.setText("●  Switching " + shortServiceName(service)
         + " input source…");
     managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.VIOLET : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
+  }
+
+  private void ensureRemoteSensorBridge() {
+    activity.getSharedPreferences(SensorBridgeService.PREFERENCES, Activity.MODE_PRIVATE)
+        .edit()
+        .putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, true)
+        .apply();
+    Intent service = new Intent(activity, SensorBridgeService.class);
+    activity.stopService(service);
+    activity.startForegroundService(service);
   }
 
   private String shortServiceName(String service) {
