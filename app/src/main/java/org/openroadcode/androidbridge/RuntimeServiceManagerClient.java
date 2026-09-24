@@ -83,6 +83,11 @@ public final class RuntimeServiceManagerClient {
     return request("GET", "/services");
   }
 
+  /** Register this Android Bridge as the selected runtime's shared bridge endpoint. */
+  public JSONObject registerAndroidBridge() throws Exception {
+    return request("POST", "/runtime/android-bridge");
+  }
+
   public JSONObject startCoreStack() throws Exception {
     return request("POST", "/stack/core/start");
   }
