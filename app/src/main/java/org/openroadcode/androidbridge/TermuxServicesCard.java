@@ -151,7 +151,11 @@ public final class TermuxServicesCard {
 
   public void start() {
     handler.removeCallbacks(refreshTask);
-    handler.post(refreshTask);
+    if (settings.target() == Target.REMOTE_PI && settings.hasRemotePiConfiguration()) {
+      runAction(RuntimeServiceManagerClient::registerAndroidBridge);
+    } else {
+      handler.post(refreshTask);
+    }
   }
 
   public void stop() { handler.removeCallbacks(refreshTask); }
