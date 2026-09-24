@@ -30,6 +30,7 @@ import org.openroadcode.androidbridge.config.ServiceProvider;
 import org.openroadcode.androidbridge.runtime.BridgeServiceManager;
 import org.openroadcode.androidbridge.ui.CircuitIconView;
 import org.openroadcode.androidbridge.ui.ExpandableCard;
+import org.openroadcode.androidbridge.ui.EnvironmentalSensorCard;
 import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
@@ -53,7 +54,7 @@ public final class MainActivity extends Activity {
   private final Runnable dashboardRefresh = new Runnable() {
     @Override public void run() {
       if (!dashboardActive) return;
-      if (sensorCard != null) refreshDashboard();
+      if (sensorCard != null || environmentalSensorCard != null) refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
       if (playbackAudioCard != null) playbackAudioCard.refresh();
       if (rtlSdrCard != null) rtlSdrCard.refresh();
@@ -64,7 +65,7 @@ public final class MainActivity extends Activity {
   private ScrollView scrollView;
   private LinearLayout content;
   private SensorCard sensorCard;
-  private RemoteAccessCard remoteAccessCard;
+  private EnvironmentalSensorCard environmentalSensorCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
   private RtlSdrCard rtlSdrCard;
@@ -110,8 +111,9 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
       case SubsystemDashboard.NAVIGATION -> showNavigation();
       case SubsystemDashboard.MEDIA -> showMedia();
-      case SubsystemDashboard.CONNECTIVITY -> showConnectivity();
+      case SubsystemDashboard.ENVIRONMENTAL -> showEnvironmental();
       case SubsystemDashboard.RUNTIME -> showRuntime();
+      case SubsystemDashboard.CONFIGURATION -> showConfiguration();
       default -> showDashboard();
     }
 
@@ -128,10 +130,6 @@ public final class MainActivity extends Activity {
         serviceManager.vehicleConfig().provider().displayName(), GREEN,
         bluetoothCard.view(), true, false);
 
-    termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
-    addServiceCard(content, "AUTOMOTIVE SERVICE",
-        "Live / simulated input profile", SILVER,
-        termuxServicesCard.view(), true, true);
   }
 
   private void showNavigation() {
@@ -144,11 +142,14 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "MOTION & POSITION",
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
 
-    termuxServicesCard = new TermuxServicesCard(
-        this, this::ensureNavigationSensorBridge, "openroadcode-navigation");
-    addServiceCard(content, "NAVIGATION SERVICE",
-        "Live / simulated input profile", SILVER,
-        termuxServicesCard.view(), true, true);
+  }
+
+  private void showEnvironmental() {
+    addSubsystemHeader("☀", "ENVIRONMENTAL", "Ambient light and environmental telemetry", GREEN);
+
+    environmentalSensorCard = new EnvironmentalSensorCard(this);
+    addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
+        environmentalSensorCard.view(), true, true);
   }
 
   private void showMedia() {
@@ -167,20 +168,18 @@ public final class MainActivity extends Activity {
         "USB receiver bridge • localhost TCP", GREEN, rtlSdrCard.view(), true, true);
   }
 
-  private void showConnectivity() {
-    addSubsystemHeader("⇄", "CONNECTIVITY", "Choose where Android bridge data is reachable", BLUE);
+  private void showConfiguration() {
+    addSubsystemHeader("⚙", "CONFIGURATION",
+        "Devices, remote access, pairing, and persistent bridge settings", SILVER);
 
-    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    addServiceCard(content, "REMOTE SENSOR ACCESS",
-        remoteEnabled ? "Shared on local network" : "This phone only", GREEN,
-        remoteAccessCard.view(), true, true);
-    updateRemoteAccessStatus();
+    RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
+    addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
+        "Pairing • remote Linux connection", SILVER,
+        remoteDevices.view(), true, true);
   }
 
   private void showRuntime() {
-    addSubsystemHeader("⚙", "RUNTIME", "Termux and remote Linux service orchestration", SILVER);
+    addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
     remoteDeviceManagementCard = new RemoteDeviceManagementCard(
@@ -226,7 +225,7 @@ public final class MainActivity extends Activity {
   private void resetContent() {
     content.removeAllViews();
     sensorCard = null;
-    remoteAccessCard = null;
+    environmentalSensorCard = null;
     cameraCard = null;
     playbackAudioCard = null;
     rtlSdrCard = null;
@@ -241,7 +240,6 @@ public final class MainActivity extends Activity {
   }
 
   private void startVisibleCards() {
-    updateRemoteAccessStatus();
     if (sensorCard != null) reconcileSensor(false);
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();
@@ -388,7 +386,7 @@ public final class MainActivity extends Activity {
   }
 
   private void refreshDashboard() {
-    if (sensorCard == null || sensorPollInFlight) return;
+    if ((sensorCard == null && environmentalSensorCard == null) || sensorPollInFlight) return;
     sensorPollInFlight = true;
     final long generation = serviceManager.sensorGeneration();
     final ServiceProvider provider = serviceManager.sensorConfig().provider();
@@ -401,8 +399,13 @@ public final class MainActivity extends Activity {
       final JSONObject sample = imu, fix = position;
       runOnUiThread(() -> {
         sensorPollInFlight = false;
-        if (!dashboardActive || sensorCard == null
+        if (!dashboardActive || (sensorCard == null && environmentalSensorCard == null)
             || generation != serviceManager.sensorGeneration()) return;
+        if (environmentalSensorCard != null) {
+          if (sample == null) environmentalSensorCard.clear();
+          else environmentalSensorCard.displaySample(sample);
+          if (sensorCard == null) return;
+        }
         if (!serviceManager.sensorRequested()) {
           sensorCard.setRunning(false);
           sensorCard.setStatus("●  Bridge stopped", MUTED);
@@ -524,38 +527,7 @@ public final class MainActivity extends Activity {
     sensorCard.clear();
   }
 
-  private void setRemoteAccess(boolean enabled) {
-    getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
-    if (remoteAccessCard != null) remoteAccessCard.setEnabled(enabled);
-    updateRemoteAccessStatus();
-    if (!serviceManager.sensorRequested()) return;
-    serviceManager.suspendSensor();
-    sensorStartFailed = false;
-    if (sensorCard != null) reconcileSensor(true);
-  }
 
-  private void updateRemoteAccessStatus() {
-    if (remoteAccessCard == null) return;
-    boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    remoteAccessCard.setEnabled(enabled);
-    remoteAccessCard.showStatus(
-        enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
-  }
-
-  private String findLanAddress() {
-    try {
-      for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-        if (!network.isUp() || network.isLoopback()) continue;
-        for (InetAddress address : Collections.list(network.getInetAddresses())) {
-          if (address instanceof Inet4Address && !address.isLoopbackAddress())
-            return address.getHostAddress();
-        }
-      }
-    } catch (Exception ignored) { }
-    return null;
-  }
 
   @Override public void onRequestPermissionsResult(
       int requestCode, String[] permissions, int[] grants) {

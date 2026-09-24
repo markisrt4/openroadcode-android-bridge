@@ -3,6 +3,7 @@ package org.openroadcode.androidbridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Typeface;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -177,213 +178,13 @@ public final class TermuxServicesCard {
 
   private void selectRemotePi() {
     if (!settings.hasRemotePiConfiguration()) {
-      showRemoteDevices();
+      managerStatus.setText("●  Configure a remote device under Configuration first");
+      managerStatus.setTextColor(UiTheme.RED);
       return;
     }
     settings.setTarget(Target.REMOTE_PI);
     refreshTargetSummary();
     refresh();
-  }
-
-  private void showRemoteDevices() {
-    java.util.List<RuntimeDevice> devices = settings.devices();
-    if (devices.isEmpty()) {
-      new AlertDialog.Builder(activity)
-          .setTitle("Paired OpenRoadCode devices")
-          .setMessage("No remote devices are paired yet.")
-          .setPositiveButton("CLOSE", null)
-          .show();
-      return;
-    }
-    RuntimeDevice active = settings.activeDevice();
-    String[] labels = new String[devices.size()];
-    for (int i = 0; i < devices.size(); i++) {
-      RuntimeDevice device = devices.get(i);
-      String selected = active != null && active.deviceId().equals(device.deviceId()) ? "●  " : "";
-      labels[i] = selected + device.name() + "\n" + device.baseUrl();
-    }
-    new AlertDialog.Builder(activity)
-        .setTitle("Paired OpenRoadCode devices")
-        .setItems(labels, (dialog, which) -> showRemoteDeviceActions(devices.get(which)))
-        .setNegativeButton("CLOSE", null)
-        .show();
-  }
-
-  private void showRemoteDeviceActions(RuntimeDevice device) {
-    String[] actions = {"USE DEVICE", "RENAME", "FORGET"};
-    new AlertDialog.Builder(activity)
-        .setTitle(device.name())
-        .setMessage(device.baseUrl())
-        .setItems(actions, (dialog, which) -> {
-          if (which == 0) {
-            settings.setActiveDevice(device.deviceId());
-            refreshTargetSummary();
-            refresh();
-          } else if (which == 1) {
-            renameRemoteDevice(device);
-          } else {
-            confirmForgetRemoteDevice(device);
-          }
-        })
-        .setNegativeButton("CLOSE", null)
-        .show();
-  }
-
-  private void renameRemoteDevice(RuntimeDevice device) {
-    EditText name = new EditText(activity);
-    name.setSingleLine(true);
-    name.setText(device.name());
-    name.setSelectAllOnFocus(true);
-    name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-    int horizontal = dp(20);
-    LinearLayout container = new LinearLayout(activity);
-    container.setPadding(horizontal, dp(4), horizontal, 0);
-    container.addView(name, new LinearLayout.LayoutParams(-1, -2));
-
-    AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Rename device")
-        .setView(container)
-        .setNegativeButton("CANCEL", null)
-        .setPositiveButton("SAVE", null)
-        .create();
-    dialog.setOnShowListener(ignored ->
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-          String value = name.getText().toString().trim();
-          if (value.isBlank()) {
-            name.setError("Enter a device name");
-            return;
-          }
-          settings.renameDevice(device.deviceId(), value);
-          refreshTargetSummary();
-          dialog.dismiss();
-          showRemoteDevices();
-        }));
-    dialog.show();
-  }
-
-  private void confirmForgetRemoteDevice(RuntimeDevice device) {
-    new AlertDialog.Builder(activity)
-        .setTitle("Forget " + device.name() + "?")
-        .setMessage("This removes the saved pairing from this Android app.")
-        .setNegativeButton("CANCEL", null)
-        .setPositiveButton("FORGET", (dialog, which) -> {
-          settings.forgetDevice(device.deviceId());
-          refreshTargetSummary();
-          refresh();
-          showRemoteDevices();
-        })
-        .show();
-  }
-
-  private void configureRemotePi() {
-    LinearLayout fields = new LinearLayout(activity);
-    fields.setOrientation(LinearLayout.VERTICAL);
-    fields.setPadding(dp(20), dp(8), dp(20), 0);
-
-    EditText deviceName = new EditText(activity);
-    deviceName.setSingleLine(true);
-    deviceName.setHint("Device name (for example, Car Pi 5)");
-    deviceName.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-    fields.addView(deviceName);
-
-    EditText endpoint = new EditText(activity);
-    endpoint.setSingleLine(true);
-    endpoint.setHint("http://pi-address:8769");
-    endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-    fields.addView(endpoint);
-
-    EditText pin = new EditText(activity);
-    pin.setSingleLine(true);
-    pin.setHint("6-digit pairing PIN");
-    pin.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-    fields.addView(pin);
-
-    TextView pairingHelp = text(
-        "Start pairing on the OpenRoadCode service manager, then enter the temporary 6-digit PIN. "
-            + "The Android bridge will exchange it for its own client credential; the PIN is not saved.",
-        10,
-        UiTheme.MUTED);
-    pairingHelp.setPadding(0, dp(4), 0, dp(4));
-    fields.addView(pairingHelp);
-
-    AlertDialog dialog = new AlertDialog.Builder(activity)
-        .setTitle("Add OpenRoadCode device")
-        .setMessage("Name the device, then enter its service-manager endpoint and temporary pairing PIN.")
-        .setView(fields)
-        .setNegativeButton("CANCEL", null)
-        .setPositiveButton("PAIR", null)
-        .create();
-
-    dialog.setOnShowListener(ignored -> {
-      Button pairButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-      pairButton.setOnClickListener(v -> {
-        String name = deviceName.getText().toString().trim();
-        String baseUrl = endpoint.getText().toString().trim();
-        String pairingPin = pin.getText().toString().trim();
-        if (name.isBlank()) {
-          deviceName.setError("Enter a name for this device");
-          return;
-        }
-        if (!(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
-          endpoint.setError("Enter a complete http:// or https:// endpoint");
-          return;
-        }
-        if (!pairingPin.matches("\\d{6}")) {
-          pin.setError("Enter the 6-digit pairing PIN");
-          return;
-        }
-
-        pairButton.setEnabled(false);
-        pairButton.setText("PAIRING…");
-        deviceName.setEnabled(false);
-        endpoint.setEnabled(false);
-        pin.setEnabled(false);
-
-        new Thread(() -> {
-          try {
-            RuntimeServiceManagerClient pairingClient =
-                new RuntimeServiceManagerClient(baseUrl, "Remote Linux");
-            String clientName = "OpenRoadCode Android - " + Build.MODEL;
-            JSONObject response = pairingClient.pair(pairingPin, clientName);
-            String accessToken = response.optString("access_token", "").trim();
-            String clientId = response.optString("client_id", "").trim();
-            if (accessToken.isBlank()) {
-              throw new IllegalStateException("Pairing response did not contain an access token");
-            }
-
-            activity.runOnUiThread(() -> {
-              settings.saveDevice(name, baseUrl, clientId, accessToken);
-              settings.setTarget(Target.REMOTE_PI);
-              refreshTargetSummary();
-              dialog.dismiss();
-              managerStatus.setText("●  Remote Linux paired");
-              managerStatus.setTextColor(UiTheme.GREEN);
-              refresh();
-            });
-          } catch (Exception e) {
-            String message = e.getMessage();
-            activity.runOnUiThread(() -> {
-              pairButton.setEnabled(true);
-              pairButton.setText("PAIR");
-              deviceName.setEnabled(true);
-              endpoint.setEnabled(true);
-              pin.setEnabled(true);
-              pin.setError(message == null || message.isBlank() ? "Pairing failed" : message);
-            });
-          }
-        }, "orc-service-pairing").start();
-      });
-    });
-    dialog.show();
-  }
-
-  private String remoteDeviceName(String baseUrl) {
-    try {
-      String host = new java.net.URL(baseUrl).getHost();
-      return host == null || host.isBlank() ? "Remote Linux" : host;
-    } catch (Exception ignored) {
-      return "Remote Linux";
-    }
   }
 
   private void refreshTargetSummary() {
@@ -534,10 +335,25 @@ public final class TermuxServicesCard {
   }
 
   private void setProfile(String service, String profile) {
+    if ("openroadcode-navigation".equals(service)
+        && "local".equals(profile)
+        && settings.target() == Target.REMOTE_PI) {
+      ensureRemoteSensorBridge();
+    }
     managerStatus.setText("●  Switching " + shortServiceName(service)
         + " input source…");
     managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.VIOLET : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
+  }
+
+  private void ensureRemoteSensorBridge() {
+    activity.getSharedPreferences(SensorBridgeService.PREFERENCES, Activity.MODE_PRIVATE)
+        .edit()
+        .putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, true)
+        .apply();
+    Intent service = new Intent(activity, SensorBridgeService.class);
+    activity.stopService(service);
+    activity.startForegroundService(service);
   }
 
   private String shortServiceName(String service) {
