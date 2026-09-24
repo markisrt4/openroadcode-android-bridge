@@ -181,7 +181,7 @@ public final class TermuxServicesCard {
     }
     settings.setTarget(Target.REMOTE_PI);
     refreshTargetSummary();
-    refresh();
+    runAction(RuntimeServiceManagerClient::registerAndroidBridge);
   }
 
   private void configureRemotePi() {
