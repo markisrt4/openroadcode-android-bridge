@@ -1,8 +1,10 @@
 package org.openroadcode.androidbridge;
 
+import android.app.ActivityOptions;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.IBinder;
 import java.io.BufferedReader;
@@ -96,7 +98,8 @@ public final class AndroidHostActionService extends Service {
                 respond(client, 400, "{\"error\":\"package is required\"}");
                 return;
             }
-            launchPackage(client, packageName.trim());
+            Map<String, String> values = formValues(body);
+            launchPackage(client, packageName.trim(), values);
             return;
         }
         if ("POST /open/uri HTTP/1.1".equals(requestLine)) {
@@ -111,20 +114,76 @@ public final class AndroidHostActionService extends Service {
         respond(client, 404, "{\"error\":\"not found\"}");
     }
 
-    private void launchPackage(Socket client, String packageName) throws IOException {
+    private void launchPackage(
+            Socket client, String packageName, Map<String, String> values) throws IOException {
         PackageManager packageManager = getPackageManager();
         Intent intent = packageManager.getLaunchIntentForPackage(packageName);
         if (intent == null) {
-            respond(client, 404, "{\"error\":\"package not installed\"}");
+            respond(client, 404, "{\"error\":\"package not installed or not visible\"}");
             return;
         }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        boolean freeformSupported = packageManager.hasSystemFeature(
+                PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT);
+        Rect bounds;
         try {
-            startActivity(intent);
-            respond(client, 200, "{\"status\":\"launched\"}");
-        } catch (RuntimeException exception) {
-            respond(client, 500, "{\"error\":\"launch failed\"}");
+            bounds = launchBounds(values);
+        } catch (IllegalArgumentException exception) {
+            respond(client, 400, "{\"error\":\"" + jsonEscape(exception.getMessage()) + "\"}");
+            return;
         }
+
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ActivityOptions options = ActivityOptions.makeBasic();
+        if (bounds != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+            options.setLaunchBounds(bounds);
+        }
+
+        try {
+            startActivity(intent, options.toBundle());
+            String requestedBounds = bounds == null ? "null"
+                    : "{\"x\":" + bounds.left
+                    + ",\"y\":" + bounds.top
+                    + ",\"width\":" + bounds.width()
+                    + ",\"height\":" + bounds.height() + "}";
+            respond(client, 200,
+                    "{\"status\":\"launch_requested\",\"freeform_supported\":"
+                    + freeformSupported + ",\"requested_bounds\":" + requestedBounds + "}");
+        } catch (RuntimeException exception) {
+            respond(client, 500,
+                    "{\"error\":\"launch failed\",\"exception\":\""
+                    + jsonEscape(exception.getClass().getSimpleName()) + "\"}");
+        }
+    }
+
+    private static Rect launchBounds(Map<String, String> values) {
+        String xValue = values.get("x");
+        String yValue = values.get("y");
+        String widthValue = values.get("width");
+        String heightValue = values.get("height");
+        boolean any = xValue != null || yValue != null || widthValue != null || heightValue != null;
+        if (!any) return null;
+        if (xValue == null || yValue == null || widthValue == null || heightValue == null)
+            throw new IllegalArgumentException("x, y, width, and height must be provided together");
+
+        try {
+            int x = Integer.parseInt(xValue);
+            int y = Integer.parseInt(yValue);
+            int width = Integer.parseInt(widthValue);
+            int height = Integer.parseInt(heightValue);
+            if (x < 0 || y < 0 || width <= 0 || height <= 0)
+                throw new IllegalArgumentException(
+                        "x and y must be non-negative; width and height must be positive");
+            return new Rect(x, y, x + width, y + height);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("launch bounds must be integers");
+        }
+    }
+
+    private static String jsonEscape(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void openUri(Socket client, String uri) throws IOException {
