@@ -117,8 +117,8 @@ public final class AndroidHostActionService extends Service {
     private void launchPackage(
             Socket client, String packageName, Map<String, String> values) throws IOException {
         PackageManager packageManager = getPackageManager();
-        Intent intent = packageManager.getLaunchIntentForPackage(packageName);
-        if (intent == null) {
+        Intent packageIntent = packageManager.getLaunchIntentForPackage(packageName);
+        if (packageIntent == null) {
             respond(client, 404, "{\"error\":\"package not installed or not visible\"}");
             return;
         }
@@ -133,26 +133,29 @@ public final class AndroidHostActionService extends Service {
             return;
         }
 
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ActivityOptions options = ActivityOptions.makeBasic();
+        Intent hostIntent = new Intent(this, MainActivity.class);
+        hostIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        hostIntent.putExtra("orc_host_action_package", packageName);
         if (bounds != null) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
-            options.setLaunchBounds(bounds);
+            hostIntent.putExtra("orc_host_action_x", bounds.left);
+            hostIntent.putExtra("orc_host_action_y", bounds.top);
+            hostIntent.putExtra("orc_host_action_width", bounds.width());
+            hostIntent.putExtra("orc_host_action_height", bounds.height());
         }
 
         try {
-            startActivity(intent, options.toBundle());
+            startActivity(hostIntent);
             String requestedBounds = bounds == null ? "null"
                     : "{\"x\":" + bounds.left
                     + ",\"y\":" + bounds.top
                     + ",\"width\":" + bounds.width()
                     + ",\"height\":" + bounds.height() + "}";
             respond(client, 200,
-                    "{\"status\":\"launch_requested\",\"freeform_supported\":"
+                    "{\"status\":\"host_activity_requested\",\"freeform_supported\":"
                     + freeformSupported + ",\"requested_bounds\":" + requestedBounds + "}");
         } catch (RuntimeException exception) {
             respond(client, 500,
-                    "{\"error\":\"launch failed\",\"exception\":\""
+                    "{\"error\":\"host activity launch failed\",\"exception\":\""
                     + jsonEscape(exception.getClass().getSimpleName()) + "\"}");
         }
     }
