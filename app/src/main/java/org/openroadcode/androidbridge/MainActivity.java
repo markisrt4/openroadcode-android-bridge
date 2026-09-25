@@ -2,8 +2,10 @@ package org.openroadcode.androidbridge;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
@@ -50,6 +52,11 @@ public final class MainActivity extends Activity {
   private boolean sensorStartFailed;
   private String sensorStartError = "";
   private String currentScreen = "dashboard";
+  private static final String EXTRA_HOST_ACTION_PACKAGE = "orc_host_action_package";
+  private static final String EXTRA_HOST_ACTION_X = "orc_host_action_x";
+  private static final String EXTRA_HOST_ACTION_Y = "orc_host_action_y";
+  private static final String EXTRA_HOST_ACTION_WIDTH = "orc_host_action_width";
+  private static final String EXTRA_HOST_ACTION_HEIGHT = "orc_host_action_height";
 
   private final Runnable dashboardRefresh = new Runnable() {
     @Override public void run() {
@@ -87,6 +94,39 @@ public final class MainActivity extends Activity {
     setContentView(scrollView);
 
     showDashboard();
+    handleHostActionIntent(getIntent());
+  }
+
+  @Override protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    handleHostActionIntent(intent);
+  }
+
+  private void handleHostActionIntent(Intent hostIntent) {
+    if (hostIntent == null) return;
+    String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
+    if (packageName == null || packageName.isBlank()) return;
+
+    Intent target = getPackageManager().getLaunchIntentForPackage(packageName);
+    if (target == null) return;
+    target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+    ActivityOptions options = ActivityOptions.makeBasic();
+    if (hostIntent.hasExtra(EXTRA_HOST_ACTION_X)
+        && hostIntent.hasExtra(EXTRA_HOST_ACTION_Y)
+        && hostIntent.hasExtra(EXTRA_HOST_ACTION_WIDTH)
+        && hostIntent.hasExtra(EXTRA_HOST_ACTION_HEIGHT)) {
+      int x = hostIntent.getIntExtra(EXTRA_HOST_ACTION_X, 0);
+      int y = hostIntent.getIntExtra(EXTRA_HOST_ACTION_Y, 0);
+      int width = hostIntent.getIntExtra(EXTRA_HOST_ACTION_WIDTH, 0);
+      int height = hostIntent.getIntExtra(EXTRA_HOST_ACTION_HEIGHT, 0);
+      if (x >= 0 && y >= 0 && width > 0 && height > 0) {
+        target.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        options.setLaunchBounds(new Rect(x, y, x + width, y + height));
+      }
+    }
+    startActivity(target, options.toBundle());
   }
 
   private void showDashboard() {
