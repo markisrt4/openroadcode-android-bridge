@@ -1,0 +1,174 @@
+package org.openroadcode.androidbridge;
+
+import android.app.Service;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.IBinder;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Localhost-only Android host actions for OpenRoadCode.
+ *
+ * This deliberately lives outside the sensor bridge. Sensors report state;
+ * host actions ask Android to do something on ORC's behalf.
+ */
+public final class AndroidHostActionService extends Service {
+    public static final int PORT = 8770;
+
+    private volatile boolean running;
+    private ServerSocket serverSocket;
+    private Thread serverThread;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        running = true;
+        serverThread = new Thread(this::runServer, "orc-host-actions");
+        serverThread.start();
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY;
+    }
+
+    @Override public IBinder onBind(Intent intent) { return null; }
+
+    private void runServer() {
+        try {
+            serverSocket = new ServerSocket();
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT), 4);
+            while (running) {
+                try (Socket client = serverSocket.accept()) {
+                    serveClient(client);
+                } catch (IOException ignored) {
+                    if (!running) return;
+                }
+            }
+        } catch (IOException ignored) {
+            // A later app start will retry by recreating the service.
+        }
+    }
+
+    private void serveClient(Socket client) throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(
+                client.getInputStream(), StandardCharsets.UTF_8));
+        String requestLine = reader.readLine();
+        if (requestLine == null) return;
+
+        int contentLength = 0;
+        String line;
+        while ((line = reader.readLine()) != null && !line.isEmpty()) {
+            int colon = line.indexOf(':');
+            if (colon > 0 && "content-length".equalsIgnoreCase(line.substring(0, colon).trim())) {
+                try { contentLength = Integer.parseInt(line.substring(colon + 1).trim()); }
+                catch (NumberFormatException ignored) { contentLength = 0; }
+            }
+        }
+
+        char[] bodyChars = new char[Math.max(0, contentLength)];
+        int offset = 0;
+        while (offset < bodyChars.length) {
+            int count = reader.read(bodyChars, offset, bodyChars.length - offset);
+            if (count < 0) break;
+            offset += count;
+        }
+        String body = new String(bodyChars, 0, offset);
+
+        if ("GET /health HTTP/1.1".equals(requestLine)) {
+            respond(client, 200, "{\"status\":\"ok\"}");
+            return;
+        }
+        if ("POST /launch/package HTTP/1.1".equals(requestLine)) {
+            String packageName = formValues(body).get("package");
+            if (packageName == null || packageName.trim().isEmpty()) {
+                respond(client, 400, "{\"error\":\"package is required\"}");
+                return;
+            }
+            launchPackage(client, packageName.trim());
+            return;
+        }
+        if ("POST /open/uri HTTP/1.1".equals(requestLine)) {
+            String uri = formValues(body).get("uri");
+            if (uri == null || uri.trim().isEmpty()) {
+                respond(client, 400, "{\"error\":\"uri is required\"}");
+                return;
+            }
+            openUri(client, uri.trim());
+            return;
+        }
+        respond(client, 404, "{\"error\":\"not found\"}");
+    }
+
+    private void launchPackage(Socket client, String packageName) throws IOException {
+        PackageManager packageManager = getPackageManager();
+        Intent intent = packageManager.getLaunchIntentForPackage(packageName);
+        if (intent == null) {
+            respond(client, 404, "{\"error\":\"package not installed\"}");
+            return;
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+            respond(client, 200, "{\"status\":\"launched\"}");
+        } catch (RuntimeException exception) {
+            respond(client, 500, "{\"error\":\"launch failed\"}");
+        }
+    }
+
+    private void openUri(Socket client, String uri) throws IOException {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+            respond(client, 200, "{\"status\":\"opened\"}");
+        } catch (RuntimeException exception) {
+            respond(client, 500, "{\"error\":\"open failed\"}");
+        }
+    }
+
+    private static Map<String, String> formValues(String body) {
+        Map<String, String> values = new HashMap<>();
+        for (String pair : body.split("&")) {
+            if (pair.isEmpty()) continue;
+            String[] parts = pair.split("=", 2);
+            String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+            String value = parts.length > 1
+                    ? URLDecoder.decode(parts[1], StandardCharsets.UTF_8) : "";
+            values.put(key, value);
+        }
+        return values;
+    }
+
+    private static void respond(Socket client, int status, String body) throws IOException {
+        String reason = status == 200 ? "OK" : status == 400 ? "Bad Request"
+                : status == 404 ? "Not Found" : "Internal Server Error";
+        byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+        String headers = "HTTP/1.1 " + status + " " + reason + "\r\n"
+                + "Content-Type: application/json\r\n"
+                + "Content-Length: " + payload.length + "\r\n"
+                + "Connection: close\r\n\r\n";
+        OutputStream output = client.getOutputStream();
+        output.write(headers.getBytes(StandardCharsets.US_ASCII));
+        output.write(payload);
+        output.flush();
+    }
+
+    @Override public void onDestroy() {
+        running = false;
+        try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
+        if (serverThread != null) serverThread.interrupt();
+        super.onDestroy();
+    }
+}
