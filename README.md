@@ -38,6 +38,20 @@ The sensor payload can contain acceleration, linear acceleration, angular veloci
 
 The Sensor Bridge source is selected in the app. `Android Sensors` uses the phone hardware and GNSS. `Simulated Drive` produces a moving synthetic position plus representative IMU values while preserving the same `/imu`, `/location`, `/health`, and `/stream/imu` interfaces.
 
+## Host actions
+
+The bridge exposes localhost-only Android host actions on port `8770`. These let
+OpenRoadCode request Android UI actions without depending on shell-level
+`am` access from Termux.
+
+```bash
+curl -X POST -d 'package=com.panera.bread' http://127.0.0.1:8770/launch/package
+curl -X POST --data-urlencode 'uri=https://www.panerabread.com/' http://127.0.0.1:8770/open/uri
+curl http://127.0.0.1:8770/health
+```
+
+The service binds only to `127.0.0.1`; it is not a remote-control interface.
+
 ## Camera stream
 
 The camera service uses the rear Camera2 device and Android's hardware H.264 encoder. The initial v0.5.0 stream is:
