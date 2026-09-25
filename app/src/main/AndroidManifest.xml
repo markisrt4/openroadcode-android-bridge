@@ -17,6 +17,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!-- Android package visibility for applications exposed by ORC's POI
+         integration catalog. Keep this list aligned with the catalog until
+         build-time generation is introduced. -->
+    <queries>
+        <package android:name="com.panera.bread" />
+        <package android:name="com.mcdonalds.app" />
+    </queries>
+
     <application
         android:name=".OpenRoadCodeBridgeApplication"
         android:allowBackup="false"
