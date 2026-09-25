@@ -13,6 +13,7 @@ public final class OpenRoadCodeBridgeApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        startService(new Intent(this, AndroidHostActionService.class));
         rtlSdrUsbManager = new RtlSdrUsbManager(this, state -> {
             String device = state.device == null ? "none" : state.deviceLabel();
             Log.i(TAG, state.status + " | " + state.message + " | " + device +
