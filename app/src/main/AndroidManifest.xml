@@ -35,6 +35,10 @@
         </activity>
 
         <service
+            android:name=".AndroidHostActionService"
+            android:exported="false" />
+
+        <service
             android:name=".SensorBridgeService"
             android:exported="false"
             android:foregroundServiceType="location|specialUse">
