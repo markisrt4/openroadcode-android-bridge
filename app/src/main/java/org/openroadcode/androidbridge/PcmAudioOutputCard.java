@@ -87,6 +87,10 @@ final class PcmAudioOutputCard {
     traffic.setText(String.format(Locale.US, "Played %,d B", PcmAudioOutputService.bytesPlayed()));
     start.setEnabled(!running);
     stop.setEnabled(running);
+    UiTheme.setButtonColor(activity, start,
+        running ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
+    UiTheme.setButtonColor(activity, stop,
+        running ? UiTheme.RED : UiTheme.SURFACE_RAISED);
   }
 
   private void start() {
