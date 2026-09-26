@@ -79,6 +79,7 @@ public final class MainActivity extends Activity {
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     serviceManager = new BridgeServiceManager(this);
+    startForegroundService(new Intent(this, RtlTcpProviderControlService.class));
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
 
