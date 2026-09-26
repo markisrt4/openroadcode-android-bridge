@@ -213,6 +213,8 @@ final class CameraCard {
 
   private void updateButtons(boolean running, boolean streaming) {
     startButton.setText(running ? (streaming ? "RUNNING" : "STARTING") : "START CAMERA");
+    startButton.setEnabled(!running);
+    stopButton.setEnabled(running);
     UiTheme.setButtonColor(activity, startButton,
         running ? UiTheme.SURFACE_RAISED : UiTheme.RED);
     UiTheme.setButtonColor(activity, stopButton,
