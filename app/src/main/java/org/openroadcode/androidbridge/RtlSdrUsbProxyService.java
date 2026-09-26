@@ -24,6 +24,9 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Localhost-only USB transport for RTL-SDR access from Termux.
@@ -321,6 +324,15 @@ public final class RtlSdrUsbProxyService extends Service {
         writeResult(out, transferred, response);
     }
 
+    private static final class BulkChunk {
+        final byte[] data;
+        final int length;
+        BulkChunk(byte[] data, int length) {
+            this.data = data;
+            this.length = length;
+        }
+    }
+
     private void handleBulkInStream(DataInputStream in, DataOutputStream out,
                                     UsbDeviceConnection connection, UsbDevice device) throws IOException {
         int endpointAddress = in.readInt();
@@ -332,18 +344,51 @@ public final class RtlSdrUsbProxyService extends Service {
             return;
         }
 
-        byte[] buffer = new byte[length];
-        while (running && !Thread.currentThread().isInterrupted()) {
-            int transferred = connection.bulkTransfer(endpoint, buffer, length, timeoutMs);
-            if (transferred < 0) {
-                // A finite timeout lets service shutdown interrupt an otherwise
-                // continuous stream without turning an idle poll into EOF.
-                continue;
+        // Keep USB acquisition independent of localhost writes. A single loop
+        // left the RTL2832U idle while each completed block was framed and
+        // copied into the socket, which rtl_test correctly reported as gaps.
+        final int queueDepth = 8;
+        ArrayBlockingQueue<BulkChunk> queue = new ArrayBlockingQueue<>(queueDepth);
+        AtomicBoolean streaming = new AtomicBoolean(true);
+        Thread reader = new Thread(() -> {
+            while (running && streaming.get() && !Thread.currentThread().isInterrupted()) {
+                byte[] buffer = new byte[length];
+                int transferred = connection.bulkTransfer(endpoint, buffer, length, timeoutMs);
+                if (transferred <= 0) continue;
+                try {
+                    // Backpressure is intentional. Eight 1 MiB slots provide
+                    // ample localhost jitter tolerance without unbounded RAM.
+                    queue.put(new BulkChunk(buffer, transferred));
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
-            if (transferred == 0) continue;
-            out.writeInt(transferred);
-            out.write(buffer, 0, transferred);
-            out.flush();
+        }, "orc-rtl-usb-reader");
+        reader.start();
+
+        try {
+            while (running && streaming.get()) {
+                BulkChunk chunk;
+                try {
+                    chunk = queue.poll(500, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                if (chunk == null) continue;
+                out.writeInt(chunk.length);
+                out.write(chunk.data, 0, chunk.length);
+                out.flush();
+            }
+        } finally {
+            streaming.set(false);
+            reader.interrupt();
+            try {
+                reader.join(Math.max(1000L, timeoutMs + 250L));
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
