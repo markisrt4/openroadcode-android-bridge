@@ -37,11 +37,11 @@ import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 public final class MainActivity extends Activity {
-  private static WeakReference<MainActivity> resumedActivity = new WeakReference<>(null);
+  private static WeakReference<MainActivity> visibleActivity = new WeakReference<>(null);
 
   static boolean launchRtlTcpProvider(String uri, String driverPackage, String driverActivity) {
-    MainActivity activity = resumedActivity.get();
-    if (activity == null || !activity.dashboardActive) return false;
+    MainActivity activity = visibleActivity.get();
+    if (activity == null) return false;
     activity.runOnUiThread(() -> {
       Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
       intent.setClassName(driverPackage, driverActivity);
@@ -373,10 +373,14 @@ public final class MainActivity extends Activity {
     return UiTheme.dp(this, value);
   }
 
+  @Override protected void onStart() {
+    super.onStart();
+    visibleActivity = new WeakReference<>(this);
+  }
+
   @Override protected void onResume() {
     super.onResume();
     dashboardActive = true;
-    resumedActivity = new WeakReference<>(this);
     startVisibleCards();
     dashboardHandler.removeCallbacks(dashboardRefresh);
     dashboardHandler.post(dashboardRefresh);
@@ -384,11 +388,15 @@ public final class MainActivity extends Activity {
 
   @Override protected void onPause() {
     dashboardActive = false;
-    MainActivity resumed = resumedActivity.get();
-    if (resumed == this) resumedActivity.clear();
     dashboardHandler.removeCallbacks(dashboardRefresh);
     stopVisibleCards();
     super.onPause();
+  }
+
+  @Override protected void onStop() {
+    MainActivity visible = visibleActivity.get();
+    if (visible == this) visibleActivity.clear();
+    super.onStop();
   }
 
   @Override public void onBackPressed() {
