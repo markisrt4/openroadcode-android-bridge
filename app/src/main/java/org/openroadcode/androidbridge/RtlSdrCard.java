@@ -62,6 +62,8 @@ final class RtlSdrCard {
         connect.setText("CONNECTED");
         connect.setEnabled(false);
         stop.setEnabled(true);
+        UiTheme.setButtonColor(context, connect, UiTheme.SURFACE_RAISED);
+        UiTheme.setButtonColor(context, stop, UiTheme.RED);
       }
       case PERMISSION_PENDING -> {
         status.setText("●  Waiting for USB permission…");
@@ -69,6 +71,8 @@ final class RtlSdrCard {
         connect.setText("WAITING…");
         connect.setEnabled(false);
         stop.setEnabled(true);
+        UiTheme.setButtonColor(context, connect, UiTheme.SURFACE_RAISED);
+        UiTheme.setButtonColor(context, stop, UiTheme.RED);
       }
       case DETECTED -> {
         status.setText("●  RTL-SDR detected");
@@ -76,6 +80,8 @@ final class RtlSdrCard {
         connect.setText("CONNECT");
         connect.setEnabled(true);
         stop.setEnabled(false);
+        UiTheme.setButtonColor(context, connect, UiTheme.BLUE);
+        UiTheme.setButtonColor(context, stop, UiTheme.SURFACE_RAISED);
       }
       case NOT_FOUND -> {
         status.setText("●  No RTL-SDR detected");
@@ -83,6 +89,8 @@ final class RtlSdrCard {
         connect.setText("CONNECT");
         connect.setEnabled(false);
         stop.setEnabled(false);
+        UiTheme.setButtonColor(context, connect, UiTheme.SURFACE_RAISED);
+        UiTheme.setButtonColor(context, stop, UiTheme.SURFACE_RAISED);
       }
       case ERROR -> {
         status.setText("●  " + state.message);
@@ -90,6 +98,8 @@ final class RtlSdrCard {
         connect.setText("RETRY");
         connect.setEnabled(true);
         stop.setEnabled(true);
+        UiTheme.setButtonColor(context, connect, UiTheme.BLUE);
+        UiTheme.setButtonColor(context, stop, UiTheme.RED);
       }
     }
   }
