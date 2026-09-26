@@ -17,12 +17,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * provide the playback clock and TCP backpressure to the producer.
  */
 public final class PcmAudioOutputService extends Service {
-  public static final int PORT = 8769;
+  public static final int PORT = 8771;
   public static final String START = "org.openroadcode.audio_output.START";
   public static final String STOP = "org.openroadcode.audio_output.STOP";
   public static final int RATE = 48000;
   public static final int CHANNELS = 2;
-  private static final int NOTIFICATION = 8769;
+  private static final int NOTIFICATION = 8771;
   private static final String CHANNEL_ID = "orc-audio-output";
   private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
   private static volatile boolean clientConnected;
