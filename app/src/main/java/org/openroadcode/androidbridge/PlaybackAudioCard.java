@@ -168,8 +168,13 @@ final class PlaybackAudioCard {
   private void update(boolean running, String message) {
     status.setText("●  " + message);
     status.setTextColor(running ? UiTheme.GREEN : requesting ? UiTheme.BLUE : UiTheme.MUTED);
-    start.setEnabled(!running && !requesting);
-    stop.setEnabled(running || requesting);
+    boolean stoppingAvailable = running || requesting;
+    start.setEnabled(!stoppingAvailable);
+    stop.setEnabled(stoppingAvailable);
+    UiTheme.setButtonColor(activity, start,
+        stoppingAvailable ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
+    UiTheme.setButtonColor(activity, stop,
+        stoppingAvailable ? UiTheme.RED : UiTheme.SURFACE_RAISED);
   }
 
   private void updateLevel(double db) {
