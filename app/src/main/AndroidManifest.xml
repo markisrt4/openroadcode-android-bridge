@@ -18,6 +18,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!-- Android 11+ package visibility: the bridge intentionally integrates
+         with the installed RTL-SDR driver through its iqsrc activity. -->
+    <queries>
+        <package android:name="marto.rtl_tcp_andro" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="iqsrc" />
+        </intent>
+    </queries>
+
     <application
         android:name=".OpenRoadCodeBridgeApplication"
         android:allowBackup="false"
