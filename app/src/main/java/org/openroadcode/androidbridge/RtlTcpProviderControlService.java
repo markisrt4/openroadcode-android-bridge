@@ -5,6 +5,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.Build;
@@ -116,22 +118,48 @@ public final class RtlTcpProviderControlService extends Service {
       int frequency = positiveInt(form.get("frequency_hz"), DEFAULT_FREQUENCY_HZ);
       int sampleRate = positiveInt(form.get("sample_rate"), DEFAULT_SAMPLE_RATE);
       int port = positiveInt(form.get("port"), 1234);
-      launchProvider(frequency, sampleRate, port);
-      respond(client, 200, "{\"status\":\"launch_requested\"}");
+      String launchDetails = launchProvider(frequency, sampleRate, port);
+      respond(client, 200, launchDetails);
     } catch (Exception ex) {
       String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
       respond(client, 500, "{\"error\":\"" + jsonEscape(message) + "\"}");
     }
   }
 
-  private void launchProvider(int frequencyHz, int sampleRate, int port) {
+  private String launchProvider(int frequencyHz, int sampleRate, int port) {
     String uri = "iqsrc://-a 127.0.0.1 -p " + port
         + " -f " + frequencyHz + " -s " + sampleRate + " -T 0";
     Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
     intent.setClassName(DRIVER_PACKAGE, DRIVER_ACTIVITY);
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+    ResolveInfo resolved = getPackageManager().resolveActivity(intent, 0);
+    if (resolved == null || resolved.activityInfo == null) {
+      String message = "RTL-TCP driver activity is not resolvable: "
+          + DRIVER_PACKAGE + "/" + DRIVER_ACTIVITY;
+      android.util.Log.e("ORCRtlTcpControl", message);
+      throw new IllegalStateException(message);
+    }
+
+    ActivityInfo activity = resolved.activityInfo;
+    String resolvedComponent = activity.packageName + "/" + activity.name;
+    android.util.Log.i("ORCRtlTcpControl",
+        "Resolved RTL-TCP provider activity: " + resolvedComponent
+            + " exported=" + activity.exported + " enabled=" + activity.enabled);
+
+    if (!activity.enabled) {
+      throw new IllegalStateException("RTL-TCP driver activity is disabled: " + resolvedComponent);
+    }
+    if (!activity.exported && !getPackageName().equals(activity.packageName)) {
+      throw new IllegalStateException("RTL-TCP driver activity is not exported: " + resolvedComponent);
+    }
+
     startActivity(intent);
     android.util.Log.i("ORCRtlTcpControl", "Requested RTL-TCP provider: " + uri);
+    return "{\"status\":\"launch_requested\","
+        + "\"resolved_component\":\"" + jsonEscape(resolvedComponent) + "\","
+        + "\"exported\":" + activity.exported + ","
+        + "\"enabled\":" + activity.enabled + "}";
   }
 
   private static Map<String, String> parseForm(String body) {
