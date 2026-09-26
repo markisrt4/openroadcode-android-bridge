@@ -120,10 +120,17 @@ public final class RtlTcpProviderControlService extends Service {
       int port = positiveInt(form.get("port"), 1234);
       String launchDetails = launchProvider(frequency, sampleRate, port);
       respond(client, 200, launchDetails);
+    } catch (ForegroundRequiredException ex) {
+      respond(client, 409, "{\"error\":\"foreground_required\",\"message\":\""
+          + jsonEscape(ex.getMessage()) + "\"}");
     } catch (Exception ex) {
       String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
       respond(client, 500, "{\"error\":\"" + jsonEscape(message) + "\"}");
     }
+  }
+
+  private static final class ForegroundRequiredException extends RuntimeException {
+    ForegroundRequiredException(String message) { super(message); }
   }
 
   private String launchProvider(int frequencyHz, int sampleRate, int port) {
@@ -154,9 +161,16 @@ public final class RtlTcpProviderControlService extends Service {
       throw new IllegalStateException("RTL-TCP driver activity is not exported: " + resolvedComponent);
     }
 
-    startActivity(intent);
-    android.util.Log.i("ORCRtlTcpControl", "Requested RTL-TCP provider: " + uri);
+    if (!MainActivity.launchRtlTcpProvider(uri, DRIVER_PACKAGE, DRIVER_ACTIVITY)) {
+      android.util.Log.w("ORCRtlTcpControl",
+          "RTL-TCP launch deferred because the bridge activity is not visible");
+      throw new ForegroundRequiredException(
+          "OpenRoadCode Bridge must be visible to launch the Android RTL-TCP provider");
+    }
+
+    android.util.Log.i("ORCRtlTcpControl", "Requested RTL-TCP provider from visible activity: " + uri);
     return "{\"status\":\"launch_requested\","
+        + "\"launch_context\":\"visible_activity\","
         + "\"resolved_component\":\"" + jsonEscape(resolvedComponent) + "\","
         + "\"exported\":" + activity.exported + ","
         + "\"enabled\":" + activity.enabled + "}";
@@ -189,7 +203,10 @@ public final class RtlTcpProviderControlService extends Service {
 
   private static void respond(Socket client, int status, String body) throws IOException {
     byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-    String reason = status == 200 ? "OK" : status == 404 ? "Not Found" : "Internal Server Error";
+    String reason = status == 200 ? "OK"
+        : status == 404 ? "Not Found"
+        : status == 409 ? "Conflict"
+        : "Internal Server Error";
     String headers = "HTTP/1.1 " + status + " " + reason + "\r\n"
         + "Content-Type: application/json\r\n"
         + "Content-Length: " + bytes.length + "\r\n"
