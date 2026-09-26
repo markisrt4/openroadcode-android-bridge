@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
       if (sensorCard != null || environmentalSensorCard != null) refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
       if (playbackAudioCard != null) playbackAudioCard.refresh();
+      if (pcmAudioOutputCard != null) pcmAudioOutputCard.refresh();
       if (rtlSdrCard != null) rtlSdrCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
@@ -68,6 +69,7 @@ public final class MainActivity extends Activity {
   private EnvironmentalSensorCard environmentalSensorCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
+  private PcmAudioOutputCard pcmAudioOutputCard;
   private RtlSdrCard rtlSdrCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
@@ -160,8 +162,12 @@ public final class MainActivity extends Activity {
         "Video capture and stream", RED, cameraCard.view(), true, false);
 
     playbackAudioCard = new PlaybackAudioCard(this);
-    addServiceCard(content, "PLAYBACK AUDIO",
-        "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, false);
+    addServiceCard(content, "PLAYBACK AUDIO CAPTURE",
+        "Android playback → ORC PCM", BLUE, playbackAudioCard.view(), true, false);
+
+    pcmAudioOutputCard = new PcmAudioOutputCard(this);
+    addServiceCard(content, "AUDIO OUTPUT",
+        "ORC PCM → Android AudioTrack", BLUE, pcmAudioOutputCard.view(), true, false);
 
     rtlSdrCard = new RtlSdrCard(this);
     addServiceCard(content, "RTL-SDR",
@@ -228,6 +234,7 @@ public final class MainActivity extends Activity {
     environmentalSensorCard = null;
     cameraCard = null;
     playbackAudioCard = null;
+    pcmAudioOutputCard = null;
     rtlSdrCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
@@ -243,6 +250,7 @@ public final class MainActivity extends Activity {
     if (sensorCard != null) reconcileSensor(false);
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();
+    if (pcmAudioOutputCard != null) pcmAudioOutputCard.refresh();
     if (rtlSdrCard != null) rtlSdrCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
