@@ -18,8 +18,9 @@ final class SubsystemDashboard {
   static final String AUTOMOTIVE = "automotive";
   static final String NAVIGATION = "navigation";
   static final String MEDIA = "media";
-  static final String CONNECTIVITY = "connectivity";
+  static final String ENVIRONMENTAL = "environmental";
   static final String RUNTIME = "runtime";
+  static final String CONFIGURATION = "configuration";
 
   private final Context context;
   private final Listener listener;
@@ -40,25 +41,32 @@ final class SubsystemDashboard {
     root.addView(heading);
 
     TextView subtitle = UiTheme.text(context,
-        "Choose a subsystem to configure inputs, bridges, and runtime services",
+        "Choose a subsystem or configure how the bridge connects to OpenRoadCode",
         11, UiTheme.MUTED);
     subtitle.setPadding(dp(2), 0, dp(2), dp(12));
     root.addView(subtitle);
 
+    LinearLayout configuration = tile("⚙", "CONFIGURATION",
+        "Devices • pairing • remote access • settings",
+        UiTheme.SILVER, CONFIGURATION, false);
+    LinearLayout.LayoutParams configurationParams = new LinearLayout.LayoutParams(-1, dp(126));
+    configurationParams.setMargins(0, 0, 0, dp(10));
+    root.addView(configuration, configurationParams);
+
     root.addView(row(
-        tile("▣", "AUTOMOTIVE", "OBD • Bluetooth • vehicle service",
-            UiTheme.GREEN, AUTOMOTIVE),
+        tile("🚗", "AUTOMOTIVE", "OBD • Bluetooth • vehicle service",
+            UiTheme.GREEN, AUTOMOTIVE, true),
         tile("⌖", "NAVIGATION", "GPS • sensors • navigation service",
-            UiTheme.BLUE, NAVIGATION)));
+            UiTheme.BLUE, NAVIGATION, true)));
 
     root.addView(row(
-        tile("◉", "MEDIA I/O", "Camera • playback audio • RTL-SDR",
-            UiTheme.RED, MEDIA),
-        tile("⇄", "CONNECTIVITY", "LAN access • bridge endpoints",
-            UiTheme.BLUE, CONNECTIVITY)));
+        tile("☀", "ENVIRONMENTAL", "Ambient light • environment sensors",
+            UiTheme.GREEN, ENVIRONMENTAL, true),
+        tile("▶", "MEDIA I/O", "Camera • playback audio • RTL-SDR",
+            UiTheme.RED, MEDIA, true)));
 
-    LinearLayout runtime = tile("⚙", "RUNTIME", "Termux • Linux • service profiles",
-        UiTheme.SILVER, RUNTIME);
+    LinearLayout runtime = tile("≡", "RUNTIME", "Termux • Linux • running services",
+        UiTheme.SILVER, RUNTIME, false);
     LinearLayout.LayoutParams runtimeParams = new LinearLayout.LayoutParams(-1, dp(126));
     runtimeParams.setMargins(0, dp(5), 0, 0);
     root.addView(runtime, runtimeParams);
@@ -79,18 +87,39 @@ final class SubsystemDashboard {
   }
 
   private LinearLayout tile(
-      String icon, String title, String subtitle, int accent, String subsystem) {
+      String endpointIcon, String title, String subtitle, int accent, String subsystem,
+      boolean bridgeIsSource) {
     LinearLayout tile = new LinearLayout(context);
     tile.setOrientation(LinearLayout.VERTICAL);
     tile.setGravity(Gravity.CENTER);
-    tile.setPadding(dp(12), dp(12), dp(12), dp(12));
+    tile.setPadding(dp(12), dp(10), dp(12), dp(10));
     tile.setBackground(UiTheme.rounded(context, UiTheme.SURFACE, UiTheme.BORDER, 14));
     tile.setClickable(true);
     tile.setFocusable(true);
     tile.setOnClickListener(v -> listener.onSubsystemSelected(subsystem));
 
-    CircuitIconView iconView = new CircuitIconView(context, icon, accent);
-    tile.addView(iconView, new LinearLayout.LayoutParams(dp(64), dp(64)));
+    LinearLayout flow = new LinearLayout(context);
+    flow.setOrientation(LinearLayout.HORIZONTAL);
+    flow.setGravity(Gravity.CENTER);
+
+    CircuitIconView chip = new CircuitIconView(context, "", accent);
+    TextView arrow = UiTheme.text(context, "→", 24, accent);
+    arrow.setGravity(Gravity.CENTER);
+    arrow.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    TextView endpoint = UiTheme.text(context, endpointIcon, 25, accent);
+    endpoint.setGravity(Gravity.CENTER);
+    endpoint.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+
+    if (bridgeIsSource) {
+      flow.addView(chip, new LinearLayout.LayoutParams(dp(54), dp(54)));
+      flow.addView(arrow, new LinearLayout.LayoutParams(dp(42), dp(54)));
+      flow.addView(endpoint, new LinearLayout.LayoutParams(dp(54), dp(54)));
+    } else {
+      flow.addView(endpoint, new LinearLayout.LayoutParams(dp(54), dp(54)));
+      flow.addView(arrow, new LinearLayout.LayoutParams(dp(42), dp(54)));
+      flow.addView(chip, new LinearLayout.LayoutParams(dp(54), dp(54)));
+    }
+    tile.addView(flow);
 
     TextView titleView = UiTheme.text(context, title, 13, UiTheme.TEXT);
     titleView.setGravity(Gravity.CENTER);
