@@ -49,6 +49,7 @@ public final class RtlSdrUsbProxyService extends Service {
     public static final int OP_RESET_DEVICE = 6;
     public static final int OP_CLOSE_CLIENT = 7;
     public static final int OP_STREAM_BULK_IN = 8;
+    public static final int OP_STREAM_STOP = 9;
 
     public static final int RESULT_OK = 0;
     public static final int RESULT_ERROR = -1;
@@ -175,7 +176,10 @@ public final class RtlSdrUsbProxyService extends Service {
                         break;
                     case OP_STREAM_BULK_IN:
                         handleBulkInStream(in, out, connection, device);
-                        return;
+                        break;
+                    case OP_STREAM_STOP:
+                        writeError(out, "RTL-SDR stream is not active");
+                        break;
                     case OP_RESET_DEVICE:
                         handleReset(out, manager, claimed);
                         break;
@@ -374,6 +378,25 @@ public final class RtlSdrUsbProxyService extends Service {
             inFlight.put(request, buffer);
         }
 
+        Thread control = new Thread(() -> {
+            try {
+                int magic = in.readInt();
+                int version = in.readUnsignedShort();
+                int opcode = in.readUnsignedShort();
+                if (magic != MAGIC || version != PROTOCOL_VERSION || opcode != OP_STREAM_STOP) {
+                    streaming.set(false);
+                    return;
+                }
+                streaming.set(false);
+                for (UsbRequest request : inFlight.keySet()) {
+                    try { request.cancel(); } catch (Exception ignored) { }
+                }
+            } catch (IOException exception) {
+                streaming.set(false);
+            }
+        }, "orc-rtl-stream-control");
+        control.start();
+
         Thread writer = new Thread(() -> {
             try {
                 while (running && streaming.get()) {
@@ -427,6 +450,7 @@ public final class RtlSdrUsbProxyService extends Service {
         } finally {
             streaming.set(false);
             writer.interrupt();
+            control.interrupt();
             for (UsbRequest request : inFlight.keySet()) {
                 try { request.cancel(); } catch (Exception ignored) { }
                 try { request.close(); } catch (Exception ignored) { }
@@ -442,6 +466,9 @@ public final class RtlSdrUsbProxyService extends Service {
             try { writer.join(1000L); } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
+            // Zero is an unambiguous stream terminator because IQ frames are nonempty.
+            out.writeInt(0);
+            out.flush();
         }
     }
 
