@@ -77,5 +77,14 @@
             android:name=".PcmAudioOutputService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name=".RtlTcpProviderControlService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Provides localhost-only control for launching the Android RTL-TCP SDR provider used by OpenRoadCode." />
+        </service>
     </application>
 </manifest>
