@@ -9,6 +9,7 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbRequest;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -22,6 +23,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -325,10 +327,13 @@ public final class RtlSdrUsbProxyService extends Service {
     }
 
     private static final class BulkChunk {
-        final byte[] data;
+        final UsbRequest request;
+        final ByteBuffer buffer;
         final int length;
-        BulkChunk(byte[] data, int length) {
-            this.data = data;
+
+        BulkChunk(UsbRequest request, ByteBuffer buffer, int length) {
+            this.request = request;
+            this.buffer = buffer;
             this.length = length;
         }
     }
@@ -336,57 +341,105 @@ public final class RtlSdrUsbProxyService extends Service {
     private void handleBulkInStream(DataInputStream in, DataOutputStream out,
                                     UsbDeviceConnection connection, UsbDevice device) throws IOException {
         int endpointAddress = in.readInt();
-        int length = checkedLength(in.readInt());
-        int timeoutMs = in.readInt();
+        int requestedLength = checkedLength(in.readInt());
+        in.readInt(); // timeout is not used by Android's asynchronous UsbRequest API
         UsbEndpoint endpoint = findEndpoint(device, endpointAddress);
         if (endpoint == null || (endpoint.getDirection() & 0x80) == 0) {
             writeError(out, "USB bulk IN endpoint 0x" + Integer.toHexString(endpointAddress) + " not found");
             return;
         }
 
-        // Keep USB acquisition independent of localhost writes. A single loop
-        // left the RTL2832U idle while each completed block was framed and
-        // copied into the socket, which rtl_test correctly reported as gaps.
-        final int queueDepth = 8;
-        ArrayBlockingQueue<BulkChunk> queue = new ArrayBlockingQueue<>(queueDepth);
+        // Mirror librtlsdr/libusb's strategy: keep several USB reads in flight
+        // so the RTL2832U is never waiting for Java or the localhost writer to
+        // submit the next transfer. Buffers are allocated once and recycled.
+        final int transferLength = Math.min(requestedLength, 256 * 1024);
+        final int requestCount = 8;
+        ArrayBlockingQueue<BulkChunk> completed = new ArrayBlockingQueue<>(requestCount);
+        ArrayBlockingQueue<BulkChunk> reusable = new ArrayBlockingQueue<>(requestCount);
         AtomicBoolean streaming = new AtomicBoolean(true);
-        Thread reader = new Thread(() -> {
-            while (running && streaming.get() && !Thread.currentThread().isInterrupted()) {
-                byte[] buffer = new byte[length];
-                int transferred = connection.bulkTransfer(endpoint, buffer, length, timeoutMs);
-                if (transferred <= 0) continue;
-                try {
-                    // Backpressure is intentional. Eight 1 MiB slots provide
-                    // ample localhost jitter tolerance without unbounded RAM.
-                    queue.put(new BulkChunk(buffer, transferred));
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
+        Map<UsbRequest, ByteBuffer> inFlight = new HashMap<>();
+
+        for (int i = 0; i < requestCount; i++) {
+            UsbRequest request = new UsbRequest();
+            if (!request.initialize(connection, endpoint)) {
+                request.close();
+                throw new IOException("Unable to initialize asynchronous RTL-SDR USB request");
             }
-        }, "orc-rtl-usb-reader");
-        reader.start();
+            ByteBuffer buffer = ByteBuffer.allocateDirect(transferLength);
+            buffer.clear();
+            if (!request.queue(buffer, transferLength)) {
+                request.close();
+                throw new IOException("Unable to queue asynchronous RTL-SDR USB request");
+            }
+            inFlight.put(request, buffer);
+        }
+
+        Thread writer = new Thread(() -> {
+            try {
+                while (running && streaming.get()) {
+                    BulkChunk chunk = completed.poll(500, TimeUnit.MILLISECONDS);
+                    if (chunk == null) continue;
+                    ByteBuffer buffer = chunk.buffer;
+                    buffer.flip();
+                    byte[] data = new byte[chunk.length];
+                    buffer.get(data, 0, chunk.length);
+                    out.writeInt(chunk.length);
+                    out.write(data);
+                    out.flush();
+                    reusable.put(chunk);
+                }
+            } catch (IOException exception) {
+                streaming.set(false);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                streaming.set(false);
+            }
+        }, "orc-rtl-socket-writer");
+        writer.start();
 
         try {
             while (running && streaming.get()) {
-                BulkChunk chunk;
-                try {
-                    chunk = queue.poll(500, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    break;
+                UsbRequest request = connection.requestWait();
+                if (request == null) continue;
+                ByteBuffer buffer = inFlight.remove(request);
+                if (buffer == null) continue;
+                int transferred = buffer.position();
+                if (transferred > 0) {
+                    completed.put(new BulkChunk(request, buffer, transferred));
+                    BulkChunk ready = reusable.take();
+                    ready.buffer.clear();
+                    if (!ready.request.queue(ready.buffer, transferLength)) {
+                        streaming.set(false);
+                        break;
+                    }
+                    inFlight.put(ready.request, ready.buffer);
+                } else {
+                    buffer.clear();
+                    if (!request.queue(buffer, transferLength)) {
+                        streaming.set(false);
+                        break;
+                    }
+                    inFlight.put(request, buffer);
                 }
-                if (chunk == null) continue;
-                out.writeInt(chunk.length);
-                out.write(chunk.data, 0, chunk.length);
-                out.flush();
             }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
         } finally {
             streaming.set(false);
-            reader.interrupt();
-            try {
-                reader.join(Math.max(1000L, timeoutMs + 250L));
-            } catch (InterruptedException exception) {
+            writer.interrupt();
+            for (UsbRequest request : inFlight.keySet()) {
+                try { request.cancel(); } catch (Exception ignored) { }
+                try { request.close(); } catch (Exception ignored) { }
+            }
+            for (BulkChunk chunk : completed) {
+                try { chunk.request.cancel(); } catch (Exception ignored) { }
+                try { chunk.request.close(); } catch (Exception ignored) { }
+            }
+            for (BulkChunk chunk : reusable) {
+                try { chunk.request.cancel(); } catch (Exception ignored) { }
+                try { chunk.request.close(); } catch (Exception ignored) { }
+            }
+            try { writer.join(1000L); } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
         }
