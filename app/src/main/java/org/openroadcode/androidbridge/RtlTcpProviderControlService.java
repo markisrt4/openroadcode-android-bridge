@@ -61,11 +61,7 @@ public final class RtlTcpProviderControlService extends Service {
         startForeground(NOTIFICATION, notification);
       }
 
-      server = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
-      if (server.getLocalPort() != PORT) {
-        server.close();
-        server = new ServerSocket(PORT, 1, InetAddress.getByName("127.0.0.1"));
-      }
+      server = new ServerSocket(PORT, 1, InetAddress.getByName("127.0.0.1"));
       running = true;
       serverThread = new Thread(this::serveLoop, "orc-rtl-tcp-control");
       serverThread.start();
