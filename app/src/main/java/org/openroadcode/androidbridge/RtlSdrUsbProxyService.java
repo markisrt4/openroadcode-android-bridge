@@ -43,6 +43,7 @@ public final class RtlSdrUsbProxyService extends Service {
     public static final int OP_BULK_TRANSFER = 5;
     public static final int OP_RESET_DEVICE = 6;
     public static final int OP_CLOSE_CLIENT = 7;
+    public static final int OP_STREAM_BULK_IN = 8;
 
     public static final int RESULT_OK = 0;
     public static final int RESULT_ERROR = -1;
@@ -167,6 +168,9 @@ public final class RtlSdrUsbProxyService extends Service {
                     case OP_BULK_TRANSFER:
                         handleBulkTransfer(in, out, connection, device);
                         break;
+                    case OP_STREAM_BULK_IN:
+                        handleBulkInStream(in, out, connection, device);
+                        return;
                     case OP_RESET_DEVICE:
                         handleReset(out, manager, claimed);
                         break;
@@ -315,6 +319,32 @@ public final class RtlSdrUsbProxyService extends Service {
             System.arraycopy(buffer, 0, response, 0, transferred);
         }
         writeResult(out, transferred, response);
+    }
+
+    private void handleBulkInStream(DataInputStream in, DataOutputStream out,
+                                    UsbDeviceConnection connection, UsbDevice device) throws IOException {
+        int endpointAddress = in.readInt();
+        int length = checkedLength(in.readInt());
+        int timeoutMs = in.readInt();
+        UsbEndpoint endpoint = findEndpoint(device, endpointAddress);
+        if (endpoint == null || (endpoint.getDirection() & 0x80) == 0) {
+            writeError(out, "USB bulk IN endpoint 0x" + Integer.toHexString(endpointAddress) + " not found");
+            return;
+        }
+
+        byte[] buffer = new byte[length];
+        while (running && !Thread.currentThread().isInterrupted()) {
+            int transferred = connection.bulkTransfer(endpoint, buffer, length, timeoutMs);
+            if (transferred < 0) {
+                // A finite timeout lets service shutdown interrupt an otherwise
+                // continuous stream without turning an idle poll into EOF.
+                continue;
+            }
+            if (transferred == 0) continue;
+            out.writeInt(transferred);
+            out.write(buffer, 0, transferred);
+            out.flush();
+        }
     }
 
     private static int checkedLength(int length) throws IOException {
