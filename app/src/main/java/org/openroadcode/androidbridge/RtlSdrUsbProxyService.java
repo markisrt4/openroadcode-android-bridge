@@ -449,8 +449,11 @@ public final class RtlSdrUsbProxyService extends Service {
             Thread.currentThread().interrupt();
         } finally {
             streaming.set(false);
+            // Do not interrupt the stream-control thread here. It is the only
+            // reader of the STREAM_STOP command and may still be consuming its
+            // header. Wait for it to finish before returning to handleClient,
+            // otherwise both threads race to read the next ORCU command.
             writer.interrupt();
-            control.interrupt();
             for (UsbRequest request : inFlight.keySet()) {
                 try { request.cancel(); } catch (Exception ignored) { }
                 try { request.close(); } catch (Exception ignored) { }
@@ -464,6 +467,9 @@ public final class RtlSdrUsbProxyService extends Service {
                 try { chunk.request.close(); } catch (Exception ignored) { }
             }
             try { writer.join(1000L); } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+            try { control.join(1000L); } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
             // Zero is an unambiguous stream terminator because IQ frames are nonempty.
