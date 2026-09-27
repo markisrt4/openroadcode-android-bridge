@@ -68,6 +68,7 @@ public final class RtlSdrUsbProxyService extends Service {
     private Thread worker;
     private ServerSocket serverSocket;
     private final Set<Socket> activeClients = ConcurrentHashMap.newKeySet();
+    private final Object usbLock = new Object();
 
     @Override
     public void onCreate() {
@@ -268,7 +269,10 @@ public final class RtlSdrUsbProxyService extends Service {
             writeError(out, "USB interface " + interfaceId + " not found");
             return;
         }
-        boolean ok = connection.claimInterface(iface, force);
+        boolean ok;
+        synchronized (usbLock) {
+            ok = connection.claimInterface(iface, force);
+        }
         if (ok) claimed.put(interfaceId, iface);
         writeResult(out, ok ? RESULT_OK : RESULT_ERROR, null);
     }
@@ -296,8 +300,11 @@ public final class RtlSdrUsbProxyService extends Service {
         boolean input = (requestType & 0x80) != 0;
         byte[] buffer = new byte[length];
         if (!input && length > 0) in.readFully(buffer);
-        int transferred = connection.controlTransfer(
-                requestType, request, value, index, buffer, length, timeoutMs);
+        int transferred;
+        synchronized (usbLock) {
+            transferred = connection.controlTransfer(
+                    requestType, request, value, index, buffer, length, timeoutMs);
+        }
         if (transferred < 0) {
             writeResult(out, transferred, null);
             return;
@@ -323,7 +330,10 @@ public final class RtlSdrUsbProxyService extends Service {
         boolean input = (endpoint.getDirection() & 0x80) != 0;
         byte[] buffer = new byte[length];
         if (!input && length > 0) in.readFully(buffer);
-        int transferred = connection.bulkTransfer(endpoint, buffer, length, timeoutMs);
+        int transferred;
+        synchronized (usbLock) {
+            transferred = connection.bulkTransfer(endpoint, buffer, length, timeoutMs);
+        }
         if (transferred < 0) {
             writeResult(out, transferred, null);
             return;
