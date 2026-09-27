@@ -25,6 +25,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -366,7 +367,7 @@ public final class RtlSdrUsbProxyService extends Service {
         ArrayBlockingQueue<BulkChunk> completed = new ArrayBlockingQueue<>(requestCount);
         ArrayBlockingQueue<BulkChunk> reusable = new ArrayBlockingQueue<>(requestCount);
         AtomicBoolean streaming = new AtomicBoolean(true);
-        Map<UsbRequest, ByteBuffer> inFlight = new HashMap<>();
+        Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
 
         for (int i = 0; i < requestCount; i++) {
             UsbRequest request = new UsbRequest();
@@ -393,8 +394,10 @@ public final class RtlSdrUsbProxyService extends Service {
                     return;
                 }
                 streaming.set(false);
-                for (UsbRequest request : inFlight.keySet()) {
-                    try { request.cancel(); } catch (Exception ignored) { }
+                synchronized (inFlight) {
+                    for (UsbRequest request : inFlight.keySet()) {
+                        try { request.cancel(); } catch (Exception ignored) { }
+                    }
                 }
             } catch (IOException exception) {
                 streaming.set(false);
@@ -459,9 +462,11 @@ public final class RtlSdrUsbProxyService extends Service {
             // header. Wait for it to finish before returning to handleClient,
             // otherwise both threads race to read the next ORCU command.
             writer.interrupt();
-            for (UsbRequest request : inFlight.keySet()) {
-                try { request.cancel(); } catch (Exception ignored) { }
-                try { request.close(); } catch (Exception ignored) { }
+            synchronized (inFlight) {
+                for (UsbRequest request : inFlight.keySet()) {
+                    try { request.cancel(); } catch (Exception ignored) { }
+                    try { request.close(); } catch (Exception ignored) { }
+                }
             }
             for (BulkChunk chunk : completed) {
                 try { chunk.request.cancel(); } catch (Exception ignored) { }
