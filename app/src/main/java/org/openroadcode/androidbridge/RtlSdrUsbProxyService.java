@@ -26,8 +26,10 @@ import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -64,7 +66,7 @@ public final class RtlSdrUsbProxyService extends Service {
     private volatile boolean running;
     private Thread worker;
     private ServerSocket serverSocket;
-    private Socket activeClient;
+    private final Set<Socket> activeClients = ConcurrentHashMap.newKeySet();
 
     @Override
     public void onCreate() {
@@ -97,18 +99,21 @@ public final class RtlSdrUsbProxyService extends Service {
 
             while (running) {
                 Socket client = serverSocket.accept();
-                activeClient = client;
+                activeClients.add(client);
                 Log.i(TAG, "Termux client connected: " + client.getRemoteSocketAddress());
-                try {
-                    handleClient(client, manager);
-                } catch (EOFException ignored) {
-                    Log.i(TAG, "Termux client disconnected");
-                } catch (IOException exception) {
-                    if (running) Log.w(TAG, "USB proxy client failure", exception);
-                } finally {
-                    activeClient = null;
-                    try { client.close(); } catch (IOException ignored) { }
-                }
+                Thread clientWorker = new Thread(() -> {
+                    try {
+                        handleClient(client, manager);
+                    } catch (EOFException ignored) {
+                        Log.i(TAG, "Termux client disconnected");
+                    } catch (IOException exception) {
+                        if (running) Log.w(TAG, "USB proxy client failure", exception);
+                    } finally {
+                        activeClients.remove(client);
+                        try { client.close(); } catch (IOException ignored) { }
+                    }
+                }, "orc-rtl-usb-client");
+                clientWorker.start();
             }
         } catch (Exception exception) {
             if (running) {
@@ -554,9 +559,11 @@ public final class RtlSdrUsbProxyService extends Service {
     }
 
     private void closeSockets() {
-        try { if (activeClient != null) activeClient.close(); } catch (IOException ignored) { }
+        for (Socket client : activeClients) {
+            try { client.close(); } catch (IOException ignored) { }
+        }
+        activeClients.clear();
         try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
-        activeClient = null;
         serverSocket = null;
     }
 
