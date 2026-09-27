@@ -306,6 +306,9 @@ public final class RtlSdrUsbProxyService extends Service {
                     requestType, request, value, index, buffer, length, timeoutMs);
         }
         if (transferred < 0) {
+            Log.e(TAG, String.format(java.util.Locale.US,
+                    "USB control failed: type=0x%02X request=0x%02X value=0x%04X index=0x%04X length=%d timeout=%d",
+                    requestType & 0xFF, request & 0xFF, value & 0xFFFF, index & 0xFFFF, length, timeoutMs));
             writeResult(out, transferred, null);
             return;
         }
