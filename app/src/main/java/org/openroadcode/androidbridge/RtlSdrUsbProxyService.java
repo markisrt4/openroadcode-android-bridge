@@ -424,9 +424,11 @@ public final class RtlSdrUsbProxyService extends Service {
                 int version = in.readUnsignedShort();
                 int opcode = in.readUnsignedShort();
                 if (magic != MAGIC || version != PROTOCOL_VERSION || opcode != OP_STREAM_STOP) {
-                    streaming.set(false);
+                    Log.w(TAG, "Ignoring unexpected RTL-SDR stream control header: magic=0x"
+                            + Integer.toHexString(magic) + " version=" + version + " opcode=" + opcode);
                     return;
                 }
+                Log.i(TAG, "RTL-SDR stream stop requested by client");
                 streaming.set(false);
                 synchronized (inFlight) {
                     for (UsbRequest request : inFlight.keySet()) {
@@ -434,7 +436,9 @@ public final class RtlSdrUsbProxyService extends Service {
                     }
                 }
             } catch (IOException exception) {
-                streaming.set(false);
+                // EOF on the command side must not stop a healthy USB IQ stream.
+                // The stream writer will detect a broken output socket itself.
+                Log.i(TAG, "RTL-SDR stream control reader ended: " + exception.getMessage());
             }
         }, "orc-rtl-stream-control");
         control.start();
