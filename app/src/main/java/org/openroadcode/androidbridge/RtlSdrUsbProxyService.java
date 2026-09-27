@@ -69,6 +69,7 @@ public final class RtlSdrUsbProxyService extends Service {
     private ServerSocket serverSocket;
     private final Set<Socket> activeClients = ConcurrentHashMap.newKeySet();
     private final Object usbLock = new Object();
+    private final Map<Integer, Integer> interfaceClaimCounts = new HashMap<>();
 
     @Override
     public void onCreate() {
@@ -202,7 +203,7 @@ public final class RtlSdrUsbProxyService extends Service {
             for (UsbInterface usbInterface : claimed.values()) {
                 try {
                     UsbDeviceConnection connection = connectionOrNull(manager);
-                    if (connection != null) connection.releaseInterface(usbInterface);
+                    if (connection != null) releaseSharedInterface(connection, usbInterface);
                 } catch (Exception ignored) { }
             }
         }
@@ -269,11 +270,17 @@ public final class RtlSdrUsbProxyService extends Service {
             writeError(out, "USB interface " + interfaceId + " not found");
             return;
         }
-        boolean ok;
+        boolean ok = true;
         synchronized (usbLock) {
-            ok = connection.claimInterface(iface, force);
+            int count = interfaceClaimCounts.getOrDefault(interfaceId, 0);
+            if (count == 0) {
+                ok = connection.claimInterface(iface, force);
+            }
+            if (ok) {
+                interfaceClaimCounts.put(interfaceId, count + 1);
+                claimed.put(interfaceId, iface);
+            }
         }
-        if (ok) claimed.put(interfaceId, iface);
         writeResult(out, ok ? RESULT_OK : RESULT_ERROR, null);
     }
 
@@ -286,7 +293,21 @@ public final class RtlSdrUsbProxyService extends Service {
             writeError(out, "USB interface " + interfaceId + " is not claimed");
             return;
         }
-        writeResult(out, connection.releaseInterface(iface) ? RESULT_OK : RESULT_ERROR, null);
+        boolean ok = releaseSharedInterface(connection, iface);
+        writeResult(out, ok ? RESULT_OK : RESULT_ERROR, null);
+    }
+
+    private boolean releaseSharedInterface(UsbDeviceConnection connection, UsbInterface iface) {
+        synchronized (usbLock) {
+            int interfaceId = iface.getId();
+            int count = interfaceClaimCounts.getOrDefault(interfaceId, 0);
+            if (count <= 1) {
+                interfaceClaimCounts.remove(interfaceId);
+                return connection.releaseInterface(iface);
+            }
+            interfaceClaimCounts.put(interfaceId, count - 1);
+            return true;
+        }
     }
 
     private void handleControlTransfer(DataInputStream in, DataOutputStream out,
