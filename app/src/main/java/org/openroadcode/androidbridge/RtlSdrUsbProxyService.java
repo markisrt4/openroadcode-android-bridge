@@ -32,6 +32,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Localhost-only USB transport for RTL-SDR access from Termux.
@@ -401,6 +402,7 @@ public final class RtlSdrUsbProxyService extends Service {
         ArrayBlockingQueue<BulkChunk> completed = new ArrayBlockingQueue<>(requestCount);
         ArrayBlockingQueue<BulkChunk> reusable = new ArrayBlockingQueue<>(requestCount);
         AtomicBoolean streaming = new AtomicBoolean(true);
+        AtomicReference<String> stopReason = new AtomicReference<>("unknown");
         Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
 
         for (int i = 0; i < requestCount; i++) {
@@ -429,6 +431,7 @@ public final class RtlSdrUsbProxyService extends Service {
                     return;
                 }
                 Log.i(TAG, "RTL-SDR stream stop requested by client");
+                stopReason.compareAndSet("unknown", "client STREAM_STOP");
                 streaming.set(false);
                 synchronized (inFlight) {
                     for (UsbRequest request : inFlight.keySet()) {
@@ -458,9 +461,12 @@ public final class RtlSdrUsbProxyService extends Service {
                     reusable.put(chunk);
                 }
             } catch (IOException exception) {
+                stopReason.compareAndSet("unknown", "socket writer IOException: " + exception);
+                Log.e(TAG, "RTL-SDR socket writer failed", exception);
                 streaming.set(false);
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
+                stopReason.compareAndSet("unknown", "socket writer interrupted");
                 streaming.set(false);
             }
         }, "orc-rtl-socket-writer");
@@ -478,6 +484,8 @@ public final class RtlSdrUsbProxyService extends Service {
                     BulkChunk ready = reusable.take();
                     ready.buffer.clear();
                     if (!ready.request.queue(ready.buffer, transferLength)) {
+                        stopReason.compareAndSet("unknown", "USB requeue failed after " + transferred + "-byte transfer");
+                        Log.e(TAG, "RTL-SDR USB request requeue failed after completed transfer");
                         streaming.set(false);
                         break;
                     }
@@ -485,6 +493,8 @@ public final class RtlSdrUsbProxyService extends Service {
                 } else {
                     buffer.clear();
                     if (!request.queue(buffer, transferLength)) {
+                        stopReason.compareAndSet("unknown", "USB requeue failed after zero-byte transfer");
+                        Log.e(TAG, "RTL-SDR USB request requeue failed after zero-byte transfer");
                         streaming.set(false);
                         break;
                     }
@@ -492,8 +502,16 @@ public final class RtlSdrUsbProxyService extends Service {
                 }
             }
         } catch (InterruptedException exception) {
+            stopReason.compareAndSet("unknown", "USB stream thread interrupted");
             Thread.currentThread().interrupt();
         } finally {
+            if (!running) stopReason.compareAndSet("unknown", "service stopping");
+            else if (!streaming.get()) stopReason.compareAndSet("unknown", "streaming flag cleared");
+            else stopReason.compareAndSet("unknown", "USB stream loop exited unexpectedly");
+            Log.w(TAG, "RTL-SDR IQ stream ending: " + stopReason.get()
+                    + ", inFlight=" + inFlight.size()
+                    + ", completed=" + completed.size()
+                    + ", reusable=" + reusable.size());
             streaming.set(false);
             // Do not interrupt the stream-control thread here. It is the only
             // reader of the STREAM_STOP command and may still be consuming its
