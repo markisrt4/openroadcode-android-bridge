@@ -53,6 +53,14 @@ curl http://127.0.0.1:8772/health
 
 The service binds only to `127.0.0.1`; it is not a remote-control interface.
 
+Package launches bring the Bridge task forward and wait until its activity is
+resumed and focused before asking Android to bring the destination task forward.
+The HTTP status `host_activity_requested` acknowledges that handoff request;
+it does not confirm that the destination is visible. Android can still restrict
+background activity starts. If the destination does not appear, bring Bridge
+to the foreground to process a pending request. Launch diagnostics use the
+`ORC-HostActions` logcat tag.
+
 ## Camera stream
 
 The camera service uses the rear Camera2 device and Android's hardware H.264 encoder. The initial v0.5.0 stream is:

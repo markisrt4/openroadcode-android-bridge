@@ -134,7 +134,8 @@ public final class AndroidHostActionService extends Service {
         }
 
         Intent hostIntent = new Intent(this, MainActivity.class);
-        hostIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        hostIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         hostIntent.putExtra("orc_host_action_package", packageName);
         if (bounds != null) {
             hostIntent.putExtra("orc_host_action_x", bounds.left);

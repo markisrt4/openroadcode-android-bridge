@@ -10,6 +10,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -78,6 +79,8 @@ public final class MainActivity extends Activity {
   private TermuxServicesCard termuxServicesCard;
   private RemoteDeviceManagementCard remoteDeviceManagementCard;
   private BridgeServiceManager serviceManager;
+  private Intent pendingHostAction;
+  private boolean hostActivityResumed;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -108,9 +111,32 @@ public final class MainActivity extends Activity {
     String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
     if (packageName == null || packageName.isBlank()) return;
 
+    // onCreate/onNewIntent can run before our task is in the foreground.
+    // Retain the request until Android has resumed and focused this activity.
+    pendingHostAction = new Intent(hostIntent);
+    hostIntent.removeExtra(EXTRA_HOST_ACTION_PACKAGE);
+    getWindow().getDecorView().post(this::launchPendingHostAction);
+  }
+
+  @Override public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    if (hasFocus) launchPendingHostAction();
+  }
+
+  private void launchPendingHostAction() {
+    if (!hostActivityResumed || !hasWindowFocus() || pendingHostAction == null) return;
+    Intent hostIntent = pendingHostAction;
+    pendingHostAction = null;
+    String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
+
     Intent target = getPackageManager().getLaunchIntentForPackage(packageName);
-    if (target == null) return;
-    target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    if (target == null) {
+      Log.w("ORC-HostActions", "No launch intent for " + packageName);
+      return;
+    }
+    target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+        | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
 
     ActivityOptions options = ActivityOptions.makeBasic();
     if (hostIntent.hasExtra(EXTRA_HOST_ACTION_X)
@@ -126,7 +152,14 @@ public final class MainActivity extends Activity {
         options.setLaunchBounds(new Rect(x, y, x + width, y + height));
       }
     }
-    startActivity(target, options.toBundle());
+    try {
+      Log.i("ORC-HostActions", "Launching " + packageName + " from focused bridge activity");
+      startActivity(target, options.toBundle());
+    } catch (RuntimeException exception) {
+      Log.e("ORC-HostActions", "Launch failed for " + packageName, exception);
+      android.widget.Toast.makeText(this, "Could not open " + packageName,
+          android.widget.Toast.LENGTH_LONG).show();
+    }
   }
 
   private void showDashboard() {
@@ -383,6 +416,8 @@ public final class MainActivity extends Activity {
 
   @Override protected void onResume() {
     super.onResume();
+    hostActivityResumed = true;
+    getWindow().getDecorView().post(this::launchPendingHostAction);
     dashboardActive = true;
     startVisibleCards();
     dashboardHandler.removeCallbacks(dashboardRefresh);
@@ -390,6 +425,7 @@ public final class MainActivity extends Activity {
   }
 
   @Override protected void onPause() {
+    hostActivityResumed = false;
     dashboardActive = false;
     dashboardHandler.removeCallbacks(dashboardRefresh);
     stopVisibleCards();
