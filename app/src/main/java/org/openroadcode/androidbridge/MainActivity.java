@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -54,6 +55,7 @@ public final class MainActivity extends Activity {
   private String sensorStartError = "";
   private String currentScreen = "dashboard";
   private static final String EXTRA_HOST_ACTION_PACKAGE = "orc_host_action_package";
+  private static final String EXTRA_HOST_ACTION_URI = "orc_host_action_uri";
   private static final String EXTRA_HOST_ACTION_X = "orc_host_action_x";
   private static final String EXTRA_HOST_ACTION_Y = "orc_host_action_y";
   private static final String EXTRA_HOST_ACTION_WIDTH = "orc_host_action_width";
@@ -108,13 +110,29 @@ public final class MainActivity extends Activity {
 
   private void handleHostActionIntent(Intent hostIntent) {
     if (hostIntent == null) return;
+    Uri link = hostIntent.getData();
+    if (Intent.ACTION_VIEW.equals(hostIntent.getAction()) && link != null
+        && "orcbridge".equals(link.getScheme()) && "launch".equals(link.getHost())) {
+      if (!link.isHierarchical()) return;
+      String packageValue = link.getQueryParameter("package");
+      String uriValue = link.getQueryParameter("uri");
+      if (packageValue != null && !packageValue.isBlank()) {
+        hostIntent.putExtra(EXTRA_HOST_ACTION_PACKAGE, packageValue);
+      }
+      if (uriValue != null && isWebUri(uriValue)) {
+        hostIntent.putExtra(EXTRA_HOST_ACTION_URI, uriValue);
+      }
+      hostIntent.setData(null);
+    }
     String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
-    if (packageName == null || packageName.isBlank()) return;
+    String fallbackUri = hostIntent.getStringExtra(EXTRA_HOST_ACTION_URI);
+    if ((packageName == null || packageName.isBlank()) && fallbackUri == null) return;
 
     // onCreate/onNewIntent can run before our task is in the foreground.
     // Retain the request until Android has resumed and focused this activity.
     pendingHostAction = new Intent(hostIntent);
     hostIntent.removeExtra(EXTRA_HOST_ACTION_PACKAGE);
+    hostIntent.removeExtra(EXTRA_HOST_ACTION_URI);
     getWindow().getDecorView().post(this::launchPendingHostAction);
   }
 
@@ -128,11 +146,17 @@ public final class MainActivity extends Activity {
     Intent hostIntent = pendingHostAction;
     pendingHostAction = null;
     String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
+    String fallbackUri = hostIntent.getStringExtra(EXTRA_HOST_ACTION_URI);
 
-    Intent target = getPackageManager().getLaunchIntentForPackage(packageName);
+    Intent target = packageName == null ? null
+        : getPackageManager().getLaunchIntentForPackage(packageName);
     if (target == null) {
-      Log.w("ORC-HostActions", "No launch intent for " + packageName);
-      return;
+      if (fallbackUri != null && isWebUri(fallbackUri)) {
+        target = new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri));
+      } else {
+        Log.w("ORC-HostActions", "No launch intent for " + packageName);
+        return;
+      }
     }
     target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
         | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
@@ -157,9 +181,23 @@ public final class MainActivity extends Activity {
       startActivity(target, options.toBundle());
     } catch (RuntimeException exception) {
       Log.e("ORC-HostActions", "Launch failed for " + packageName, exception);
+      if (packageName != null && fallbackUri != null && isWebUri(fallbackUri)) {
+        try {
+          startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)));
+          return;
+        } catch (RuntimeException fallbackException) {
+          Log.e("ORC-HostActions", "Website fallback failed", fallbackException);
+        }
+      }
       android.widget.Toast.makeText(this, "Could not open " + packageName,
           android.widget.Toast.LENGTH_LONG).show();
     }
+  }
+
+  private static boolean isWebUri(String value) {
+    Uri uri = Uri.parse(value);
+    return ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
+        && uri.getHost() != null && !uri.getHost().isBlank();
   }
 
   private void showDashboard() {

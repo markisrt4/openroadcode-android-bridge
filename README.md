@@ -40,6 +40,22 @@ The Sensor Bridge source is selected in the app. `Android Sensors` uses the phon
 
 ## Host actions
 
+For POI actions from foreground Termux, use the Bridge deep link. The native
+OpenRoadCode launcher invokes `termux-open-url` with the package and website
+fallback encoded in a single request. Bridge waits until its activity is
+resumed and focused, then opens the installed app or falls back to the website.
+This avoids `/system/bin/am`, which is rejected under Termux's UID on recent
+Android versions, and the background-service activity handoff.
+
+```bash
+cd ~/src/openroadcode-android-bridge
+git switch host-actions
+termux-open-url 'orcbridge://launch?package=com.panera.bread&uri=https%3A%2F%2Fwww.panerabread.com%2Fen-us%2Fstart-an-order.html'
+```
+
+Install an APK containing the deep-link handler before testing. Command success
+only acknowledges the request; verify that the destination becomes visible.
+
 The bridge exposes localhost-only Android host actions on port `8772` (ORC uses
 `8770` for music video and `8771` for the Spotify web player). These let
 OpenRoadCode request Android UI actions without depending on shell-level
