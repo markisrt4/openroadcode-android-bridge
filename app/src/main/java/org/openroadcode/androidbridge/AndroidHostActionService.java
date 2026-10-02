@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.IBinder;
+import android.util.Log;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -28,6 +29,9 @@ import java.util.Map;
  */
 public final class AndroidHostActionService extends Service {
     public static final int PORT = 8772;
+    private static final String TAG = "ORC-HostActions";
+    private static final int REQUEST_READ_TIMEOUT_MS = 1000;
+    private static final int MAX_BODY_LENGTH = 8192;
 
     private volatile boolean running;
     private ServerSocket serverSocket;
@@ -51,15 +55,19 @@ public final class AndroidHostActionService extends Service {
             serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT), 4);
+            Log.i(TAG, "Listening on 127.0.0.1:" + PORT);
             while (running) {
                 try (Socket client = serverSocket.accept()) {
+                    // An idle or incomplete request must not block every later client.
+                    client.setSoTimeout(REQUEST_READ_TIMEOUT_MS);
                     serveClient(client);
-                } catch (IOException ignored) {
+                } catch (IOException | RuntimeException exception) {
                     if (!running) return;
+                    Log.w(TAG, "Host action connection failed", exception);
                 }
             }
-        } catch (IOException ignored) {
-            // A later app start will retry by recreating the service.
+        } catch (IOException exception) {
+            Log.e(TAG, "Could not listen on host action port " + PORT, exception);
         }
     }
 
@@ -79,6 +87,10 @@ public final class AndroidHostActionService extends Service {
             }
         }
 
+        if (contentLength < 0 || contentLength > MAX_BODY_LENGTH) {
+            respond(client, 400, "{\"error\":\"invalid content length\"}");
+            return;
+        }
         char[] bodyChars = new char[Math.max(0, contentLength)];
         int offset = 0;
         while (offset < bodyChars.length) {
@@ -87,6 +99,10 @@ public final class AndroidHostActionService extends Service {
             offset += count;
         }
         String body = new String(bodyChars, 0, offset);
+        if (offset != contentLength) {
+            respond(client, 400, "{\"error\":\"incomplete request body\"}");
+            return;
+        }
 
         if ("GET /health HTTP/1.1".equals(requestLine)) {
             respond(client, 200, "{\"status\":\"ok\"}");
