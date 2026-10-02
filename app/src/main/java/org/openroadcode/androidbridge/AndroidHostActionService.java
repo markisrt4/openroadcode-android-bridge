@@ -27,7 +27,7 @@ import java.util.Map;
  * host actions ask Android to do something on ORC's behalf.
  */
 public final class AndroidHostActionService extends Service {
-    public static final int PORT = 8770;
+    public static final int PORT = 8772;
 
     private volatile boolean running;
     private ServerSocket serverSocket;

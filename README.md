@@ -40,14 +40,15 @@ The Sensor Bridge source is selected in the app. `Android Sensors` uses the phon
 
 ## Host actions
 
-The bridge exposes localhost-only Android host actions on port `8770`. These let
+The bridge exposes localhost-only Android host actions on port `8772` (ORC uses
+`8770` for music video and `8771` for the Spotify web player). These let
 OpenRoadCode request Android UI actions without depending on shell-level
 `am` access from Termux.
 
 ```bash
-curl -X POST -d 'package=com.panera.bread' http://127.0.0.1:8770/launch/package
-curl -X POST --data-urlencode 'uri=https://www.panerabread.com/' http://127.0.0.1:8770/open/uri
-curl http://127.0.0.1:8770/health
+curl -X POST -d 'package=com.panera.bread' http://127.0.0.1:8772/launch/package
+curl -X POST --data-urlencode 'uri=https://www.panerabread.com/' http://127.0.0.1:8772/open/uri
+curl http://127.0.0.1:8772/health
 ```
 
 The service binds only to `127.0.0.1`; it is not a remote-control interface.
