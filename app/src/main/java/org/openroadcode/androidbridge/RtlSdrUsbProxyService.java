@@ -439,13 +439,17 @@ public final class RtlSdrUsbProxyService extends Service {
                 int magic = in.readInt();
                 int version = in.readUnsignedShort();
                 int opcode = in.readUnsignedShort();
+                String controlHeader = String.format(java.util.Locale.US,
+                        "stream control header magic=0x%08X version=%d opcode=%d",
+                        magic, version, opcode);
+                Log.i(TAG, controlHeader);
                 if (magic != MAGIC || version != PROTOCOL_VERSION || opcode != OP_STREAM_STOP) {
                     Log.w(TAG, "Ignoring unexpected RTL-SDR stream control header: magic=0x"
                             + Integer.toHexString(magic) + " version=" + version + " opcode=" + opcode);
                     return;
                 }
                 Log.i(TAG, "RTL-SDR stream stop requested by client");
-                stopReason.compareAndSet("unknown", "client STREAM_STOP");
+                stopReason.compareAndSet("unknown", "client STREAM_STOP • magic=0x" + Integer.toHexString(magic) + " version=" + version + " opcode=" + opcode);
                 streaming.set(false);
                 synchronized (inFlight) {
                     for (UsbRequest request : inFlight.keySet()) {
