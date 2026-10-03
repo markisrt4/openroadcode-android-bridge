@@ -44,6 +44,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private static final long STREAM_PERIOD_MS = 20;
     private static final long LOCATION_PERIOD_MS = 500;
 
+    private NetworkStateMonitor networkStateMonitor;
     private SensorManager sensorManager;
     private LocationManager locationManager;
     private ServerSocket serverSocket;
@@ -80,6 +81,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         startedElapsedRealtimeMs = SystemClock.elapsedRealtime();
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
+        networkStateMonitor = new NetworkStateMonitor(this);
 
         if (provider == ServiceProvider.SIMULATED_DRIVE) {
             startSimulatedDrive();
@@ -221,6 +223,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     @Override
     public void onDestroy() {
+        if (networkStateMonitor != null) networkStateMonitor.close();
         if (sensorManager != null) sensorManager.unregisterListener(this);
         if (locationManager != null) {
             try {
@@ -305,8 +308,9 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String[] parts = requestLine.split(" ");
         String path = parts.length >= 2 && "GET".equals(parts[0]) ? parts[1] : "";
         if ("/stream/imu".equals(path)) { streamImu(socket); return; }
-        boolean valid = "/imu".equals(path) || "/location".equals(path) || "/health".equals(path);
-        String json = "/imu".equals(path) ? sampleJson()
+        boolean valid = "/network".equals(path) || "/imu".equals(path) || "/location".equals(path) || "/health".equals(path);
+        String json = "/network".equals(path) ? networkStateMonitor.json()
+                : "/imu".equals(path) ? sampleJson()
                 : "/location".equals(path) ? locationJson()
                 : "/health".equals(path) ? healthJson() : "{\"error\":\"not found\"}";
         byte[] body = json.getBytes(StandardCharsets.UTF_8);

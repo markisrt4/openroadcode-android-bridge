@@ -138,3 +138,35 @@ Pushes to `main`, pull requests, and manual workflow runs build and validate the
 ## OpenRoadCode integration
 
 The corresponding Termux-side hardware adapters and ZeroMQ publisher live in the main OpenRoadCode repository. See `docs/android_sensor_pipeline.md` there for the sensor build, run, and diagnostic procedure. Camera consumption belongs behind an OpenRoadCode camera/video controller so UI code does not need to know the bridge transport details.
+
+## Network state for ORC
+
+While the Sensor Bridge service is running, `GET /network` on its existing port
+8766 reports Android's default-network state:
+
+```json
+{"available":true,"connected":true,"validated":true,"transport":"wifi","timestamp_ms":0}
+```
+
+`validated` requires both INTERNET and VALIDATED capabilities, so Wi-Fi without
+internet and captive portals report false. The timestamp is the current response
+time in milliseconds since the Unix epoch. `available:false` means monitoring
+could not be registered; consumers should use their internet-check fallback.
+The service registers `ConnectivityManager.registerDefaultNetworkCallback()` on
+startup and unregisters it on shutdown. The existing ACCESS_NETWORK_STATE
+permission requires no additional runtime prompt. Simulated sensor mode still
+reports the real phone network. ORC polls this local endpoint once per second;
+it does not generate a new internet request for each read.
+
+After installing an APK containing this endpoint, enable Sensor Bridge and test:
+
+```bash
+cd ~/src/openroadcode-android-bridge
+git switch host-actions
+curl --noproxy '*' --max-time 2 http://127.0.0.1:8766/network
+```
+
+Turn off both Wi-Fi and mobile data, repeat the request, and confirm connected
+and validated are false. Restore internet and wait for Android validation, then
+confirm validated returns true. ORC keeps manual OFFLINE priority and verifies
+internet recovery before reenabling online actions.
