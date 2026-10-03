@@ -65,6 +65,9 @@ public final class RtlSdrUsbProxyService extends Service {
     private static final int CONNECTION_WAIT_MS = 15000;
     private static final String CHANNEL_ID = "openroadcode-rtl-sdr-usb";
     private static final int NOTIFICATION_ID = 35100;
+    static final String DIAGNOSTIC_PREFERENCES = "rtl_sdr_proxy_diagnostics";
+    static final String PREF_LAST_STREAM_STATUS = "last_stream_status";
+    static final String PREF_LAST_SERVICE_STATUS = "last_service_status";
 
     private volatile boolean running;
     private Thread worker;
@@ -77,6 +80,7 @@ public final class RtlSdrUsbProxyService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        persistServiceStatus("RTL-SDR proxy service created");
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
                 CHANNEL_ID, "OpenRoadCode RTL-SDR USB", NotificationManager.IMPORTANCE_LOW));
@@ -101,6 +105,7 @@ public final class RtlSdrUsbProxyService extends Service {
             serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("127.0.0.1"));
             String ready = "RTL-SDR USB proxy ready • 127.0.0.1:" + TCP_PORT;
             Log.i(TAG, ready);
+            persistServiceStatus(ready);
             updateNotification(ready);
 
             while (running) {
@@ -123,10 +128,13 @@ public final class RtlSdrUsbProxyService extends Service {
             }
         } catch (Exception exception) {
             if (running) {
+                String failure = "RTL-SDR proxy error • " + safeMessage(exception);
                 Log.e(TAG, "RTL-SDR USB proxy failed", exception);
-                updateNotification("RTL-SDR proxy error • " + safeMessage(exception));
+                persistServiceStatus(failure);
+                updateNotification(failure);
             }
         } finally {
+            persistServiceStatus("RTL-SDR proxy server loop ended • running=" + running);
             closeSockets();
             running = false;
             stopSelf();
@@ -519,6 +527,8 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " completed=" + completed.size()
                     + " reusable=" + reusable.size();
             lastStreamStatus = terminationSummary;
+            getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
+                    .edit().putString(PREF_LAST_STREAM_STATUS, terminationSummary).apply();
             Log.w(TAG, terminationSummary);
             updateNotification(terminationSummary);
             streaming.set(false);
@@ -623,9 +633,15 @@ public final class RtlSdrUsbProxyService extends Service {
 
     @Override
     public void onDestroy() {
+        persistServiceStatus("RTL-SDR proxy service destroyed • running=" + running);
         running = false;
         closeSockets();
         super.onDestroy();
+    }
+
+    private void persistServiceStatus(String status) {
+        getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
+                .edit().putString(PREF_LAST_SERVICE_STATUS, status).apply();
     }
 
     private void closeSockets() {
