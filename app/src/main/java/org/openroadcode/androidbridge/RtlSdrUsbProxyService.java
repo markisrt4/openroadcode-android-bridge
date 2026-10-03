@@ -54,6 +54,7 @@ public final class RtlSdrUsbProxyService extends Service {
     public static final int OP_CLOSE_CLIENT = 7;
     public static final int OP_STREAM_BULK_IN = 8;
     public static final int OP_STREAM_STOP = 9;
+    public static final int OP_LAST_STREAM_STATUS = 10;
 
     public static final int RESULT_OK = 0;
     public static final int RESULT_ERROR = -1;
@@ -71,6 +72,7 @@ public final class RtlSdrUsbProxyService extends Service {
     private final Set<Socket> activeClients = ConcurrentHashMap.newKeySet();
     private final Object usbLock = new Object();
     private final Map<Integer, Integer> interfaceClaimCounts = new HashMap<>();
+    private volatile String lastStreamStatus = "No RTL-SDR stream has ended yet";
 
     @Override
     public void onCreate() {
@@ -188,6 +190,10 @@ public final class RtlSdrUsbProxyService extends Service {
                         break;
                     case OP_STREAM_STOP:
                         writeError(out, "RTL-SDR stream is not active");
+                        break;
+                    case OP_LAST_STREAM_STATUS:
+                        writeResult(out, RESULT_OK,
+                                lastStreamStatus.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                         break;
                     case OP_RESET_DEVICE:
                         handleReset(out, manager, claimed);
@@ -512,6 +518,7 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " • inFlight=" + inFlight.size()
                     + " completed=" + completed.size()
                     + " reusable=" + reusable.size();
+            lastStreamStatus = terminationSummary;
             Log.w(TAG, terminationSummary);
             updateNotification(terminationSummary);
             streaming.set(false);
