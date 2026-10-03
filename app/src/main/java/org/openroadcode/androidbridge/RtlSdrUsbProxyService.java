@@ -509,14 +509,35 @@ public final class RtlSdrUsbProxyService extends Service {
                     }
                     inFlight.put(ready.request, ready.buffer);
                 } else {
+                    // Android may occasionally complete an asynchronous USB request
+                    // with zero bytes and refuse to requeue that same UsbRequest.
+                    // Do not tear down the seven other healthy reads for one bad slot.
                     buffer.clear();
-                    if (!request.queue(buffer, transferLength)) {
-                        stopReason.compareAndSet("unknown", "USB requeue failed after zero-byte transfer");
-                        Log.e(TAG, "RTL-SDR USB request requeue failed after zero-byte transfer");
-                        streaming.set(false);
-                        break;
+                    if (request.queue(buffer, transferLength)) {
+                        inFlight.put(request, buffer);
+                    } else {
+                        Log.w(TAG, "RTL-SDR USB request requeue failed after zero-byte transfer; replacing request");
+                        try { request.close(); } catch (Exception ignored) { }
+
+                        UsbRequest replacement = new UsbRequest();
+                        if (!replacement.initialize(connection, endpoint)) {
+                            replacement.close();
+                            stopReason.compareAndSet("unknown",
+                                    "USB replacement request initialization failed after zero-byte transfer");
+                            streaming.set(false);
+                            break;
+                        }
+                        ByteBuffer replacementBuffer = ByteBuffer.allocateDirect(transferLength);
+                        replacementBuffer.clear();
+                        if (!replacement.queue(replacementBuffer, transferLength)) {
+                            replacement.close();
+                            stopReason.compareAndSet("unknown",
+                                    "USB replacement request queue failed after zero-byte transfer");
+                            streaming.set(false);
+                            break;
+                        }
+                        inFlight.put(replacement, replacementBuffer);
                     }
-                    inFlight.put(request, buffer);
                 }
             }
         } catch (InterruptedException exception) {
