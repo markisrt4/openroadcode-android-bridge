@@ -69,6 +69,7 @@ public final class MainActivity extends Activity {
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
+  private SystemPerformanceCard systemPerformanceCard;
   private RemoteDeviceManagementCard remoteDeviceManagementCard;
   private BridgeServiceManager serviceManager;
 
@@ -184,6 +185,10 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "OPENROADCODE SERVICES",
         "Runtime target • input sources • core stack", SILVER,
         termuxServicesCard.view(), true, true);
+    systemPerformanceCard = new SystemPerformanceCard(this);
+    addServiceCard(content, "COMPUTING UNIT PERFORMANCE",
+        "CPU • memory • thermal • storage • activity", BLUE,
+        systemPerformanceCard.view(), true, true);
   }
 
   private void addSubsystemHeader(String icon, String title, String subtitle, int accent) {
@@ -224,15 +229,18 @@ public final class MainActivity extends Activity {
     playbackAudioCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
+    systemPerformanceCard = null;
     remoteDeviceManagementCard = null;
   }
 
   private void stopVisibleCards() {
+    if (systemPerformanceCard != null) systemPerformanceCard.stop();
     if (bluetoothCard != null) bluetoothCard.stop();
     if (termuxServicesCard != null) termuxServicesCard.stop();
   }
 
   private void startVisibleCards() {
+    if (systemPerformanceCard != null) systemPerformanceCard.start();
     if (sensorCard != null) reconcileSensor(false);
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();

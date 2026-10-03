@@ -83,6 +83,11 @@ public final class RuntimeServiceManagerClient {
     return request("GET", "/services");
   }
 
+  /** Read the selected computing unit's metrics and bounded performance history. */
+  public JSONObject getPerformance() throws Exception {
+    return request("GET", "/performance");
+  }
+
   public JSONObject startCoreStack() throws Exception {
     return request("POST", "/stack/core/start");
   }
@@ -171,6 +176,11 @@ public final class RuntimeServiceManagerClient {
       reader.close();
       JSONObject response = new JSONObject(body.toString());
       if (status < 200 || status >= 300) {
+        if (status == 404 && "/performance".equals(path)) {
+          throw new IllegalStateException(
+              "Performance monitoring is not available on " + targetLabel
+              + ". Update and restart its OpenRoadCode service manager.");
+        }
         if (status == 404 && path.contains("/profile/")) {
           throw new IllegalStateException(
               "Runtime profile API is not available on " + targetLabel

@@ -99,3 +99,16 @@ Pushes to `main`, pull requests, and manual workflow runs build and validate the
 ## OpenRoadCode integration
 
 The corresponding Termux-side hardware adapters and ZeroMQ publisher live in the main OpenRoadCode repository. See `docs/android_sensor_pipeline.md` there for the sensor build, run, and diagnostic procedure. Camera consumption belongs behind an OpenRoadCode camera/video controller so UI code does not need to know the bridge transport details.
+## Computing-unit performance
+
+With an updated OpenRoadCode service manager, open **Runtime**, select the
+local Termux runtime or a paired remote computing unit, and expand **Computing
+Unit Performance**. The card prioritizes combined ORC workload and per-process CPU, RSS/PSS memory,
+thread counts, and disk activity, plus observed sensor telemetry freshness,
+rates, and invalid-message counts. Host CPU, memory, thermal, storage, and
+network activity remain available with two-minute trends. Diagnostics processes
+are identified separately and excluded from workload totals. It uses the existing pairing and
+endpoint. Polling stops when you leave Runtime or pause the app; unavailable
+and stale readings are cleared. An older computing unit reports that its
+service manager needs updating.
+
