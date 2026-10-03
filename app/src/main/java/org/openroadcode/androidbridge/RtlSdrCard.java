@@ -16,6 +16,7 @@ final class RtlSdrCard {
   private final TextView status;
   private final TextView device;
   private final TextView endpoint;
+  private final TextView diagnostics;
   private final Button connect;
   private final Button stop;
 
@@ -38,6 +39,10 @@ final class RtlSdrCard {
     endpoint.setPadding(0, dp(4), 0, dp(10));
     root.addView(endpoint);
 
+    diagnostics = UiTheme.text(context, "Last stream: none recorded", 10, UiTheme.MUTED);
+    diagnostics.setPadding(0, 0, 0, dp(10));
+    root.addView(diagnostics);
+
     LinearLayout actions = new LinearLayout(context);
     actions.setOrientation(LinearLayout.HORIZONTAL);
     connect = UiTheme.actionButton(context, "CONNECT", UiTheme.BLUE, v -> connect());
@@ -55,6 +60,13 @@ final class RtlSdrCard {
   void refresh() {
     RtlSdrUsbManager.State state = manager.refresh();
     device.setText(state.deviceLabel());
+    android.content.SharedPreferences diagnosticPreferences = context.getSharedPreferences(
+        RtlSdrUsbProxyService.DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE);
+    String streamStatus = diagnosticPreferences.getString(
+        RtlSdrUsbProxyService.PREF_LAST_STREAM_STATUS, "none recorded");
+    String serviceStatus = diagnosticPreferences.getString(
+        RtlSdrUsbProxyService.PREF_LAST_SERVICE_STATUS, "no service status recorded");
+    diagnostics.setText("Last stream: " + streamStatus + "\nService: " + serviceStatus);
     switch (state.status) {
       case OPEN -> {
         status.setText("●  RTL-SDR connected");
