@@ -11,6 +11,10 @@ import android.graphics.Path;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import java.util.ArrayList;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.Locale;
@@ -22,6 +26,7 @@ import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** Read-only performance of the selected computing unit, using existing pairing. */
 public final class SystemPerformanceCard {
+  private record ColorRange(int start, int end, int color) {}
   private record Target(String url, String label, String token) {}
 
   private final Activity activity;
@@ -149,6 +154,7 @@ public final class SystemPerformanceCard {
         }
       }
     }
+    ArrayList<ColorRange> colors = new ArrayList<>();
     StringBuilder workloadText = new StringBuilder();
     JSONObject workload = sample.optJSONObject("workload");
     if (workload != null) {
@@ -158,14 +164,20 @@ public final class SystemPerformanceCard {
           .append(" • ").append(workload.optInt("process_count", 0)).append(" processes\nRSS sum ")
           .append(format(workload, "rss_bytes", 1048576, "%.1f MiB"))
           .append(" • PSS ").append(format(workload, "pss_bytes", 1048576, "%.1f MiB"))
-          .append("\n100% CPU = one core; RSS counts shared pages per process\n")
+          .append("\n100% CPU = one logical core; ").append(sample.isNull("cpu_count") ? "--" : sample.optString("cpu_count"))
+          .append(" logical CPUs detected; RSS counts shared pages\n")
           .append(workload.optString("visibility", "unknown")).append(": ")
           .append(workload.optString("detail", "")).append("\n");
+      colors.add(new ColorRange(0, workloadText.indexOf("\n"), UiTheme.BLUE));
+      int cpuStart = workloadText.indexOf("\n") + 1;
+      colors.add(new ColorRange(cpuStart, workloadText.indexOf("\n", cpuStart),
+          pressureColor(number(workload, "cpu_capacity_percent"))));
       JSONArray processes = workload.optJSONArray("processes");
       if (processes != null) {
         for (int i = 0; i < Math.min(50, processes.length()); i++) {
           JSONObject process = processes.optJSONObject(i);
           if (process == null) continue;
+          int rowStart = workloadText.length();
           workloadText.append("\n").append(process.optString("name", "ORC process"))
               .append(" [").append(process.optInt("pid")).append("] ")
               .append(process.optString("category", "workload"))
@@ -175,6 +187,8 @@ public final class SystemPerformanceCard {
               .append("\n  threads ").append(process.optInt("thread_count", 0))
               .append(" • read ").append(format(process, "read_bytes_per_second", 1024, "%.1f KiB/s"))
               .append(" • write ").append(format(process, "write_bytes_per_second", 1024, "%.1f KiB/s"));
+          colors.add(new ColorRange(rowStart, workloadText.length(),
+              "diagnostics".equals(process.optString("category")) ? UiTheme.MUTED : UiTheme.BLUE));
         }
         if (processes.length() > 50) workloadText.append("\nShowing the top 50 processes by CPU use");
       }
@@ -182,11 +196,14 @@ public final class SystemPerformanceCard {
     }
     JSONArray sensors = sample.optJSONArray("sensors");
     if (sensors != null) {
+      int headingStart = workloadText.length();
       workloadText.append("SENSOR TELEMETRY • ").append(sample.optString("sensor_monitor_status", "unknown"))
           .append("\nFreshness, not a hardware self-test\n");
+      colors.add(new ColorRange(headingStart, workloadText.indexOf("\n", headingStart), UiTheme.BLUE));
       for (int i = 0; i < sensors.length(); i++) {
         JSONObject sensor = sensors.optJSONObject(i);
         if (sensor == null) continue;
+        int rowStart = workloadText.length();
         workloadText.append("\n").append(sensor.optString("name", "Sensor"))
             .append(" • ").append(sensor.optString("state", "not_observed"))
             .append(" • ").append(sensor.isNull("source") ? "--" : sensor.optString("source"))
@@ -194,10 +211,11 @@ public final class SystemPerformanceCard {
             .append(" • rate ").append(format(sensor, "message_rate_hz", 1, "%.1f Hz"))
             .append(" • invalid ").append(sensor.optInt("invalid_message_count", 0))
             .append("\n  ").append(sensor.optString("detail", ""));
+        colors.add(new ColorRange(rowStart, workloadText.length(), sensorColor(sensor.optString("state"))));
       }
       workloadText.append("\n\n");
     }
-    metrics.setText(workloadText.toString()
+    String text = workloadText.toString()
         + "SYSTEM\nCPU  " + format(sample, "cpu_percent", 1, "%.0f%%")
         + (sample.isNull("cpu_unavailable_reason") ? "" : " • " + sample.optString("cpu_unavailable_reason"))
         + "   " + format(sample, "cpu_frequency_hz", 1e6, "%.0f MHz")
@@ -215,9 +233,46 @@ public final class SystemPerformanceCard {
         + "   ↑ " + format(sample, "network_transmit_bytes_per_second", 1024, "%.0f KiB/s")
         + "\nDisk read " + format(sample, "disk_read_bytes_per_second", 1024, "%.0f KiB/s")
         + "   write " + format(sample, "disk_write_bytes_per_second", 1024, "%.0f KiB/s")
-        + "\nUptime  " + format(sample, "uptime_seconds", 3600, "%.1f hours"));
+        + "\nUptime  " + format(sample, "uptime_seconds", 3600, "%.1f hours");
+    SpannableString styled = new SpannableString(text);
+    for (ColorRange range : colors) {
+      styled.setSpan(new ForegroundColorSpan(range.color()), range.start(), range.end(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+    int systemStart = workloadText.length();
+    colorLine(styled, systemStart, "SYSTEM", UiTheme.BLUE);
+    colorLine(styled, systemStart, "CPU  ", pressureColor(number(sample, "cpu_percent")));
+    colorLine(styled, systemStart, "RAM  ", pressureColor(number(sample, "memory_used_percent")));
+    colorLine(styled, systemStart, "Storage  ", pressureColor(number(sample, "disk_used_percent")));
+    Double headroom = number(sample, "thermal_headroom_c");
+    colorLine(styled, systemStart, "Thermal  ", headroom == null ? UiTheme.MUTED
+        : headroom <= 5 ? UiTheme.RED : headroom <= 10 ? UiTheme.AMBER : UiTheme.GREEN);
+    metrics.setText(styled);
     JSONArray history = payload.optJSONArray("history");
     trends.setHistory(history == null ? new JSONArray() : history);
+  }
+
+  private static int pressureColor(Double percent) {
+    return percent == null ? UiTheme.MUTED : percent >= 95 ? UiTheme.RED
+        : percent >= 80 ? UiTheme.AMBER : UiTheme.GREEN;
+  }
+
+  private static int sensorColor(String state) {
+    return switch (state) {
+      case "streaming" -> UiTheme.GREEN;
+      case "stale", "degraded" -> UiTheme.AMBER;
+      case "invalid" -> UiTheme.RED;
+      default -> UiTheme.MUTED;
+    };
+  }
+
+  private static void colorLine(SpannableString text, int from, String prefix, int color) {
+    String value = text.toString();
+    int start = value.startsWith(prefix, from) ? from : value.indexOf("\n" + prefix, from);
+    if (start < 0) return;
+    if (value.charAt(start) == '\n') start++;
+    int end = value.indexOf('\n', start);
+    text.setSpan(new ForegroundColorSpan(color), start, end < 0 ? value.length() : end,
+        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
   }
 
   private static Double number(JSONObject object, String key) {
