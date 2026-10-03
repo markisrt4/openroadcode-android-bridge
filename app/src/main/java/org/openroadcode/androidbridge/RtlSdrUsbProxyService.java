@@ -508,10 +508,12 @@ public final class RtlSdrUsbProxyService extends Service {
             if (!running) stopReason.compareAndSet("unknown", "service stopping");
             else if (!streaming.get()) stopReason.compareAndSet("unknown", "streaming flag cleared");
             else stopReason.compareAndSet("unknown", "USB stream loop exited unexpectedly");
-            Log.w(TAG, "RTL-SDR IQ stream ending: " + stopReason.get()
-                    + ", inFlight=" + inFlight.size()
-                    + ", completed=" + completed.size()
-                    + ", reusable=" + reusable.size());
+            String terminationSummary = "RTL-SDR stream ended: " + stopReason.get()
+                    + " • inFlight=" + inFlight.size()
+                    + " completed=" + completed.size()
+                    + " reusable=" + reusable.size();
+            Log.w(TAG, terminationSummary);
+            updateNotification(terminationSummary);
             streaming.set(false);
             // Do not interrupt the stream-control thread here. It is the only
             // reader of the STREAM_STOP command and may still be consuming its
