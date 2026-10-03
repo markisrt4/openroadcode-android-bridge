@@ -33,7 +33,7 @@ android {
         applicationId 'org.openroadcode.androidbridge'
         minSdk 26
         targetSdk 34
-        versionCode 29
+        versionCode 30
         versionName isTagBuild ? baseVersion : "${baseVersion}+${shortGitSha}"
         buildConfigField 'String', 'GIT_SHA', '"' + shortGitSha + '"'
         buildConfigField 'String', 'BASE_VERSION', '"' + baseVersion + '"'
