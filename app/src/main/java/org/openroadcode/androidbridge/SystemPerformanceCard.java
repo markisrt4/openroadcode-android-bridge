@@ -4,6 +4,8 @@
 package org.openroadcode.androidbridge;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.widget.Button;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -34,6 +36,7 @@ public final class SystemPerformanceCard {
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final LinearLayout root;
   private final TextView status;
+  private final Button targetButton;
   private final TextView metrics;
   private final TrendView trends;
   private boolean active;
@@ -53,10 +56,14 @@ public final class SystemPerformanceCard {
     this.activity = activity;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
-    status = UiTheme.text(activity, "Choose the computing unit under Runtime target above", 12, UiTheme.MUTED);
+    status = UiTheme.text(activity, "Choose a computing unit", 12, UiTheme.MUTED);
     metrics = UiTheme.text(activity, "Waiting for performance data…", 13, UiTheme.TEXT);
     metrics.setPadding(0, UiTheme.dp(activity, 10), 0, UiTheme.dp(activity, 10));
     trends = new TrendView(activity);
+    trends.setVisibility(View.GONE);
+    targetButton = UiTheme.actionButton(activity, "Computing unit ▾", UiTheme.SURFACE_RAISED, v -> chooseTarget());
+    root.addView(targetButton);
+    updateTargetLabel();
     root.addView(status);
     root.addView(metrics);
     root.addView(trends, new LinearLayout.LayoutParams(-1, UiTheme.dp(activity, 240)));
@@ -76,6 +83,39 @@ public final class SystemPerformanceCard {
     handler.removeCallbacks(refresh);
   }
 
+  private void updateTargetLabel() {
+    RuntimeDevice device = settings.activeDevice();
+    String label = settings.target() == RuntimeServiceManagerSettings.Target.TERMUX
+        ? "Local Termux" : device == null ? "Choose a paired unit" : device.name();
+    targetButton.setText("Computing unit: " + label + " ▾");
+  }
+
+  private void chooseTarget() {
+    var devices = settings.devices();
+    String[] labels = new String[devices.size() + 1];
+    labels[0] = "Local Termux";
+    int selected = 0;
+    RuntimeDevice current = settings.activeDevice();
+    for (int i = 0; i < devices.size(); i++) {
+      labels[i + 1] = devices.get(i).name();
+      if (settings.target() != RuntimeServiceManagerSettings.Target.TERMUX && current != null
+          && current.deviceId().equals(devices.get(i).deviceId())) selected = i + 1;
+    }
+    new AlertDialog.Builder(activity).setTitle(devices.isEmpty()
+        ? "Computing unit (pair remotes in Configuration)" : "Computing unit")
+        .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+          if (which == 0) settings.setTarget(RuntimeServiceManagerSettings.Target.TERMUX);
+          else settings.setActiveDevice(devices.get(which - 1).deviceId());
+          updateTargetLabel();
+          generation++;
+          lastTarget = null;
+          clear("Connecting to selected computing unit…");
+          dialog.dismiss();
+          if (active) poll();
+        })
+        .setNegativeButton("Cancel", null).show();
+  }
+
   private Target selectedTarget() {
     if (settings.target() == RuntimeServiceManagerSettings.Target.TERMUX) {
       return new Target(TermuxServiceManagerClient.BASE_URL, "Local Termux", null);
@@ -86,6 +126,7 @@ public final class SystemPerformanceCard {
   }
 
   private void poll() {
+    updateTargetLabel();
     final Target target;
     try {
       target = selectedTarget();
@@ -131,6 +172,7 @@ public final class SystemPerformanceCard {
     status.setTextColor(UiTheme.MUTED);
     metrics.setText("No current performance data");
     trends.setHistory(new JSONArray());
+    trends.setVisibility(View.GONE);
   }
 
   private void render(Target target, JSONObject payload) {
@@ -272,6 +314,7 @@ public final class SystemPerformanceCard {
     colorLine(styled, systemStart, "Thermal  ", headroom == null ? UiTheme.MUTED
         : headroom <= 5 ? UiTheme.RED : headroom <= 10 ? UiTheme.AMBER : UiTheme.GREEN);
     metrics.setText(styled);
+    trends.setVisibility(View.VISIBLE);
     JSONArray history = payload.optJSONArray("history");
     trends.setHistory(history == null ? new JSONArray() : history);
   }

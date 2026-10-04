@@ -112,6 +112,7 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.MEDIA -> showMedia();
       case SubsystemDashboard.ENVIRONMENTAL -> showEnvironmental();
       case SubsystemDashboard.RUNTIME -> showRuntime();
+      case SubsystemDashboard.PERFORMANCE -> showPerformance();
       case SubsystemDashboard.CONFIGURATION -> showConfiguration();
       default -> showDashboard();
     }
@@ -185,6 +186,10 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "OPENROADCODE SERVICES",
         "Runtime target • input sources • core stack", SILVER,
         termuxServicesCard.view(), true, true);
+  }
+
+  private void showPerformance() {
+    addSubsystemHeader("▥", "PERFORMANCE", "Computing-unit workload, sensors, and service traffic", BLUE);
     systemPerformanceCard = new SystemPerformanceCard(this);
     addServiceCard(content, "COMPUTING UNIT PERFORMANCE",
         "CPU • memory • thermal • storage • activity", BLUE,

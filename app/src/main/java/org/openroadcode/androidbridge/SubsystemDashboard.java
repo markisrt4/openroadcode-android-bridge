@@ -20,6 +20,7 @@ final class SubsystemDashboard {
   static final String MEDIA = "media";
   static final String ENVIRONMENTAL = "environmental";
   static final String RUNTIME = "runtime";
+  static final String PERFORMANCE = "performance";
   static final String CONFIGURATION = "configuration";
 
   private final Context context;
@@ -65,11 +66,11 @@ final class SubsystemDashboard {
         tile("▶", "MEDIA I/O", "Camera • playback audio",
             UiTheme.RED, MEDIA, true)));
 
-    LinearLayout runtime = tile("≡", "RUNTIME", "Termux • Linux • running services",
-        UiTheme.SILVER, RUNTIME, false);
-    LinearLayout.LayoutParams runtimeParams = new LinearLayout.LayoutParams(-1, dp(126));
-    runtimeParams.setMargins(0, dp(5), 0, 0);
-    root.addView(runtime, runtimeParams);
+    root.addView(row(
+        tile("≡", "RUNTIME", "Termux • Linux • service controls",
+            UiTheme.SILVER, RUNTIME, false),
+        tile("▥", "PERFORMANCE", "CPU • sensors • service traffic",
+            UiTheme.BLUE, PERFORMANCE, false)));
 
     return root;
   }
@@ -139,3 +140,4 @@ final class SubsystemDashboard {
     return UiTheme.dp(context, value);
   }
 }
+

@@ -101,14 +101,30 @@ Pushes to `main`, pull requests, and manual workflow runs build and validate the
 The corresponding Termux-side hardware adapters and ZeroMQ publisher live in the main OpenRoadCode repository. See `docs/android_sensor_pipeline.md` there for the sensor build, run, and diagnostic procedure. Camera consumption belongs behind an OpenRoadCode camera/video controller so UI code does not need to know the bridge transport details.
 ## Computing-unit performance
 
-With an updated OpenRoadCode service manager, open **Runtime**, select the
-local Termux runtime or a paired remote computing unit, and expand **Computing
-Unit Performance**. The card prioritizes combined ORC workload and per-process CPU, RSS/PSS memory,
+With an updated OpenRoadCode service manager, open **Performance** from the subsystem dashboard, select the
+local Termux runtime or a paired remote computing unit using **Computing unit**,
+and view **Computing Unit Performance**. Runtime contains service controls only. The card prioritizes combined ORC workload and per-process CPU, RSS/PSS memory,
 thread counts, and disk activity, plus observed sensor telemetry freshness,
 rates, and invalid-message counts. Host CPU, memory, thermal, storage, and
 network activity remain available with two-minute trends. Diagnostics processes
 are identified separately and excluded from workload totals. It uses the existing pairing and
-endpoint. Polling stops when you leave Runtime or pause the app; unavailable
+endpoint. Polling stops when you leave Performance or pause the app; unavailable
 and stale readings are cleared. An older computing unit reports that its
 service manager needs updating.
 
+
+If Local Termux reports that performance monitoring is unavailable, update the
+main OpenRoadCode checkout to `computing-unit-performance` and restart its Python
+service manager; installing this APK does not replace the computing-unit service:
+
+```bash
+cd ~/src/OpenRoadCode
+git fetch origin computing-unit-performance
+git switch computing-unit-performance
+git merge --ff-only FETCH_HEAD
+sv restart openroadcode-service-manager
+```
+
+If runit still points to an older checkout, reinstall the version-controlled
+definitions with `bash scripts/runit/install_termux_services.sh`, then restart
+`openroadcode-service-manager`. Pairing and configured targets stay saved.
