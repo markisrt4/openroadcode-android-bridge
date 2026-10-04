@@ -725,8 +725,53 @@ public final class RtlSdrUsbProxyService extends Service {
             Thread.currentThread().interrupt();
         } catch (RuntimeException exception) {
             String detail = exception.getClass().getSimpleName() + ": " + safeMessage(exception);
-            stopReason.compareAndSet("unknown", "USB requestWait failure • " + detail);
-            Log.e(TAG, "RTL-SDR USB requestWait loop failed", exception);
+            Log.e(TAG, "RTL-SDR USB requestWait loop failed; falling back to synchronous bulk reads", exception);
+
+            // Some Android USB stacks can throw from requestWait() before the
+            // first completion even though every UsbRequest initialized and
+            // queued successfully.  Tear down the async pool and keep the ORCU
+            // stream alive with bulkTransfer() instead of sending a false EOF.
+            synchronized (inFlight) {
+                for (UsbRequest request : inFlight.keySet()) {
+                    try { request.cancel(); } catch (Exception ignored) { }
+                    try { request.close(); } catch (Exception ignored) { }
+                }
+                inFlight.clear();
+            }
+            completed.clear();
+
+            byte[] fallbackBuffer = new byte[transferLength];
+            int consecutiveFailures = 0;
+            long fallbackChunks = 0;
+            stopReason.set("USB requestWait failure; synchronous bulk fallback active • " + detail);
+            while (running && streaming.get()) {
+                int transferred = connection.bulkTransfer(
+                        endpoint, fallbackBuffer, fallbackBuffer.length, 1000);
+                if (transferred > 0) {
+                    consecutiveFailures = 0;
+                    fallbackChunks++;
+                    out.writeInt(transferred);
+                    out.write(fallbackBuffer, 0, transferred);
+                    out.flush();
+                    writerChunks.incrementAndGet();
+                    lastProgressNanos.set(System.nanoTime());
+                    if (fallbackChunks <= 3 || fallbackChunks % 32 == 0) {
+                        Log.i(TAG, "RTL-SDR synchronous fallback progress"
+                                + " • chunks=" + fallbackChunks
+                                + " bytes=" + transferred);
+                    }
+                    continue;
+                }
+                consecutiveFailures++;
+                if (consecutiveFailures >= 3) {
+                    stopReason.set("synchronous bulk fallback failed"
+                            + " • result=" + transferred
+                            + " failures=" + consecutiveFailures
+                            + " • original=" + detail);
+                    streaming.set(false);
+                    break;
+                }
+            }
         } finally {
             if (!running) stopReason.compareAndSet("unknown", "service stopping");
             else if (!streaming.get()) stopReason.compareAndSet("unknown", "streaming flag cleared");
