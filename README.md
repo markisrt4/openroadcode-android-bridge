@@ -128,3 +128,9 @@ sv restart openroadcode-service-manager
 If runit still points to an older checkout, reinstall the version-controlled
 definitions with `bash scripts/runit/install_termux_services.sh`, then restart
 `openroadcode-service-manager`. Pairing and configured targets stay saved.
+
+Termux battery status is shown separately in Performance: temperature in °C,
+charge percentage, Android health, charging state, and plugged state. The
+computing unit needs the Termux:API companion app and `termux-api` CLI package.
+Battery polling runs every 30 seconds independently of CPU sampling; stale or
+unavailable values stay unavailable. Battery temperature is never CPU temperature.

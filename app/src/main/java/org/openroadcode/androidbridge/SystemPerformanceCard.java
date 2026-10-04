@@ -282,6 +282,29 @@ public final class SystemPerformanceCard {
       }
       workloadText.append("\n\n");
     }
+    JSONObject battery = sample.optJSONObject("battery");
+    if (battery != null && !"not_applicable".equals(battery.optString("state"))) {
+      int start = workloadText.length();
+      workloadText.append("BATTERY • ");
+      if ("available".equals(battery.optString("state"))) {
+        workloadText.append(format(battery, "temperature_c", 1, "%.1f°C"))
+            .append(" • ").append(format(battery, "charge_percent", 1, "%.0f%%"))
+            .append(" • ").append(battery.optString("health", "UNKNOWN"))
+            .append("\n").append(battery.optString("charging_state", "UNKNOWN"))
+            .append(" • ").append(battery.optString("plugged", "UNKNOWN"))
+            .append("\nBattery via Termux:API; separate from CPU temperature\n\n");
+      } else {
+        workloadText.append("-- • ").append(battery.optString("detail", "Unavailable")).append("\n\n");
+      }
+      int color = !"available".equals(battery.optString("state")) ? UiTheme.MUTED
+          : switch (battery.optString("health", "UNKNOWN")) {
+            case "GOOD" -> UiTheme.GREEN;
+            case "UNKNOWN" -> UiTheme.MUTED;
+            case "OVERHEAT", "DEAD", "OVER_VOLTAGE", "UNSPECIFIED_FAILURE" -> UiTheme.RED;
+            default -> UiTheme.AMBER;
+          };
+      colors.add(new ColorRange(start, workloadText.length(), color));
+    }
     String text = workloadText.toString()
         + "SYSTEM\nCPU  " + format(sample, "cpu_percent", 1, "%.0f%%")
         + (sample.isNull("cpu_unavailable_reason") ? "" : " • " + sample.optString("cpu_unavailable_reason"))
