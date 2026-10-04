@@ -68,6 +68,7 @@ public final class RtlSdrUsbProxyService extends Service {
     static final String DIAGNOSTIC_PREFERENCES = "rtl_sdr_proxy_diagnostics";
     static final String PREF_LAST_STREAM_STATUS = "last_stream_status";
     static final String PREF_LAST_SERVICE_STATUS = "last_service_status";
+    static final String PREF_CONTROL_STATUS = "control_status";
 
     private volatile boolean running;
     private Thread worker;
@@ -76,6 +77,10 @@ public final class RtlSdrUsbProxyService extends Service {
     private final Object usbLock = new Object();
     private final Map<Integer, Integer> interfaceClaimCounts = new HashMap<>();
     private volatile String lastStreamStatus = "No RTL-SDR stream has ended yet";
+    private final java.util.concurrent.atomic.AtomicLong controlRequests = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong controlFirstAttemptSuccesses = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong controlRetryRecoveries = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong controlHardFailures = new java.util.concurrent.atomic.AtomicLong();
 
     @Override
     public void onCreate() {
@@ -336,6 +341,7 @@ public final class RtlSdrUsbProxyService extends Service {
         boolean input = (requestType & 0x80) != 0;
         byte[] buffer = new byte[length];
         if (!input && length > 0) in.readFully(buffer);
+        controlRequests.incrementAndGet();
         int transferred = -1;
         int attempts = 0;
         // Android's UsbDeviceConnection can occasionally report -1 for a
@@ -361,13 +367,29 @@ public final class RtlSdrUsbProxyService extends Service {
             }
         }
         if (transferred < 0) {
+            controlHardFailures.incrementAndGet();
+            persistControlStatus(String.format(java.util.Locale.US,
+                    "requests=%d firstOk=%d recovered=%d failed=%d • last failure type=0x%02X req=0x%02X value=0x%04X index=0x%04X len=%d attempts=%d",
+                    controlRequests.get(), controlFirstAttemptSuccesses.get(),
+                    controlRetryRecoveries.get(), controlHardFailures.get(),
+                    requestType & 0xFF, request & 0xFF, value & 0xFFFF,
+                    index & 0xFFFF, length, attempts));
             Log.e(TAG, String.format(java.util.Locale.US,
                     "USB control failed after %d attempt(s): type=0x%02X request=0x%02X value=0x%04X index=0x%04X length=%d timeout=%d",
                     attempts, requestType & 0xFF, request & 0xFF, value & 0xFFFF, index & 0xFFFF, length, timeoutMs));
             writeResult(out, transferred, null);
             return;
         }
-        if (attempts > 1) {
+        if (attempts == 1) {
+            controlFirstAttemptSuccesses.incrementAndGet();
+        } else {
+            controlRetryRecoveries.incrementAndGet();
+            persistControlStatus(String.format(java.util.Locale.US,
+                    "requests=%d firstOk=%d recovered=%d failed=%d • last recovery attempt=%d type=0x%02X req=0x%02X value=0x%04X index=0x%04X len=%d",
+                    controlRequests.get(), controlFirstAttemptSuccesses.get(),
+                    controlRetryRecoveries.get(), controlHardFailures.get(),
+                    attempts, requestType & 0xFF, request & 0xFF, value & 0xFFFF,
+                    index & 0xFFFF, length));
             Log.w(TAG, String.format(java.util.Locale.US,
                     "USB control recovered on attempt %d: type=0x%02X request=0x%02X value=0x%04X index=0x%04X length=%d",
                     attempts, requestType & 0xFF, request & 0xFF, value & 0xFFFF, index & 0xFFFF, length));
@@ -758,6 +780,11 @@ public final class RtlSdrUsbProxyService extends Service {
         running = false;
         closeSockets();
         super.onDestroy();
+    }
+
+    private void persistControlStatus(String status) {
+        getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
+                .edit().putString(PREF_CONTROL_STATUS, status).apply();
     }
 
     private void persistServiceStatus(String status) {
