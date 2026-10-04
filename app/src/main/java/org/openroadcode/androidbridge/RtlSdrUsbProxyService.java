@@ -416,6 +416,12 @@ public final class RtlSdrUsbProxyService extends Service {
         ArrayBlockingQueue<BulkChunk> completed = new ArrayBlockingQueue<>(requestCount);
         AtomicBoolean streaming = new AtomicBoolean(true);
         AtomicReference<String> stopReason = new AtomicReference<>("unknown");
+        java.util.concurrent.atomic.AtomicLong usbCompletions = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong writerChunks = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong successfulRequeues = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong retiredRequests = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong lastProgressNanos =
+                new java.util.concurrent.atomic.AtomicLong(System.nanoTime());
         Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
 
         for (int i = 0; i < requestCount; i++) {
@@ -475,6 +481,16 @@ public final class RtlSdrUsbProxyService extends Service {
                     out.writeInt(chunk.length);
                     out.write(data);
                     out.flush();
+                    long written = writerChunks.incrementAndGet();
+                    lastProgressNanos.set(System.nanoTime());
+                    if (written <= 3 || written % 32 == 0) {
+                        Log.i(TAG, "RTL-SDR writer progress"
+                                + " • chunks=" + written
+                                + " inFlight=" + inFlight.size()
+                                + " pending=" + completed.size()
+                                + " requeues=" + successfulRequeues.get()
+                                + " retired=" + retiredRequests.get());
+                    }
 
                     // Recycle this request only after its buffer has been copied to
                     // the socket. The USB completion thread must never wait for the
@@ -483,7 +499,10 @@ public final class RtlSdrUsbProxyService extends Service {
                     buffer.clear();
                     if (chunk.request.queue(buffer, transferLength)) {
                         inFlight.put(chunk.request, buffer);
+                        successfulRequeues.incrementAndGet();
+                        lastProgressNanos.set(System.nanoTime());
                     } else {
+                        retiredRequests.incrementAndGet();
                         Log.w(TAG, "RTL-SDR USB request retired after "
                                 + chunk.length + "-byte transfer because requeue failed"
                                 + " • remaining=" + inFlight.size());
@@ -507,6 +526,35 @@ public final class RtlSdrUsbProxyService extends Service {
         }, "orc-rtl-socket-writer");
         writer.start();
 
+        Thread watchdog = new Thread(() -> {
+            while (running && streaming.get()) {
+                try {
+                    Thread.sleep(2000L);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                long idleMillis = TimeUnit.NANOSECONDS.toMillis(
+                        System.nanoTime() - lastProgressNanos.get());
+                if (idleMillis >= 2000L) {
+                    String status = "RTL-SDR stream stalled"
+                            + " • idleMs=" + idleMillis
+                            + " completions=" + usbCompletions.get()
+                            + " written=" + writerChunks.get()
+                            + " requeues=" + successfulRequeues.get()
+                            + " retired=" + retiredRequests.get()
+                            + " inFlight=" + inFlight.size()
+                            + " pending=" + completed.size();
+                    lastStreamStatus = status;
+                    getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
+                            .edit().putString(PREF_LAST_STREAM_STATUS, status).apply();
+                    Log.w(TAG, status);
+                    updateNotification(status);
+                }
+            }
+        }, "orc-rtl-stream-watchdog");
+        watchdog.start();
+
         try {
             while (running && streaming.get()) {
                 UsbRequest request = connection.requestWait();
@@ -514,6 +562,17 @@ public final class RtlSdrUsbProxyService extends Service {
                 ByteBuffer buffer = inFlight.remove(request);
                 if (buffer == null) continue;
                 int transferred = buffer.position();
+                long completion = usbCompletions.incrementAndGet();
+                lastProgressNanos.set(System.nanoTime());
+                if (completion <= 3 || completion % 32 == 0) {
+                    Log.i(TAG, "RTL-SDR USB completion"
+                            + " • count=" + completion
+                            + " bytes=" + transferred
+                            + " inFlight=" + inFlight.size()
+                            + " pending=" + completed.size()
+                            + " requeues=" + successfulRequeues.get()
+                            + " retired=" + retiredRequests.get());
+                }
                 if (transferred > 0) {
                     // Hand the completed buffer to the socket writer and immediately
                     // return to requestWait(). The writer owns this request until it
@@ -527,7 +586,10 @@ public final class RtlSdrUsbProxyService extends Service {
                     buffer.clear();
                     if (request.queue(buffer, transferLength)) {
                         inFlight.put(request, buffer);
+                        successfulRequeues.incrementAndGet();
+                        lastProgressNanos.set(System.nanoTime());
                     } else {
+                        retiredRequests.incrementAndGet();
                         Log.w(TAG, "RTL-SDR USB request retired after zero-byte transfer"
                                 + " because requeue failed • remaining=" + inFlight.size());
                         try { request.close(); } catch (Exception ignored) { }
@@ -561,6 +623,7 @@ public final class RtlSdrUsbProxyService extends Service {
             // header. Wait for it to finish before returning to handleClient,
             // otherwise both threads race to read the next ORCU command.
             writer.interrupt();
+            watchdog.interrupt();
             synchronized (inFlight) {
                 for (UsbRequest request : inFlight.keySet()) {
                     try { request.cancel(); } catch (Exception ignored) { }
@@ -570,6 +633,9 @@ public final class RtlSdrUsbProxyService extends Service {
             for (BulkChunk chunk : completed) {
                 try { chunk.request.cancel(); } catch (Exception ignored) { }
                 try { chunk.request.close(); } catch (Exception ignored) { }
+            }
+            try { watchdog.join(1000L); } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
             }
             try { writer.join(1000L); } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
