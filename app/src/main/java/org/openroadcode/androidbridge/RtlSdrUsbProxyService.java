@@ -501,13 +501,37 @@ public final class RtlSdrUsbProxyService extends Service {
                     completed.put(new BulkChunk(request, buffer, transferred));
                     BulkChunk ready = reusable.take();
                     ready.buffer.clear();
-                    if (!ready.request.queue(ready.buffer, transferLength)) {
-                        stopReason.compareAndSet("unknown", "USB requeue failed after " + transferred + "-byte transfer");
-                        Log.e(TAG, "RTL-SDR USB request requeue failed after completed transfer");
-                        streaming.set(false);
-                        break;
+                    if (ready.request.queue(ready.buffer, transferLength)) {
+                        inFlight.put(ready.request, ready.buffer);
+                    } else {
+                        // A completed UsbRequest can occasionally refuse reuse on
+                        // Android even though the device and other requests remain
+                        // healthy. Replace only that slot instead of killing IQ.
+                        Log.w(TAG, "RTL-SDR USB request requeue failed after "
+                                + transferred + "-byte transfer; replacing request");
+                        try { ready.request.close(); } catch (Exception ignored) { }
+
+                        UsbRequest replacement = new UsbRequest();
+                        if (!replacement.initialize(connection, endpoint)) {
+                            replacement.close();
+                            stopReason.compareAndSet("unknown",
+                                    "USB replacement request initialization failed after "
+                                            + transferred + "-byte transfer");
+                            streaming.set(false);
+                            break;
+                        }
+                        ByteBuffer replacementBuffer = ByteBuffer.allocateDirect(transferLength);
+                        replacementBuffer.clear();
+                        if (!replacement.queue(replacementBuffer, transferLength)) {
+                            replacement.close();
+                            stopReason.compareAndSet("unknown",
+                                    "USB replacement request queue failed after "
+                                            + transferred + "-byte transfer");
+                            streaming.set(false);
+                            break;
+                        }
+                        inFlight.put(replacement, replacementBuffer);
                     }
-                    inFlight.put(ready.request, ready.buffer);
                 } else {
                     // Android may occasionally complete an asynchronous USB request
                     // with zero bytes and refuse to requeue that same UsbRequest.
