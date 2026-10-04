@@ -697,7 +697,8 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " requeues=" + successfulRequeues.get()
                     + " retired=" + retiredRequests.get()
                     + " inFlight=" + inFlight.size()
-                    + " pending=" + completed.size();
+                    + " pending=" + completed.size()
+                    + " • probe=" + zeroByteProbeStatus.get();
             lastStreamStatus = terminationSummary;
             getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                     .edit().putString(PREF_LAST_STREAM_STATUS, terminationSummary).apply();
