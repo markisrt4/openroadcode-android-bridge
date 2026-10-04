@@ -432,11 +432,13 @@ public final class RtlSdrUsbProxyService extends Service {
             }
             ByteBuffer buffer = ByteBuffer.allocateDirect(transferLength);
             buffer.clear();
-            if (!request.queue(buffer, transferLength)) {
+            buffer.limit(transferLength);
+            inFlight.put(request, buffer);
+            if (!request.queue(buffer)) {
+                inFlight.remove(request);
                 request.close();
                 throw new IOException("Unable to queue asynchronous RTL-SDR USB request");
             }
-            inFlight.put(request, buffer);
         }
 
         Thread control = new Thread(() -> {
@@ -497,11 +499,15 @@ public final class RtlSdrUsbProxyService extends Service {
                     // TCP writer before it can reap the other requests already in
                     // flight.
                     buffer.clear();
-                    if (chunk.request.queue(buffer, transferLength)) {
-                        inFlight.put(chunk.request, buffer);
+                    buffer.limit(transferLength);
+                    // Publish ownership before queueing. A fast completion can otherwise
+                    // reach requestWait() before the writer records the request as in-flight.
+                    inFlight.put(chunk.request, buffer);
+                    if (chunk.request.queue(buffer)) {
                         successfulRequeues.incrementAndGet();
                         lastProgressNanos.set(System.nanoTime());
                     } else {
+                        inFlight.remove(chunk.request);
                         retiredRequests.incrementAndGet();
                         Log.w(TAG, "RTL-SDR USB request retired after "
                                 + chunk.length + "-byte transfer because requeue failed"
@@ -584,11 +590,13 @@ public final class RtlSdrUsbProxyService extends Service {
                     // other requests may still be healthy, and creating a replacement
                     // while those requests are pending has also been observed to fail.
                     buffer.clear();
-                    if (request.queue(buffer, transferLength)) {
-                        inFlight.put(request, buffer);
+                    buffer.limit(transferLength);
+                    inFlight.put(request, buffer);
+                    if (request.queue(buffer)) {
                         successfulRequeues.incrementAndGet();
                         lastProgressNanos.set(System.nanoTime());
                     } else {
+                        inFlight.remove(request);
                         retiredRequests.incrementAndGet();
                         Log.w(TAG, "RTL-SDR USB request retired after zero-byte transfer"
                                 + " because requeue failed • remaining=" + inFlight.size());
