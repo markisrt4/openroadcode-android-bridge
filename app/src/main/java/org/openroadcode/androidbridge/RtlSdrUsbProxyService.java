@@ -341,30 +341,31 @@ public final class RtlSdrUsbProxyService extends Service {
         boolean input = (requestType & 0x80) != 0;
         byte[] buffer = new byte[length];
         if (!input && length > 0) in.readFully(buffer);
-        controlRequests.incrementAndGet();
-        int transferred = -1;
-        int attempts = 0;
-        // Android's UsbDeviceConnection can occasionally report -1 for a
-        // transient control transfer even though the device remains attached.
-        // librtlsdr performs dense register/I2C sequences during R820T setup,
-        // where dropping one write leaves the tuner only partially configured.
-        // Retry only transport-level failures; short successful transfers are
-        // returned unchanged so librtlsdr can apply its normal validation.
-        while (attempts < 3) {
-            attempts++;
-            synchronized (usbLock) {
-                transferred = connection.controlTransfer(
-                        requestType, request, value, index, buffer, length, timeoutMs);
-            }
-            if (transferred >= 0) break;
-            if (attempts < 3) {
-                try {
-                    Thread.sleep(2L);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    break;
+        long sequence = controlRequests.incrementAndGet();
+        int transferred;
+        int attempts = 1;
+        // Preserve libusb semantics exactly. Replaying a failed RTL2832U/I2C
+        // vendor transaction is not equivalent to one libusb_control_transfer()
+        // and can advance tuner state unexpectedly.
+        synchronized (usbLock) {
+            transferred = connection.controlTransfer(
+                    requestType, request, value, index, buffer, length, timeoutMs);
+        }
+        if (transferred < 0 || sequence <= 32) {
+            String payload = "";
+            if (!input && length > 0) {
+                StringBuilder hex = new StringBuilder();
+                int shown = Math.min(length, 16);
+                for (int i = 0; i < shown; i++) {
+                    if (i > 0) hex.append(' ');
+                    hex.append(String.format(java.util.Locale.US, "%02X", buffer[i] & 0xFF));
                 }
+                payload = " data=" + hex;
             }
+            Log.w(TAG, String.format(java.util.Locale.US,
+                    "ORCU control #%d type=0x%02X req=0x%02X value=0x%04X index=0x%04X len=%d timeout=%d result=%d%s",
+                    sequence, requestType & 0xFF, request & 0xFF, value & 0xFFFF,
+                    index & 0xFFFF, length, timeoutMs, transferred, payload));
         }
         if (transferred < 0) {
             controlHardFailures.incrementAndGet();
