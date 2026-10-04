@@ -469,6 +469,8 @@ public final class RtlSdrUsbProxyService extends Service {
         java.util.concurrent.atomic.AtomicBoolean zeroByteProbeDone = new java.util.concurrent.atomic.AtomicBoolean(false);
         java.util.concurrent.atomic.AtomicReference<String> zeroByteProbeStatus =
                 new java.util.concurrent.atomic.AtomicReference<>("not-run");
+        java.util.concurrent.atomic.AtomicReference<String> interfaceRecoveryProbeStatus =
+                new java.util.concurrent.atomic.AtomicReference<>("not-run");
         java.util.concurrent.atomic.AtomicLong lastProgressNanos =
                 new java.util.concurrent.atomic.AtomicLong(System.nanoTime());
         Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
@@ -600,7 +602,8 @@ public final class RtlSdrUsbProxyService extends Service {
                             + " retired=" + retiredRequests.get()
                             + " inFlight=" + inFlight.size()
                             + " pending=" + completed.size()
-                    + " • probe=" + zeroByteProbeStatus.get();
+                    + " • probe=" + zeroByteProbeStatus.get()
+                    + " • recovery=" + interfaceRecoveryProbeStatus.get();
                     lastStreamStatus = status;
                     getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                             .edit().putString(PREF_LAST_STREAM_STATUS, status).apply();
@@ -677,6 +680,39 @@ public final class RtlSdrUsbProxyService extends Service {
                                 + " because requeue failed • remaining=" + inFlight.size());
                         try { request.close(); } catch (Exception ignored) { }
                         if (inFlight.isEmpty() && completed.isEmpty()) {
+                            // At this point every async request has retired and no
+                            // buffer is owned by the writer. Probe whether cycling
+                            // interface 0 restores endpoint 0x81. Preserve the
+                            // shared logical claim count: this is a diagnostic
+                            // physical release/reclaim, not a client RELEASE.
+                            UsbInterface streamInterface = findInterface(device, 0);
+                            boolean released = false;
+                            boolean reclaimed = false;
+                            int recoveryProbeResult = -1;
+                            if (streamInterface != null) {
+                                byte[] recoveryProbeBuffer = new byte[16 * 1024];
+                                synchronized (usbLock) {
+                                    try {
+                                        released = connection.releaseInterface(streamInterface);
+                                        reclaimed = connection.claimInterface(streamInterface, true);
+                                        if (reclaimed) {
+                                            recoveryProbeResult = connection.bulkTransfer(
+                                                    endpoint, recoveryProbeBuffer,
+                                                    recoveryProbeBuffer.length, 250);
+                                        }
+                                    } catch (Exception exception) {
+                                        Log.w(TAG, "RTL-SDR interface recovery probe failed", exception);
+                                    }
+                                }
+                            }
+                            String recoveryProbe = "interface recovery probe"
+                                    + " • released=" + released
+                                    + " reclaimed=" + reclaimed
+                                    + " bulkResult=" + recoveryProbeResult
+                                    + " endpoint=0x" + Integer.toHexString(endpoint.getAddress())
+                                    + " completion=" + completion;
+                            interfaceRecoveryProbeStatus.set(recoveryProbe);
+                            Log.w(TAG, recoveryProbe);
                             stopReason.compareAndSet("unknown",
                                     "all USB requests retired after zero-byte completions");
                             streaming.set(false);
