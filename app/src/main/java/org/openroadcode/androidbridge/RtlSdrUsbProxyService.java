@@ -414,7 +414,6 @@ public final class RtlSdrUsbProxyService extends Service {
         final int transferLength = Math.min(requestedLength, 256 * 1024);
         final int requestCount = 8;
         ArrayBlockingQueue<BulkChunk> completed = new ArrayBlockingQueue<>(requestCount);
-        ArrayBlockingQueue<BulkChunk> reusable = new ArrayBlockingQueue<>(requestCount);
         AtomicBoolean streaming = new AtomicBoolean(true);
         AtomicReference<String> stopReason = new AtomicReference<>("unknown");
         Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
@@ -476,7 +475,25 @@ public final class RtlSdrUsbProxyService extends Service {
                     out.writeInt(chunk.length);
                     out.write(data);
                     out.flush();
-                    reusable.put(chunk);
+
+                    // Recycle this request only after its buffer has been copied to
+                    // the socket. The USB completion thread must never wait for the
+                    // TCP writer before it can reap the other requests already in
+                    // flight.
+                    buffer.clear();
+                    if (chunk.request.queue(buffer, transferLength)) {
+                        inFlight.put(chunk.request, buffer);
+                    } else {
+                        Log.w(TAG, "RTL-SDR USB request retired after "
+                                + chunk.length + "-byte transfer because requeue failed"
+                                + " • remaining=" + inFlight.size());
+                        try { chunk.request.close(); } catch (Exception ignored) { }
+                        if (inFlight.isEmpty()) {
+                            stopReason.compareAndSet("unknown",
+                                    "all USB requests retired after requeue failures");
+                            streaming.set(false);
+                        }
+                    }
                 }
             } catch (IOException exception) {
                 stopReason.compareAndSet("unknown", "socket writer IOException: " + exception);
@@ -498,72 +515,30 @@ public final class RtlSdrUsbProxyService extends Service {
                 if (buffer == null) continue;
                 int transferred = buffer.position();
                 if (transferred > 0) {
+                    // Hand the completed buffer to the socket writer and immediately
+                    // return to requestWait(). The writer owns this request until it
+                    // has copied the buffer and requeued it.
                     completed.put(new BulkChunk(request, buffer, transferred));
-                    BulkChunk ready = reusable.take();
-                    ready.buffer.clear();
-                    if (ready.request.queue(ready.buffer, transferLength)) {
-                        inFlight.put(ready.request, ready.buffer);
-                    } else {
-                        // A completed UsbRequest can occasionally refuse reuse on
-                        // Android even though the device and other requests remain
-                        // healthy. Replace only that slot instead of killing IQ.
-                        Log.w(TAG, "RTL-SDR USB request requeue failed after "
-                                + transferred + "-byte transfer; replacing request");
-                        try { ready.request.close(); } catch (Exception ignored) { }
-
-                        UsbRequest replacement = new UsbRequest();
-                        if (!replacement.initialize(connection, endpoint)) {
-                            replacement.close();
-                            stopReason.compareAndSet("unknown",
-                                    "USB replacement request initialization failed after "
-                                            + transferred + "-byte transfer");
-                            streaming.set(false);
-                            break;
-                        }
-                        ByteBuffer replacementBuffer = ByteBuffer.allocateDirect(transferLength);
-                        replacementBuffer.clear();
-                        if (!replacement.queue(replacementBuffer, transferLength)) {
-                            replacement.close();
-                            stopReason.compareAndSet("unknown",
-                                    "USB replacement request queue failed after "
-                                            + transferred + "-byte transfer");
-                            streaming.set(false);
-                            break;
-                        }
-                        inFlight.put(replacement, replacementBuffer);
-                    }
                 } else {
-                    // Android may occasionally complete an asynchronous USB request
-                    // with zero bytes and refuse to requeue that same UsbRequest.
-                    // Do not tear down the seven other healthy reads for one bad slot.
+                    // A zero-byte completion is not useful IQ. Try the same request
+                    // once more; if Android refuses it, retire only that slot. Seven
+                    // other requests may still be healthy, and creating a replacement
+                    // while those requests are pending has also been observed to fail.
                     buffer.clear();
                     if (request.queue(buffer, transferLength)) {
                         inFlight.put(request, buffer);
                     } else {
-                        Log.w(TAG, "RTL-SDR USB request requeue failed after zero-byte transfer; replacing request");
+                        Log.w(TAG, "RTL-SDR USB request retired after zero-byte transfer"
+                                + " because requeue failed • remaining=" + inFlight.size());
                         try { request.close(); } catch (Exception ignored) { }
-
-                        UsbRequest replacement = new UsbRequest();
-                        if (!replacement.initialize(connection, endpoint)) {
-                            replacement.close();
+                        if (inFlight.isEmpty() && completed.isEmpty()) {
                             stopReason.compareAndSet("unknown",
-                                    "USB replacement request initialization failed after zero-byte transfer");
+                                    "all USB requests retired after zero-byte completions");
                             streaming.set(false);
                             break;
                         }
-                        ByteBuffer replacementBuffer = ByteBuffer.allocateDirect(transferLength);
-                        replacementBuffer.clear();
-                        if (!replacement.queue(replacementBuffer, transferLength)) {
-                            replacement.close();
-                            stopReason.compareAndSet("unknown",
-                                    "USB replacement request queue failed after zero-byte transfer");
-                            streaming.set(false);
-                            break;
-                        }
-                        inFlight.put(replacement, replacementBuffer);
                     }
-                }
-            }
+                }            }
         } catch (InterruptedException exception) {
             stopReason.compareAndSet("unknown", "USB stream thread interrupted");
             Thread.currentThread().interrupt();
@@ -574,7 +549,7 @@ public final class RtlSdrUsbProxyService extends Service {
             String terminationSummary = "RTL-SDR stream ended: " + stopReason.get()
                     + " • inFlight=" + inFlight.size()
                     + " completed=" + completed.size()
-                    + " reusable=" + reusable.size();
+                    + " writerPending=" + completed.size();
             lastStreamStatus = terminationSummary;
             getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                     .edit().putString(PREF_LAST_STREAM_STATUS, terminationSummary).apply();
@@ -593,10 +568,6 @@ public final class RtlSdrUsbProxyService extends Service {
                 }
             }
             for (BulkChunk chunk : completed) {
-                try { chunk.request.cancel(); } catch (Exception ignored) { }
-                try { chunk.request.close(); } catch (Exception ignored) { }
-            }
-            for (BulkChunk chunk : reusable) {
                 try { chunk.request.cancel(); } catch (Exception ignored) { }
                 try { chunk.request.close(); } catch (Exception ignored) { }
             }
