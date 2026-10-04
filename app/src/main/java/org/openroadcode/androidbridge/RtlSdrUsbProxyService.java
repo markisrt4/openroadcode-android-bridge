@@ -466,6 +466,9 @@ public final class RtlSdrUsbProxyService extends Service {
         java.util.concurrent.atomic.AtomicLong writerChunks = new java.util.concurrent.atomic.AtomicLong();
         java.util.concurrent.atomic.AtomicLong successfulRequeues = new java.util.concurrent.atomic.AtomicLong();
         java.util.concurrent.atomic.AtomicLong retiredRequests = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicBoolean zeroByteProbeDone = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicReference<String> zeroByteProbeStatus =
+                new java.util.concurrent.atomic.AtomicReference<>("not-run");
         java.util.concurrent.atomic.AtomicLong lastProgressNanos =
                 new java.util.concurrent.atomic.AtomicLong(System.nanoTime());
         Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
@@ -596,7 +599,8 @@ public final class RtlSdrUsbProxyService extends Service {
                             + " requeues=" + successfulRequeues.get()
                             + " retired=" + retiredRequests.get()
                             + " inFlight=" + inFlight.size()
-                            + " pending=" + completed.size();
+                            + " pending=" + completed.size()
+                    + " • probe=" + zeroByteProbeStatus.get();
                     lastStreamStatus = status;
                     getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                             .edit().putString(PREF_LAST_STREAM_STATUS, status).apply();
@@ -631,6 +635,31 @@ public final class RtlSdrUsbProxyService extends Service {
                     // has copied the buffer and requeued it.
                     completed.put(new BulkChunk(request, buffer, transferred));
                 } else {
+                    // Diagnose the first zero-byte async completion with a small
+                    // synchronous read on the same endpoint. This deliberately does
+                    // not change recovery behavior: it tells us whether the endpoint
+                    // still works after Android's async UsbRequest path goes empty.
+                    if (zeroByteProbeDone.compareAndSet(false, true)) {
+                        byte[] probeBuffer = new byte[16 * 1024];
+                        int probeResult;
+                        synchronized (usbLock) {
+                            probeResult = connection.bulkTransfer(
+                                    endpoint, probeBuffer, probeBuffer.length, 250);
+                        }
+                        String probe = "sync bulk probe after zero-byte async completion"
+                                + " • result=" + probeResult
+                                + " endpoint=0x" + Integer.toHexString(endpoint.getAddress())
+                                + " completion=" + completion
+                                + " inFlight=" + inFlight.size()
+                                + " pending=" + completed.size();
+                        zeroByteProbeStatus.set(probe);
+                        lastStreamStatus = probe;
+                        getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
+                                .edit().putString(PREF_LAST_STREAM_STATUS, probe).apply();
+                        Log.w(TAG, probe);
+                        updateNotification(probe);
+                    }
+
                     // A zero-byte completion is not useful IQ. Try the same request
                     // once more; if Android refuses it, retire only that slot. Seven
                     // other requests may still be healthy, and creating a replacement
