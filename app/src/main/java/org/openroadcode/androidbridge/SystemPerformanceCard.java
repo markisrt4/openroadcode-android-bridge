@@ -215,6 +215,31 @@ public final class SystemPerformanceCard {
       }
       workloadText.append("\n\n");
     }
+    JSONArray services = sample.optJSONArray("services");
+    if (services != null) {
+      int headingStart = workloadText.length();
+      workloadText.append("SERVICES • ").append(sample.optString("service_monitor_status", "unknown"))
+          .append("\nSocket state, not an application response check. UDP bandwidth unavailable.\n");
+      colors.add(new ColorRange(headingStart, workloadText.indexOf("\n", headingStart), UiTheme.BLUE));
+      for (int i = 0; i < services.length(); i++) {
+        JSONObject service = services.optJSONObject(i);
+        if (service == null) continue;
+        int rowStart = workloadText.length();
+        workloadText.append("\n").append(service.optString("name", "Service"))
+            .append(" [").append(service.isNull("pid") ? "--" : service.optString("pid"))
+            .append("] ").append(service.optString("protocol", "--"))
+            .append(" • ").append(service.optString("state", "unknown"))
+            .append("\n  ").append(service.optString("local_endpoint", "--"))
+            .append(" → ").append(service.optString("remote_endpoint", "--"))
+            .append("\n  RX ").append(format(service, "receive_bytes_per_second", 1024, "%.1f KiB/s"))
+            .append(" • TX ").append(format(service, "transmit_bytes_per_second", 1024, "%.1f KiB/s"))
+            .append("\n  queues RX ").append(format(service, "receive_queue_bytes", 1, "%.0f B"))
+            .append(" • TX ").append(format(service, "transmit_queue_bytes", 1, "%.0f B"))
+            .append(" • UDP drops ").append(format(service, "udp_drops", 1, "%.0f"));
+        colors.add(new ColorRange(rowStart, workloadText.length(), serviceColor(service.optString("state"))));
+      }
+      workloadText.append("\n\n");
+    }
     String text = workloadText.toString()
         + "SYSTEM\nCPU  " + format(sample, "cpu_percent", 1, "%.0f%%")
         + (sample.isNull("cpu_unavailable_reason") ? "" : " • " + sample.optString("cpu_unavailable_reason"))
@@ -254,6 +279,16 @@ public final class SystemPerformanceCard {
   private static int pressureColor(Double percent) {
     return percent == null ? UiTheme.MUTED : percent >= 95 ? UiTheme.RED
         : percent >= 80 ? UiTheme.AMBER : UiTheme.GREEN;
+  }
+
+  private static int serviceColor(String state) {
+    return switch (state) {
+      case "connected", "listening" -> UiTheme.GREEN;
+      case "connecting", "closing" -> UiTheme.AMBER;
+      case "dropping", "stopped" -> UiTheme.RED;
+      case "bound" -> UiTheme.BLUE;
+      default -> UiTheme.MUTED;
+    };
   }
 
   private static int sensorColor(String state) {
