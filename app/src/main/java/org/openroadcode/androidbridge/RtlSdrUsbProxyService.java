@@ -617,9 +617,12 @@ public final class RtlSdrUsbProxyService extends Service {
             else if (!streaming.get()) stopReason.compareAndSet("unknown", "streaming flag cleared");
             else stopReason.compareAndSet("unknown", "USB stream loop exited unexpectedly");
             String terminationSummary = "RTL-SDR stream ended: " + stopReason.get()
-                    + " • inFlight=" + inFlight.size()
-                    + " completed=" + completed.size()
-                    + " writerPending=" + completed.size();
+                    + " • completions=" + usbCompletions.get()
+                    + " written=" + writerChunks.get()
+                    + " requeues=" + successfulRequeues.get()
+                    + " retired=" + retiredRequests.get()
+                    + " inFlight=" + inFlight.size()
+                    + " pending=" + completed.size();
             lastStreamStatus = terminationSummary;
             getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                     .edit().putString(PREF_LAST_STREAM_STATUS, terminationSummary).apply();
