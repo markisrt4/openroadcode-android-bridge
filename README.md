@@ -134,3 +134,12 @@ charge percentage, Android health, charging state, and plugged state. The
 computing unit needs the Termux:API companion app and `termux-api` CLI package.
 Battery polling runs every 30 seconds independently of CPU sampling; stale or
 unavailable values stay unavailable. Battery temperature is never CPU temperature.
+
+Performance uses four tabs: **Workload**, **System**, **Sensors**, and **Services**.
+Summary tiles show the main readings. Process and stream rows show short names
+and color-coded states; tap a row for full names, sources, counters, and details.
+Service endpoints are grouped by process and protocol; tap a group for each
+endpoint's bandwidth and queues. **About these readings** contains measurement
+notes. Two-minute charts are available through **Show trends**, collapsed by
+default. Live values update in place so reading or opening details is not
+interrupted by rebuilding the list every second.
