@@ -66,7 +66,11 @@ final class RtlSdrCard {
         RtlSdrUsbProxyService.PREF_LAST_STREAM_STATUS, "none recorded");
     String serviceStatus = diagnosticPreferences.getString(
         RtlSdrUsbProxyService.PREF_LAST_SERVICE_STATUS, "no service status recorded");
-    diagnostics.setText("Last stream: " + streamStatus + "\nService: " + serviceStatus);
+    String controlStatus = diagnosticPreferences.getString(
+        RtlSdrUsbProxyService.PREF_CONTROL_STATUS, "none recorded");
+    diagnostics.setText("Last stream: " + streamStatus
+        + "\nControl: " + controlStatus
+        + "\nService: " + serviceStatus);
     switch (state.status) {
       case OPEN -> {
         status.setText("●  RTL-SDR connected");
