@@ -723,6 +723,10 @@ public final class RtlSdrUsbProxyService extends Service {
         } catch (InterruptedException exception) {
             stopReason.compareAndSet("unknown", "USB stream thread interrupted");
             Thread.currentThread().interrupt();
+        } catch (RuntimeException exception) {
+            String detail = exception.getClass().getSimpleName() + ": " + safeMessage(exception);
+            stopReason.compareAndSet("unknown", "USB requestWait failure • " + detail);
+            Log.e(TAG, "RTL-SDR USB requestWait loop failed", exception);
         } finally {
             if (!running) stopReason.compareAndSet("unknown", "service stopping");
             else if (!streaming.get()) stopReason.compareAndSet("unknown", "streaming flag cleared");
