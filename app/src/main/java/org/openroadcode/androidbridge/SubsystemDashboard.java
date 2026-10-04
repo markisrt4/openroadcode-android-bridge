@@ -20,6 +20,7 @@ final class SubsystemDashboard {
   static final String MEDIA = "media";
   static final String CONNECTIVITY = "connectivity";
   static final String RUNTIME = "runtime";
+  static final String DIAGNOSTICS = "diagnostics";
 
   private final Context context;
   private final Listener listener;
@@ -57,11 +58,9 @@ final class SubsystemDashboard {
         tile("⇄", "CONNECTIVITY", "LAN access • bridge endpoints",
             UiTheme.BLUE, CONNECTIVITY)));
 
-    LinearLayout runtime = tile("⚙", "RUNTIME", "Termux • Linux • service profiles",
-        UiTheme.SILVER, RUNTIME);
-    LinearLayout.LayoutParams runtimeParams = new LinearLayout.LayoutParams(-1, dp(126));
-    runtimeParams.setMargins(0, dp(5), 0, 0);
-    root.addView(runtime, runtimeParams);
+    root.addView(row(
+        tile("⚙", "RUNTIME", "Termux • Linux • service profiles", UiTheme.SILVER, RUNTIME),
+        tile("≡", "DIAGNOSTICS", "Live logs • filters • sharing", UiTheme.SILVER, DIAGNOSTICS)));
 
     return root;
   }
