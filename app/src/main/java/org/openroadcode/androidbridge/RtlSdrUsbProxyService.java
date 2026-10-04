@@ -431,66 +431,28 @@ public final class RtlSdrUsbProxyService extends Service {
         writeResult(out, transferred, response);
     }
 
-    private static final class BulkChunk {
-        final UsbRequest request;
-        final ByteBuffer buffer;
-        final int length;
-
-        BulkChunk(UsbRequest request, ByteBuffer buffer, int length) {
-            this.request = request;
-            this.buffer = buffer;
-            this.length = length;
-        }
-    }
-
     private void handleBulkInStream(DataInputStream in, DataOutputStream out,
                                     UsbDeviceConnection connection, UsbDevice device) throws IOException {
         int endpointAddress = in.readInt();
         int requestedLength = checkedLength(in.readInt());
-        in.readInt(); // timeout is not used by Android's asynchronous UsbRequest API
+        int requestedTimeoutMs = in.readInt();
         UsbEndpoint endpoint = findEndpoint(device, endpointAddress);
         if (endpoint == null || (endpoint.getDirection() & 0x80) == 0) {
             writeError(out, "USB bulk IN endpoint 0x" + Integer.toHexString(endpointAddress) + " not found");
             return;
         }
 
-        // Mirror librtlsdr/libusb's strategy: keep several USB reads in flight
-        // so the RTL2832U is never waiting for Java or the localhost writer to
-        // submit the next transfer. Buffers are allocated once and recycled.
+        // Samsung/Android 17 has been observed throwing from requestWait() before
+        // the first UsbRequest completion. Starting with synchronous bulkTransfer()
+        // avoids putting the USB connection through that broken async state first.
         final int transferLength = Math.min(requestedLength, 256 * 1024);
-        final int requestCount = 8;
-        ArrayBlockingQueue<BulkChunk> completed = new ArrayBlockingQueue<>(requestCount);
+        final int timeoutMs = requestedTimeoutMs > 0 ? requestedTimeoutMs : 1000;
+        final byte[] buffer = new byte[transferLength];
         AtomicBoolean streaming = new AtomicBoolean(true);
         AtomicReference<String> stopReason = new AtomicReference<>("unknown");
-        java.util.concurrent.atomic.AtomicLong usbCompletions = new java.util.concurrent.atomic.AtomicLong();
-        java.util.concurrent.atomic.AtomicLong writerChunks = new java.util.concurrent.atomic.AtomicLong();
-        java.util.concurrent.atomic.AtomicLong successfulRequeues = new java.util.concurrent.atomic.AtomicLong();
-        java.util.concurrent.atomic.AtomicLong retiredRequests = new java.util.concurrent.atomic.AtomicLong();
-        java.util.concurrent.atomic.AtomicBoolean zeroByteProbeDone = new java.util.concurrent.atomic.AtomicBoolean(false);
-        java.util.concurrent.atomic.AtomicReference<String> zeroByteProbeStatus =
-                new java.util.concurrent.atomic.AtomicReference<>("not-run");
-        java.util.concurrent.atomic.AtomicReference<String> interfaceRecoveryProbeStatus =
-                new java.util.concurrent.atomic.AtomicReference<>("not-run");
-        java.util.concurrent.atomic.AtomicLong lastProgressNanos =
-                new java.util.concurrent.atomic.AtomicLong(System.nanoTime());
-        Map<UsbRequest, ByteBuffer> inFlight = Collections.synchronizedMap(new HashMap<>());
-
-        for (int i = 0; i < requestCount; i++) {
-            UsbRequest request = new UsbRequest();
-            if (!request.initialize(connection, endpoint)) {
-                request.close();
-                throw new IOException("Unable to initialize asynchronous RTL-SDR USB request");
-            }
-            ByteBuffer buffer = ByteBuffer.allocateDirect(transferLength);
-            buffer.clear();
-            buffer.limit(transferLength);
-            inFlight.put(request, buffer);
-            if (!request.queue(buffer)) {
-                inFlight.remove(request);
-                request.close();
-                throw new IOException("Unable to queue asynchronous RTL-SDR USB request");
-            }
-        }
+        java.util.concurrent.atomic.AtomicLong chunks = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong bytes = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong failures = new java.util.concurrent.atomic.AtomicLong();
 
         Thread control = new Thread(() -> {
             try {
@@ -507,326 +469,87 @@ public final class RtlSdrUsbProxyService extends Service {
                     return;
                 }
                 Log.i(TAG, "RTL-SDR stream stop requested by client");
-                stopReason.compareAndSet("unknown", "client STREAM_STOP • magic=0x" + Integer.toHexString(magic) + " version=" + version + " opcode=" + opcode);
+                stopReason.compareAndSet("unknown", "client STREAM_STOP");
                 streaming.set(false);
-                synchronized (inFlight) {
-                    for (UsbRequest request : inFlight.keySet()) {
-                        try { request.cancel(); } catch (Exception ignored) { }
-                    }
-                }
             } catch (IOException exception) {
-                // EOF on the command side must not stop a healthy USB IQ stream.
-                // The stream writer will detect a broken output socket itself.
+                // EOF on the control side does not by itself stop a healthy stream.
                 Log.i(TAG, "RTL-SDR stream control reader ended: " + exception.getMessage());
             }
         }, "orc-rtl-stream-control");
         control.start();
 
-        Thread writer = new Thread(() -> {
-            try {
-                while (running && streaming.get()) {
-                    BulkChunk chunk = completed.poll(500, TimeUnit.MILLISECONDS);
-                    if (chunk == null) continue;
-                    ByteBuffer buffer = chunk.buffer;
-                    buffer.flip();
-                    byte[] data = new byte[chunk.length];
-                    buffer.get(data, 0, chunk.length);
-                    out.writeInt(chunk.length);
-                    out.write(data);
-                    out.flush();
-                    long written = writerChunks.incrementAndGet();
-                    lastProgressNanos.set(System.nanoTime());
-                    if (written <= 3 || written % 32 == 0) {
-                        Log.i(TAG, "RTL-SDR writer progress"
-                                + " • chunks=" + written
-                                + " inFlight=" + inFlight.size()
-                                + " pending=" + completed.size()
-                                + " requeues=" + successfulRequeues.get()
-                                + " retired=" + retiredRequests.get());
-                    }
-
-                    // Recycle this request only after its buffer has been copied to
-                    // the socket. The USB completion thread must never wait for the
-                    // TCP writer before it can reap the other requests already in
-                    // flight.
-                    buffer.clear();
-                    buffer.limit(transferLength);
-                    // Publish ownership before queueing. A fast completion can otherwise
-                    // reach requestWait() before the writer records the request as in-flight.
-                    inFlight.put(chunk.request, buffer);
-                    if (chunk.request.queue(buffer)) {
-                        successfulRequeues.incrementAndGet();
-                        lastProgressNanos.set(System.nanoTime());
-                    } else {
-                        inFlight.remove(chunk.request);
-                        retiredRequests.incrementAndGet();
-                        Log.w(TAG, "RTL-SDR USB request retired after "
-                                + chunk.length + "-byte transfer because requeue failed"
-                                + " • remaining=" + inFlight.size());
-                        try { chunk.request.close(); } catch (Exception ignored) { }
-                        if (inFlight.isEmpty()) {
-                            stopReason.compareAndSet("unknown",
-                                    "all USB requests retired after requeue failures");
-                            streaming.set(false);
-                        }
-                    }
-                }
-            } catch (IOException exception) {
-                stopReason.compareAndSet("unknown", "socket writer IOException: " + exception);
-                Log.e(TAG, "RTL-SDR socket writer failed", exception);
-                streaming.set(false);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                stopReason.compareAndSet("unknown", "socket writer interrupted");
-                streaming.set(false);
-            }
-        }, "orc-rtl-socket-writer");
-        writer.start();
-
-        Thread watchdog = new Thread(() -> {
-            while (running && streaming.get()) {
-                try {
-                    Thread.sleep(2000L);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                long idleMillis = TimeUnit.NANOSECONDS.toMillis(
-                        System.nanoTime() - lastProgressNanos.get());
-                if (idleMillis >= 2000L) {
-                    String status = "RTL-SDR stream stalled"
-                            + " • idleMs=" + idleMillis
-                            + " completions=" + usbCompletions.get()
-                            + " written=" + writerChunks.get()
-                            + " requeues=" + successfulRequeues.get()
-                            + " retired=" + retiredRequests.get()
-                            + " inFlight=" + inFlight.size()
-                            + " pending=" + completed.size()
-                    + " • probe=" + zeroByteProbeStatus.get()
-                    + " • recovery=" + interfaceRecoveryProbeStatus.get();
-                    lastStreamStatus = status;
-                    getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
-                            .edit().putString(PREF_LAST_STREAM_STATUS, status).apply();
-                    Log.w(TAG, status);
-                    updateNotification(status);
-                }
-            }
-        }, "orc-rtl-stream-watchdog");
-        watchdog.start();
-
         try {
+            Log.i(TAG, "RTL-SDR synchronous bulk stream starting"
+                    + " • endpoint=0x" + Integer.toHexString(endpoint.getAddress())
+                    + " transferLength=" + transferLength
+                    + " timeoutMs=" + timeoutMs);
             while (running && streaming.get()) {
-                UsbRequest request = connection.requestWait();
-                if (request == null) continue;
-                ByteBuffer buffer = inFlight.remove(request);
-                if (buffer == null) continue;
-                int transferred = buffer.position();
-                long completion = usbCompletions.incrementAndGet();
-                lastProgressNanos.set(System.nanoTime());
-                if (completion <= 3 || completion % 32 == 0) {
-                    Log.i(TAG, "RTL-SDR USB completion"
-                            + " • count=" + completion
-                            + " bytes=" + transferred
-                            + " inFlight=" + inFlight.size()
-                            + " pending=" + completed.size()
-                            + " requeues=" + successfulRequeues.get()
-                            + " retired=" + retiredRequests.get());
+                int transferred;
+                synchronized (usbLock) {
+                    transferred = connection.bulkTransfer(
+                            endpoint, buffer, buffer.length, timeoutMs);
                 }
                 if (transferred > 0) {
-                    // Hand the completed buffer to the socket writer and immediately
-                    // return to requestWait(). The writer owns this request until it
-                    // has copied the buffer and requeued it.
-                    completed.put(new BulkChunk(request, buffer, transferred));
-                } else {
-                    // Diagnose the first zero-byte async completion with a small
-                    // synchronous read on the same endpoint. This deliberately does
-                    // not change recovery behavior: it tells us whether the endpoint
-                    // still works after Android's async UsbRequest path goes empty.
-                    if (zeroByteProbeDone.compareAndSet(false, true)) {
-                        byte[] probeBuffer = new byte[16 * 1024];
-                        int probeResult;
-                        synchronized (usbLock) {
-                            probeResult = connection.bulkTransfer(
-                                    endpoint, probeBuffer, probeBuffer.length, 250);
-                        }
-                        String probe = "sync bulk probe after zero-byte async completion"
-                                + " • result=" + probeResult
-                                + " endpoint=0x" + Integer.toHexString(endpoint.getAddress())
-                                + " completion=" + completion
-                                + " inFlight=" + inFlight.size()
-                                + " pending=" + completed.size();
-                        zeroByteProbeStatus.set(probe);
-                        lastStreamStatus = probe;
-                        getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
-                                .edit().putString(PREF_LAST_STREAM_STATUS, probe).apply();
-                        Log.w(TAG, probe);
-                        updateNotification(probe);
-                    }
-
-                    // A zero-byte completion is not useful IQ. Try the same request
-                    // once more; if Android refuses it, retire only that slot. Seven
-                    // other requests may still be healthy, and creating a replacement
-                    // while those requests are pending has also been observed to fail.
-                    buffer.clear();
-                    buffer.limit(transferLength);
-                    inFlight.put(request, buffer);
-                    if (request.queue(buffer)) {
-                        successfulRequeues.incrementAndGet();
-                        lastProgressNanos.set(System.nanoTime());
-                    } else {
-                        inFlight.remove(request);
-                        retiredRequests.incrementAndGet();
-                        Log.w(TAG, "RTL-SDR USB request retired after zero-byte transfer"
-                                + " because requeue failed • remaining=" + inFlight.size());
-                        try { request.close(); } catch (Exception ignored) { }
-                        if (inFlight.isEmpty() && completed.isEmpty()) {
-                            // At this point every async request has retired and no
-                            // buffer is owned by the writer. Probe whether cycling
-                            // interface 0 restores endpoint 0x81. Preserve the
-                            // shared logical claim count: this is a diagnostic
-                            // physical release/reclaim, not a client RELEASE.
-                            UsbInterface streamInterface = findInterface(device, 0);
-                            boolean released = false;
-                            boolean reclaimed = false;
-                            int recoveryProbeResult = -1;
-                            if (streamInterface != null) {
-                                byte[] recoveryProbeBuffer = new byte[16 * 1024];
-                                synchronized (usbLock) {
-                                    try {
-                                        released = connection.releaseInterface(streamInterface);
-                                        reclaimed = connection.claimInterface(streamInterface, true);
-                                        if (reclaimed) {
-                                            recoveryProbeResult = connection.bulkTransfer(
-                                                    endpoint, recoveryProbeBuffer,
-                                                    recoveryProbeBuffer.length, 250);
-                                        }
-                                    } catch (Exception exception) {
-                                        Log.w(TAG, "RTL-SDR interface recovery probe failed", exception);
-                                    }
-                                }
-                            }
-                            String recoveryProbe = "interface recovery probe"
-                                    + " • released=" + released
-                                    + " reclaimed=" + reclaimed
-                                    + " bulkResult=" + recoveryProbeResult
-                                    + " endpoint=0x" + Integer.toHexString(endpoint.getAddress())
-                                    + " completion=" + completion;
-                            interfaceRecoveryProbeStatus.set(recoveryProbe);
-                            Log.w(TAG, recoveryProbe);
-                            stopReason.compareAndSet("unknown",
-                                    "all USB requests retired after zero-byte completions");
-                            streaming.set(false);
-                            break;
-                        }
-                    }
-                }            }
-        } catch (InterruptedException exception) {
-            stopReason.compareAndSet("unknown", "USB stream thread interrupted");
-            Thread.currentThread().interrupt();
-        } catch (RuntimeException exception) {
-            String detail = exception.getClass().getSimpleName() + ": " + safeMessage(exception);
-            Log.e(TAG, "RTL-SDR USB requestWait loop failed; falling back to synchronous bulk reads", exception);
-
-            // Some Android USB stacks can throw from requestWait() before the
-            // first completion even though every UsbRequest initialized and
-            // queued successfully.  Tear down the async pool and keep the ORCU
-            // stream alive with bulkTransfer() instead of sending a false EOF.
-            synchronized (inFlight) {
-                for (UsbRequest request : inFlight.keySet()) {
-                    try { request.cancel(); } catch (Exception ignored) { }
-                    try { request.close(); } catch (Exception ignored) { }
-                }
-                inFlight.clear();
-            }
-            completed.clear();
-
-            byte[] fallbackBuffer = new byte[transferLength];
-            int consecutiveFailures = 0;
-            long fallbackChunks = 0;
-            stopReason.set("USB requestWait failure; synchronous bulk fallback active • " + detail);
-            while (running && streaming.get()) {
-                int transferred = connection.bulkTransfer(
-                        endpoint, fallbackBuffer, fallbackBuffer.length, 1000);
-                if (transferred > 0) {
-                    consecutiveFailures = 0;
-                    fallbackChunks++;
+                    long chunk = chunks.incrementAndGet();
+                    long totalBytes = bytes.addAndGet(transferred);
                     out.writeInt(transferred);
-                    out.write(fallbackBuffer, 0, transferred);
+                    out.write(buffer, 0, transferred);
                     out.flush();
-                    writerChunks.incrementAndGet();
-                    lastProgressNanos.set(System.nanoTime());
-                    if (fallbackChunks <= 3 || fallbackChunks % 32 == 0) {
-                        Log.i(TAG, "RTL-SDR synchronous fallback progress"
-                                + " • chunks=" + fallbackChunks
-                                + " bytes=" + transferred);
+                    if (chunk <= 3 || chunk % 32 == 0) {
+                        Log.i(TAG, "RTL-SDR synchronous stream progress"
+                                + " • chunks=" + chunk
+                                + " bytes=" + totalBytes
+                                + " last=" + transferred);
                     }
                     continue;
                 }
-                consecutiveFailures++;
-                if (consecutiveFailures >= 3) {
-                    stopReason.set("synchronous bulk fallback failed"
-                            + " • result=" + transferred
-                            + " failures=" + consecutiveFailures
-                            + " • original=" + detail);
+
+                long failure = failures.incrementAndGet();
+                Log.w(TAG, "RTL-SDR synchronous bulk read failed"
+                        + " • result=" + transferred
+                        + " failure=" + failure
+                        + " chunks=" + chunks.get()
+                        + " bytes=" + bytes.get());
+                // A timeout/error can be transient. Three consecutive failures
+                // preserve the previous fallback policy without touching UsbRequest.
+                if (failure >= 3) {
+                    stopReason.compareAndSet("unknown",
+                            "synchronous bulk stream failed"
+                                    + " • result=" + transferred
+                                    + " failures=" + failure);
                     streaming.set(false);
                     break;
                 }
             }
+        } catch (IOException exception) {
+            stopReason.compareAndSet("unknown", "socket writer IOException: " + exception);
+            Log.e(TAG, "RTL-SDR synchronous socket writer failed", exception);
+            streaming.set(false);
         } finally {
             if (!running) stopReason.compareAndSet("unknown", "service stopping");
             else if (!streaming.get()) stopReason.compareAndSet("unknown", "streaming flag cleared");
-            else stopReason.compareAndSet("unknown", "USB stream loop exited unexpectedly");
-            String terminationSummary = "RTL-SDR stream ended: " + stopReason.get()
-                    + " • completions=" + usbCompletions.get()
-                    + " written=" + writerChunks.get()
-                    + " requeues=" + successfulRequeues.get()
-                    + " retired=" + retiredRequests.get()
-                    + " inFlight=" + inFlight.size()
-                    + " pending=" + completed.size()
-                    + " • probe=" + zeroByteProbeStatus.get();
+            else stopReason.compareAndSet("unknown", "synchronous stream loop exited unexpectedly");
+
+            String terminationSummary = "RTL-SDR synchronous stream ended: " + stopReason.get()
+                    + " • chunks=" + chunks.get()
+                    + " bytes=" + bytes.get()
+                    + " failures=" + failures.get();
             lastStreamStatus = terminationSummary;
             getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                     .edit().putString(PREF_LAST_STREAM_STATUS, terminationSummary).apply();
             Log.w(TAG, terminationSummary);
             updateNotification(terminationSummary);
             streaming.set(false);
-            // Do not interrupt the stream-control thread here. It is the only
-            // reader of the STREAM_STOP command and may still be consuming its
-            // header. Wait for it to finish before returning to handleClient,
-            // otherwise both threads race to read the next ORCU command.
-            writer.interrupt();
-            watchdog.interrupt();
-            synchronized (inFlight) {
-                for (UsbRequest request : inFlight.keySet()) {
-                    try { request.cancel(); } catch (Exception ignored) { }
-                    try { request.close(); } catch (Exception ignored) { }
-                }
-            }
-            for (BulkChunk chunk : completed) {
-                try { chunk.request.cancel(); } catch (Exception ignored) { }
-                try { chunk.request.close(); } catch (Exception ignored) { }
-            }
-            try { watchdog.join(1000L); } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-            }
-            try { writer.join(1000L); } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-            }
+
             try { control.join(1000L); } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
-            // Zero is an unambiguous stream terminator because IQ frames are nonempty.
-            // Record the reason *before* writing it: once the peer consumes the
-            // terminator it will close the socket, so any later writer activity can
-            // report Broken pipe and obscure the event that actually ended streaming.
+
             String terminatorStatus = "sending zero-length stream terminator"
                     + " • reason=" + stopReason.get()
-                    + " completions=" + usbCompletions.get()
-                    + " written=" + writerChunks.get()
-                    + " requeues=" + successfulRequeues.get()
-                    + " retired=" + retiredRequests.get()
-                    + " inFlight=" + inFlight.size()
-                    + " pending=" + completed.size();
+                    + " chunks=" + chunks.get()
+                    + " bytes=" + bytes.get()
+                    + " failures=" + failures.get();
             Log.w(TAG, terminatorStatus);
             getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
                     .edit().putString(PREF_LAST_STREAM_STATUS, terminatorStatus).commit();
