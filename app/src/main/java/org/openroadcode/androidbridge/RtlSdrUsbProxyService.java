@@ -767,6 +767,20 @@ public final class RtlSdrUsbProxyService extends Service {
                 Thread.currentThread().interrupt();
             }
             // Zero is an unambiguous stream terminator because IQ frames are nonempty.
+            // Record the reason *before* writing it: once the peer consumes the
+            // terminator it will close the socket, so any later writer activity can
+            // report Broken pipe and obscure the event that actually ended streaming.
+            String terminatorStatus = "sending zero-length stream terminator"
+                    + " • reason=" + stopReason.get()
+                    + " completions=" + usbCompletions.get()
+                    + " written=" + writerChunks.get()
+                    + " requeues=" + successfulRequeues.get()
+                    + " retired=" + retiredRequests.get()
+                    + " inFlight=" + inFlight.size()
+                    + " pending=" + completed.size();
+            Log.w(TAG, terminatorStatus);
+            getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
+                    .edit().putString(PREF_LAST_STREAM_STATUS, terminatorStatus).commit();
             out.writeInt(0);
             out.flush();
         }
