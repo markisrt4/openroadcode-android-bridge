@@ -336,17 +336,41 @@ public final class RtlSdrUsbProxyService extends Service {
         boolean input = (requestType & 0x80) != 0;
         byte[] buffer = new byte[length];
         if (!input && length > 0) in.readFully(buffer);
-        int transferred;
-        synchronized (usbLock) {
-            transferred = connection.controlTransfer(
-                    requestType, request, value, index, buffer, length, timeoutMs);
+        int transferred = -1;
+        int attempts = 0;
+        // Android's UsbDeviceConnection can occasionally report -1 for a
+        // transient control transfer even though the device remains attached.
+        // librtlsdr performs dense register/I2C sequences during R820T setup,
+        // where dropping one write leaves the tuner only partially configured.
+        // Retry only transport-level failures; short successful transfers are
+        // returned unchanged so librtlsdr can apply its normal validation.
+        while (attempts < 3) {
+            attempts++;
+            synchronized (usbLock) {
+                transferred = connection.controlTransfer(
+                        requestType, request, value, index, buffer, length, timeoutMs);
+            }
+            if (transferred >= 0) break;
+            if (attempts < 3) {
+                try {
+                    Thread.sleep(2L);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
         if (transferred < 0) {
             Log.e(TAG, String.format(java.util.Locale.US,
-                    "USB control failed: type=0x%02X request=0x%02X value=0x%04X index=0x%04X length=%d timeout=%d",
-                    requestType & 0xFF, request & 0xFF, value & 0xFFFF, index & 0xFFFF, length, timeoutMs));
+                    "USB control failed after %d attempt(s): type=0x%02X request=0x%02X value=0x%04X index=0x%04X length=%d timeout=%d",
+                    attempts, requestType & 0xFF, request & 0xFF, value & 0xFFFF, index & 0xFFFF, length, timeoutMs));
             writeResult(out, transferred, null);
             return;
+        }
+        if (attempts > 1) {
+            Log.w(TAG, String.format(java.util.Locale.US,
+                    "USB control recovered on attempt %d: type=0x%02X request=0x%02X value=0x%04X index=0x%04X length=%d",
+                    attempts, requestType & 0xFF, request & 0xFF, value & 0xFFFF, index & 0xFFFF, length));
         }
         byte[] response = null;
         if (input && transferred > 0) {
