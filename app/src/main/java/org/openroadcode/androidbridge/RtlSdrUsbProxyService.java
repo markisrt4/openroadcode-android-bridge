@@ -547,7 +547,10 @@ public final class RtlSdrUsbProxyService extends Service {
             // with packet-aligned sizes. This distinguishes an endpoint that
             // Android rejects outright from a problem specific to the 256 KiB
             // streaming request size.
-            int[] probeLengths = new int[] {512, 16384, 65536, transferLength};
+            int[] probeLengths = new int[] {
+                    512, 1024, 2048, 4096, 8192, 16384, 32768,
+                    65536, 131072, transferLength
+            };
             for (int probeLength : probeLengths) {
                 if (probeLength <= 0 || probeLength > buffer.length) continue;
                 byte[] probeBuffer = probeLength == buffer.length ? buffer : new byte[probeLength];
@@ -570,9 +573,10 @@ public final class RtlSdrUsbProxyService extends Service {
                     out.write(probeBuffer, 0, probeResult);
                     out.flush();
                     Log.i(TAG, "RTL-SDR synchronous bulk probe delivered IQ"
-                            + " • chunks=" + chunk
+                            + " • requested=" + probeLength
+                            + " delivered=" + probeResult
+                            + " chunks=" + chunk
                             + " bytes=" + totalBytes);
-                    break;
                 }
             }
 
