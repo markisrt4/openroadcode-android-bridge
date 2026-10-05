@@ -35,7 +35,11 @@ public final class RuntimeServiceManagerSettings {
   private final SharedPreferences preferences;
 
   public RuntimeServiceManagerSettings(Context context) {
-    preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    this(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE));
+  }
+
+  RuntimeServiceManagerSettings(SharedPreferences preferences) {
+    this.preferences = preferences;
     migrateLegacyRemote();
   }
 

@@ -22,6 +22,7 @@ final class SubsystemDashboard {
   static final String RUNTIME = "runtime";
   static final String PERFORMANCE = "performance";
   static final String CONFIGURATION = "configuration";
+  static final String DIAGNOSTICS = "diagnostics";
 
   private final Context context;
   private final Listener listener;
@@ -71,6 +72,10 @@ final class SubsystemDashboard {
             UiTheme.SILVER, RUNTIME, false),
         tile("▥", "PERFORMANCE", "CPU • sensors • service traffic",
             UiTheme.BLUE, PERFORMANCE, false)));
+
+    LinearLayout logs = tile("≡", "LIVE LOGS", "Runtime events • filters • sharing",
+        UiTheme.SILVER, DIAGNOSTICS, false);
+    root.addView(logs, new LinearLayout.LayoutParams(-1, dp(126)));
 
     return root;
   }

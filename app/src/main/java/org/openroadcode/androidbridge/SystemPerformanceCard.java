@@ -180,9 +180,8 @@ public final class SystemPerformanceCard {
   }
 
   private void render(Target target, JSONObject payload) {
-    JSONObject sample = payload.optJSONObject("snapshot");
-    Double age = number(payload, "sample_age_seconds");
-    if (!payload.isNull("error") || age == null || age > 3 || sample == null) {
+    JSONObject sample = freshSnapshot(payload);
+    if (sample == null) {
       clear(target.label() + ": waiting for a fresh performance sample");
       return;
     }
@@ -194,6 +193,13 @@ public final class SystemPerformanceCard {
     trends.setVisibility(showTrends ? View.VISIBLE : View.GONE);
     JSONArray history = payload.optJSONArray("history");
     trends.setHistory(history == null ? new JSONArray() : history);
+  }
+
+  static JSONObject freshSnapshot(JSONObject payload) {
+    Double age = number(payload, "sample_age_seconds");
+    if (payload.optInt("version", -1) != 1 || !payload.isNull("error")
+        || age == null || age < 0 || age > 3) return null;
+    return payload.optJSONObject("snapshot");
   }
 
   private static Double number(JSONObject object, String key) {
@@ -211,6 +217,7 @@ public final class SystemPerformanceCard {
   private static final class TrendView extends View {
     private JSONArray history = new JSONArray();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path path = new Path();
     private final String[] keys = {"orc_cpu_percent", "memory_used_percent", "temperature_c"};
     private final String[] labels = {"ORC CPU % (100 = one core)", "RAM %", "TEMP °C"};
     private final int[] colors = {UiTheme.BLUE, UiTheme.GREEN, UiTheme.AMBER};
@@ -235,7 +242,7 @@ public final class SystemPerformanceCard {
         canvas.drawText(labels[row] + " • last 2 minutes", 0, row * rowHeight + labelHeight - 4, paint);
         float top = row * rowHeight + labelHeight;
         float bottom = (row + 1) * rowHeight - 6;
-        Path path = new Path();
+        path.reset();
         boolean connected = false;
         float ceiling = row == 2 ? 120 : 100;
         if (row == 0) {

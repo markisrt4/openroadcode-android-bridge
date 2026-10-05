@@ -80,6 +80,35 @@ curl --max-time 5 http://127.0.0.1:8767/video -o "$PREFIX/tmp/camera.ts"
 ffprobe "$PREFIX/tmp/camera.ts"
 ```
 
+## Live ORC logs
+
+Open **Diagnostics → Logs** from the dashboard to view recent history and live
+updates from Termux or the paired remote Linux runtime. The screen defaults to
+the target selected on the Runtime screen. Remote Linux reuses the saved pairing
+credential; configure or renew pairing on the Runtime screen.
+
+Choose a minimum severity and an optional dotted component prefix such as
+`runtime`, `navigation`, or `media`. **Pause** stops polling and retains history;
+**Resume** catches up from the last cursor. Leaving the screen or backgrounding
+the app cancels pending requests. Connection failures retry with bounded backoff;
+access errors explain how to pair again or update the service manager.
+
+The screen keeps up to 200 events and 128 KiB of text. Large rows show a truncation
+marker. **Copy** and **Share** export the displayed history, including diagnostic
+context; review it before sending. These actions do not export the entire store.
+Filters operate on existing logs and cannot enable DEBUG in a running process.
+
+The ORC service manager must support `GET /logs` on its existing API port `8769`.
+Update/restart the Termux service manager or reinstall the Linux service manager
+before testing this screen. Termux uses its shared ORC log store. Linux currently
+exposes the restricted service-manager account's private store; logs belonging
+to other runtime accounts and Android bridge services are outside this feed.
+The screen identifies its source. No new Android permissions or foreground
+service are required.
+
+Port `8768` belongs to playback audio. The Termux runtime client uses `8769`,
+matching the current ORC service-manager launcher.
+
 ## Build
 
 The project targets Android API 34 and Java 17, matching `mrtf-android-buildenv`.

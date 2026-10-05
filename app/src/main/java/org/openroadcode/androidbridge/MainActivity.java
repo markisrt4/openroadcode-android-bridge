@@ -65,12 +65,14 @@ public final class MainActivity extends Activity {
   private LinearLayout content;
   private SensorCard sensorCard;
   private EnvironmentalSensorCard environmentalSensorCard;
+  private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
   private SystemPerformanceCard systemPerformanceCard;
   private RemoteDeviceManagementCard remoteDeviceManagementCard;
+  private RuntimeLogsScreen runtimeLogsScreen;
   private BridgeServiceManager serviceManager;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
@@ -114,6 +116,7 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.RUNTIME -> showRuntime();
       case SubsystemDashboard.PERFORMANCE -> showPerformance();
       case SubsystemDashboard.CONFIGURATION -> showConfiguration();
+      case SubsystemDashboard.DIAGNOSTICS -> showDiagnostics();
       default -> showDashboard();
     }
 
@@ -168,6 +171,13 @@ public final class MainActivity extends Activity {
     addSubsystemHeader("⚙", "CONFIGURATION",
         "Devices, remote access, pairing, and persistent bridge settings", SILVER);
 
+    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
+    remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
+    addServiceCard(content, "REMOTE SENSOR ACCESS",
+        "Local phone or LAN telemetry", GREEN, remoteAccessCard.view(), true, false);
+    updateRemoteAccessStatus();
+
     RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
     addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
         "Pairing • remote Linux connection", SILVER,
@@ -194,6 +204,12 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "COMPUTING UNIT PERFORMANCE",
         "CPU • memory • thermal • storage • activity", BLUE,
         systemPerformanceCard.view(), true, true);
+  }
+
+  private void showDiagnostics() {
+    addSubsystemHeader("≡", "DIAGNOSTICS · LOGS", "Recent history and live runtime logs", SILVER);
+    runtimeLogsScreen = new RuntimeLogsScreen(this);
+    content.addView(runtimeLogsScreen.view(), sectionEndCardParams());
   }
 
   private void addSubsystemHeader(String icon, String title, String subtitle, int accent) {
@@ -230,27 +246,32 @@ public final class MainActivity extends Activity {
     content.removeAllViews();
     sensorCard = null;
     environmentalSensorCard = null;
+    remoteAccessCard = null;
     cameraCard = null;
     playbackAudioCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
     systemPerformanceCard = null;
     remoteDeviceManagementCard = null;
+    runtimeLogsScreen = null;
   }
 
   private void stopVisibleCards() {
     if (systemPerformanceCard != null) systemPerformanceCard.stop();
     if (bluetoothCard != null) bluetoothCard.stop();
     if (termuxServicesCard != null) termuxServicesCard.stop();
+    if (runtimeLogsScreen != null) runtimeLogsScreen.stop();
   }
 
   private void startVisibleCards() {
+    updateRemoteAccessStatus();
     if (systemPerformanceCard != null) systemPerformanceCard.start();
     if (sensorCard != null) reconcileSensor(false);
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
+    if (runtimeLogsScreen != null) runtimeLogsScreen.start();
   }
 
   private void selectSensorProvider(ServiceProvider provider) {
@@ -533,6 +554,46 @@ public final class MainActivity extends Activity {
   }
 
 
+
+  private void setRemoteAccess(boolean enabled) {
+    getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+        .edit().putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, enabled).apply();
+    if (remoteAccessCard != null) remoteAccessCard.setEnabled(enabled);
+    updateRemoteAccessStatus();
+    if (!serviceManager.sensorRequested()) return;
+    sensorStartFailed = false;
+    try {
+      serviceManager.restartRequestedSensor();
+    } catch (RuntimeException error) {
+      sensorStartFailed = true;
+      new android.app.AlertDialog.Builder(this)
+          .setTitle("Sensor bridge restart failed")
+          .setMessage("The network setting is saved. Restart the bridge from Navigation.")
+          .setPositiveButton("OK", null).show();
+    }
+  }
+
+  private void updateRemoteAccessStatus() {
+    if (remoteAccessCard == null) return;
+    boolean enabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
+    remoteAccessCard.setEnabled(enabled);
+    remoteAccessCard.showStatus(
+        enabled, enabled ? findLanAddress() : null, SensorBridgeService.PORT);
+  }
+
+  private String findLanAddress() {
+    try {
+      for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+        if (!network.isUp() || network.isLoopback()) continue;
+        for (InetAddress address : Collections.list(network.getInetAddresses())) {
+          if (address instanceof Inet4Address && !address.isLoopbackAddress())
+            return address.getHostAddress();
+        }
+      }
+    } catch (Exception ignored) { }
+    return null;
+  }
 
   @Override public void onRequestPermissionsResult(
       int requestCode, String[] permissions, int[] grants) {
