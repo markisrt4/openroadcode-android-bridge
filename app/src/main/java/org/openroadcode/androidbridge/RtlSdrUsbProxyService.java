@@ -483,6 +483,7 @@ public final class RtlSdrUsbProxyService extends Service {
         java.util.concurrent.atomic.AtomicLong bytes = new java.util.concurrent.atomic.AtomicLong();
         java.util.concurrent.atomic.AtomicLong failures = new java.util.concurrent.atomic.AtomicLong();
         long consecutiveFailures = 0;
+        boolean recoverUsbConnection = false;
 
         Thread control = new Thread(() -> {
             try {
@@ -589,6 +590,7 @@ public final class RtlSdrUsbProxyService extends Service {
                                     + " failures=" + failure
                                     + " consecutive=" + consecutiveFailures);
                     streaming.set(false);
+                    recoverUsbConnection = true;
                     break;
                 }
             }
@@ -626,6 +628,31 @@ public final class RtlSdrUsbProxyService extends Service {
                     .edit().putString(PREF_LAST_STREAM_STATUS, terminatorStatus).commit();
             out.writeInt(0);
             out.flush();
+
+            if (recoverUsbConnection && running) {
+                Log.w(TAG, "Reopening RTL-SDR USB connection after terminal bulk-stream failure");
+                synchronized (usbLock) {
+                    // The failed UsbDeviceConnection may no longer accept bulk IN.
+                    // Clear shared-claim accounting before replacing it so the next
+                    // ORCU session performs a real Android interface claim.
+                    interfaceClaimCounts.clear();
+                    manager.disconnect();
+                    manager.refresh();
+                    manager.open();
+                }
+                UsbDeviceConnection reopened = null;
+                try {
+                    reopened = waitForConnection(manager);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
+                String recoveryStatus = reopened != null
+                        ? "RTL-SDR USB connection reopened after stream failure"
+                        : "RTL-SDR USB reopen failed after stream failure";
+                Log.w(TAG, recoveryStatus);
+                persistServiceStatus(recoveryStatus);
+                updateNotification(recoveryStatus);
+            }
         }
     }
 
