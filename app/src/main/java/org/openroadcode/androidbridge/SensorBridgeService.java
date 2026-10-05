@@ -359,12 +359,12 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         output.flush();
         diagnostic.record(BridgeServiceLog.Event.CLIENT_CONNECTED);
         try {
-        while (!socket.isClosed()) {
-            output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
-            output.flush();
-            try { Thread.sleep(STREAM_PERIOD_MS); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
+            while (!socket.isClosed()) {
+                output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
+                output.flush();
+                try { Thread.sleep(STREAM_PERIOD_MS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+            }
         } finally { diagnostic.record(BridgeServiceLog.Event.CLIENT_DISCONNECTED); }
     }
 
