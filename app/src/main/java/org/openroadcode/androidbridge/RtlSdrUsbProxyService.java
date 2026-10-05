@@ -473,7 +473,7 @@ public final class RtlSdrUsbProxyService extends Service {
         // Samsung/Android 17 has been observed throwing from requestWait() before
         // the first UsbRequest completion. Starting with synchronous bulkTransfer()
         // avoids putting the USB connection through that broken async state first.
-        final int transferLength = Math.min(requestedLength, 128 * 1024);
+        final int transferLength = Math.min(requestedLength, 64 * 1024);
         final int timeoutMs = requestedTimeoutMs > 0 ? requestedTimeoutMs : 1000;
         final byte[] buffer = new byte[transferLength];
         AtomicBoolean streaming = new AtomicBoolean(true);
@@ -544,7 +544,7 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " timeoutMs=" + timeoutMs);
 
             // Android's synchronous USB path on the target Samsung device
-            // accepts complete 128 KiB reads but rejects 256 KiB requests.
+            // accepts complete 64 KiB reads; use this conservative size for the sustained-stream test.
             // ORCU frames may be smaller than librtlsdr's requested stream size;
             // the Termux transport already carries/splits frames for SDR++.
             while (running && streaming.get()) {
