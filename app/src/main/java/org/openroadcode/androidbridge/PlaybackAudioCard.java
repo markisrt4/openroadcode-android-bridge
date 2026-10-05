@@ -37,6 +37,7 @@ final class PlaybackAudioCard {
   private final Button start, stop;
   private boolean requesting;
   private boolean requestedRunning;
+  private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.PLAYBACK);
 
   PlaybackAudioCard(Activity activity) {
     this.activity = activity;
@@ -180,7 +181,10 @@ final class PlaybackAudioCard {
 
   void start() {
     if (requesting || requestedRunning) return;
-    if (Build.VERSION.SDK_INT < 29) { update(false, "Android 10 or newer required"); return; }
+    if (Build.VERSION.SDK_INT < 29) {
+      diagnostic.record(BridgeServiceLog.Event.UNSUPPORTED);
+      update(false, "Android 10 or newer required"); return;
+    }
     requesting = true;
     update(false, "Requesting capture permission…");
     if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -195,6 +199,8 @@ final class PlaybackAudioCard {
 
   boolean onRequestPermissionsResult(int code, int[] grants) {
     if (code != AUDIO_PERMISSION) return false;
+    diagnostic.available(BridgeServiceLog.Condition.AUDIO_PERMISSION,
+        grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED);
     if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) requestProjection();
     else { requesting = false; update(false, "Audio permission denied"); }
     return true;
@@ -203,7 +209,10 @@ final class PlaybackAudioCard {
   boolean onActivityResult(int code, int result, Intent data) {
     if (code != PROJECTION_REQUEST) return false;
     requesting = false;
-    if (result != Activity.RESULT_OK || data == null) { update(false, "Capture consent cancelled"); return true; }
+    if (result != Activity.RESULT_OK || data == null) {
+      diagnostic.record(BridgeServiceLog.Event.CONSENT_DENIED);
+      update(false, "Capture consent cancelled"); return true;
+    }
     requestedRunning = true;
     Intent service = new Intent(activity, PlaybackAudioService.class).setAction(PlaybackAudioService.START)
         .putExtra(PlaybackAudioService.RESULT, result).putExtra(PlaybackAudioService.DATA, data);
@@ -211,6 +220,7 @@ final class PlaybackAudioCard {
       activity.startForegroundService(service);
       update(false, "Starting native playback capture…");
     } catch (RuntimeException ex) {
+      diagnostic.failure(BridgeServiceLog.Event.FAILED, ex);
       requestedRunning = false;
       update(false, "Start failed: " + ex.getMessage());
     }

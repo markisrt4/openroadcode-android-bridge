@@ -87,6 +87,10 @@ updates from Termux or the paired remote Linux runtime. The screen defaults to
 the target selected on the Runtime screen. Remote Linux reuses the saved pairing
 credential; configure or renew pairing on the Runtime screen.
 
+Select **Android bridge** to view this phone's bridge-service logs without
+starting ORC or configuring remote pairing. Termux and Remote Linux remain
+separate sources; events from different stores are not mixed.
+
 Choose a minimum severity and an optional dotted component prefix such as
 `runtime`, `navigation`, or `media`. **Pause** stops polling and retains history;
 **Resume** catches up from the last cursor. Leaving the screen or backgrounding
@@ -102,9 +106,52 @@ The ORC service manager must support `GET /logs` on its existing API port `8769`
 Update/restart the Termux service manager or reinstall the Linux service manager
 before testing this screen. Termux uses its shared ORC log store. Linux currently
 exposes the restricted service-manager account's private store; logs belonging
-to other runtime accounts and Android bridge services are outside this feed.
+to other runtime accounts are outside that feed. Android bridge services are
+available through the separate local source.
 The screen identifies its source. No new Android permissions or foreground
 service are required.
+
+### Android bridge logging
+
+The private local store uses the ORC JSON Lines schema: UTC millisecond timestamp,
+severity, component, event, message, PID, and operation ID. Components are
+`bridge.sensors`, `bridge.bluetooth`, `bridge.camera`, `bridge.playback`, and
+`bridge.logging`. Start attempts get a new operation ID that remains attached
+to their worker-thread events. Permission prompts in UI controls have their own
+operation scope.
+
+Lifecycle events cover requested start, readiness, stop, failure, and observed
+recovery. Sensor/GPS events cover unavailable sensor types, selected simulation,
+permission/provider changes, and the first observed fix. Bluetooth covers adapter
+availability, permission, connection fallback, bind retries, and stream clients.
+Camera covers capture/listener readiness, camera failures, and video clients.
+Playback covers permission/consent, capture readiness/failure, and stream clients.
+Sensor samples, GPS coordinates, audio/video bytes, Bluetooth names/addresses,
+URLs, tokens, exception messages, and stack traces are excluded from these
+structured events. Existing UI/status responses and Android Logcat diagnostics
+retain their behavior and are not imported into the private log store.
+
+Repeated unchanged availability states are quiet. Repeated warnings/errors for
+the same event are limited to one per five seconds, with a suppression count on
+the next occurrence. Missing sensor types are reported individually. Logging
+uses a nonblocking queue of 128 records and a background writer, never file I/O
+in hardware callbacks. Queue overflow produces a dropped-event notice. Disk
+failures retain recent events in memory and report persistence loss/recovery.
+
+Storage is app-private under `files/logs/bridge.jsonl`, with two rotated backups
+and a maximum of 1 MiB per file. Events are capped at 16 KiB; memory history is
+bounded by 200 records and 256 KiB. A bounded retained tail is restored after
+process restart. The viewer applies its existing smaller text/display limits.
+This is best-effort diagnostics: pending events can be lost on abrupt process
+termination, and old history expires through rotation. No extra HTTP endpoint,
+Android permission, runtime library, or foreground logging service is added.
+
+`BridgeLoggingContractTest` runs in the existing required APK unit-test step and
+checks schema/private-field exclusions, operation correlation, quiet transitions,
+rate limiting, queue bounds, persistence rotation/restore, filters, and failure
+handling. Device smoke testing should include denied then granted permissions,
+GPS provider changes, Bluetooth loss/reconnect, camera/video clients, consent
+revocation, and pause/background/resume of the viewer's Android source.
 
 Port `8768` belongs to playback audio. The Termux runtime client uses `8769`,
 matching the current ORC service-manager launcher.

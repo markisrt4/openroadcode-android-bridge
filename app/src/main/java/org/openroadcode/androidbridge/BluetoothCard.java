@@ -244,6 +244,8 @@ final class BluetoothCard {
 
   boolean onRequestPermissionsResult(int requestCode, int[] grantResults) {
     if (requestCode != PERMISSION_REQUEST) return false;
+    diagnostic.available(BridgeServiceLog.Condition.BLUETOOTH_PERMISSION,
+        grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED);
     if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
       loadPairedDevices();
       if (serviceManager.vehicleRequested() && serviceManager.vehicleDeviceAddress() != null) {
@@ -297,6 +299,8 @@ final class BluetoothCard {
     }
     loadPairedDevices();
   }
+
+  private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.BLUETOOTH);
 
   private void loadPairedDevices() {
     if (serviceManager.vehicleConfig().provider() != ServiceProvider.BLUETOOTH_SPP) return;

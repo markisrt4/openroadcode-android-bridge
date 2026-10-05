@@ -70,6 +70,7 @@ public final class MainActivity extends Activity {
   private TermuxServicesCard termuxServicesCard;
   private RuntimeLogsScreen runtimeLogsScreen;
   private BridgeServiceManager serviceManager;
+  private final BridgeServiceLog sensorDiagnostic = BridgeLog.service(BridgeServiceLog.Service.SENSORS);
 
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -466,6 +467,8 @@ public final class MainActivity extends Activity {
       return;
     }
     sensorCard.setRunning(true);
+    if (sensorNeedsLocationPermission())
+      sensorDiagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
     if (sensorNeedsLocationPermission() && !hasLocationPermission()) {
       serviceManager.suspendSensor();
       sensorPermissionRequired = true;
@@ -489,6 +492,7 @@ public final class MainActivity extends Activity {
       if (serviceManager.sensorState() != BridgeServiceManager.ServiceState.RUNNING)
         sensorCard.setStatus("●  Bridge starting…", BLUE);
     } catch (RuntimeException e) {
+      sensorDiagnostic.failure(BridgeServiceLog.Event.FAILED, e);
       sensorStartFailed = true;
       sensorStartError = "Unable to start sensor bridge: " + e.getClass().getSimpleName();
       sensorCard.setStatus("●  " + sensorStartError, RED);
@@ -563,6 +567,7 @@ public final class MainActivity extends Activity {
     if (cameraCard != null
         && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (requestCode == LOCATION_PERMISSION_REQUEST) {
+      sensorDiagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
       locationPermissionPending = false;
       if (!serviceManager.sensorRequested() || sensorCard == null) return;
       if (hasLocationPermission() || !sensorNeedsLocationPermission()) {
