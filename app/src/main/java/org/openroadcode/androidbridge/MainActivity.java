@@ -68,7 +68,9 @@ public final class MainActivity extends Activity {
   private PlaybackAudioCard playbackAudioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
+  private RuntimeLogsScreen runtimeLogsScreen;
   private BridgeServiceManager serviceManager;
+  private final BridgeServiceLog sensorDiagnostic = BridgeLog.service(BridgeServiceLog.Service.SENSORS);
 
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -109,6 +111,7 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.MEDIA -> showMedia();
       case SubsystemDashboard.CONNECTIVITY -> showConnectivity();
       case SubsystemDashboard.RUNTIME -> showRuntime();
+      case SubsystemDashboard.DIAGNOSTICS -> showDiagnostics();
       default -> showDashboard();
     }
 
@@ -181,6 +184,12 @@ public final class MainActivity extends Activity {
         termuxServicesCard.view(), true, true);
   }
 
+  private void showDiagnostics() {
+    addSubsystemHeader("≡", "DIAGNOSTICS · LOGS", "Recent history and live runtime logs", SILVER);
+    runtimeLogsScreen = new RuntimeLogsScreen(this);
+    content.addView(runtimeLogsScreen.view(), sectionEndCardParams());
+  }
+
   private void addSubsystemHeader(String icon, String title, String subtitle, int accent) {
     LinearLayout row = new LinearLayout(this);
     row.setGravity(Gravity.CENTER_VERTICAL);
@@ -219,11 +228,13 @@ public final class MainActivity extends Activity {
     playbackAudioCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
+    runtimeLogsScreen = null;
   }
 
   private void stopVisibleCards() {
     if (bluetoothCard != null) bluetoothCard.stop();
     if (termuxServicesCard != null) termuxServicesCard.stop();
+    if (runtimeLogsScreen != null) runtimeLogsScreen.stop();
   }
 
   private void startVisibleCards() {
@@ -233,6 +244,7 @@ public final class MainActivity extends Activity {
     if (playbackAudioCard != null) playbackAudioCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
+    if (runtimeLogsScreen != null) runtimeLogsScreen.start();
   }
 
   private void selectSensorProvider(ServiceProvider provider) {
@@ -455,6 +467,8 @@ public final class MainActivity extends Activity {
       return;
     }
     sensorCard.setRunning(true);
+    if (sensorNeedsLocationPermission())
+      sensorDiagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
     if (sensorNeedsLocationPermission() && !hasLocationPermission()) {
       serviceManager.suspendSensor();
       sensorPermissionRequired = true;
@@ -478,6 +492,7 @@ public final class MainActivity extends Activity {
       if (serviceManager.sensorState() != BridgeServiceManager.ServiceState.RUNNING)
         sensorCard.setStatus("●  Bridge starting…", BLUE);
     } catch (RuntimeException e) {
+      sensorDiagnostic.failure(BridgeServiceLog.Event.FAILED, e);
       sensorStartFailed = true;
       sensorStartError = "Unable to start sensor bridge: " + e.getClass().getSimpleName();
       sensorCard.setStatus("●  " + sensorStartError, RED);
@@ -552,6 +567,7 @@ public final class MainActivity extends Activity {
     if (cameraCard != null
         && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (requestCode == LOCATION_PERMISSION_REQUEST) {
+      sensorDiagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
       locationPermissionPending = false;
       if (!serviceManager.sensorRequested() || sensorCard == null) return;
       if (hasLocationPermission() || !sensorNeedsLocationPermission()) {

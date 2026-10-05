@@ -4,7 +4,7 @@ import org.json.JSONObject;
 
 /** Backwards-compatible localhost adapter for the Termux runtime service manager. */
 public final class TermuxServiceManagerClient {
-  public static final String BASE_URL = "http://127.0.0.1:8768";
+  public static final String BASE_URL = "http://127.0.0.1:8769";
 
   private final RuntimeServiceManagerClient delegate =
       new RuntimeServiceManagerClient(BASE_URL, "Termux");

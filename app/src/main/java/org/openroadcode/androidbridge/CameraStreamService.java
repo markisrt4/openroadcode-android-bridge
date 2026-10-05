@@ -116,8 +116,11 @@ public final class CameraStreamService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIFICATION_ID, notification("Starting camera stream"));
+        if (!running.get()) diagnostic.start();
+        try { startForeground(NOTIFICATION_ID, notification("Starting camera stream")); }
+        catch (RuntimeException error) { diagnostic.failure(BridgeServiceLog.Event.FAILED, error); throw error; }
         if (running.compareAndSet(false, true)) {
+            cameraReady = false; listenerReady = false;
             state = "starting"; errorMessage = ""; encodedFrames = 0;
             interfaceMode = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PREF_INTERFACE, INTERFACE_WIFI);
             startServer(); startCameraPipeline();
@@ -128,6 +131,7 @@ public final class CameraStreamService extends Service {
     @Override public void onDestroy() {
         synchronized (PREVIEW_LOCK) { if (activeInstance == this) activeInstance = null; }
         running.set(false); state = "stopped"; closeVideoClient(); closeServer(); stopCameraPipeline();
+        diagnostic.record(BridgeServiceLog.Event.STOPPED);
         stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -145,6 +149,8 @@ public final class CameraStreamService extends Service {
     }
 
     private void startCameraPipeline() {
+        diagnostic.available(BridgeServiceLog.Condition.CAMERA_PERMISSION,
+                checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED);
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) { fail("Camera permission not granted"); return; }
         cameraThread = new HandlerThread("orc-camera"); cameraThread.start(); cameraHandler = new Handler(cameraThread.getLooper());
         synchronized (PREVIEW_LOCK) { previewSurface = requestedPreviewSurface; }
@@ -153,9 +159,9 @@ public final class CameraStreamService extends Service {
             CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             String preferredCamera = getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PREF_CAMERA_ID, "");
             cameraId = chooseCamera(manager, preferredCamera);
-            if (cameraId == null) { fail("No usable camera found"); return; }
+            if (cameraId == null) { fail("No usable camera found", BridgeServiceLog.Event.CAMERA_UNAVAILABLE, null, null); return; }
             manager.openCamera(cameraId, cameraStateCallback, cameraHandler);
-        } catch (Exception e) { fail("Unable to start camera: " + message(e)); }
+        } catch (Exception e) { fail("Unable to start camera: " + message(e), e); }
     }
 
     private void configureEncoder() throws IOException {
@@ -182,8 +188,13 @@ public final class CameraStreamService extends Service {
 
     private final CameraDevice.StateCallback cameraStateCallback = new CameraDevice.StateCallback() {
         @Override public void onOpened(CameraDevice camera) { cameraDevice = camera; createCaptureSession(camera); }
-        @Override public void onDisconnected(CameraDevice camera) { camera.close(); cameraDevice = null; fail("Camera disconnected"); }
-        @Override public void onError(CameraDevice camera, int error) { camera.close(); cameraDevice = null; fail("Camera error " + error); }
+        @Override public void onDisconnected(CameraDevice camera) {
+            camera.close(); cameraDevice = null;
+            fail("Camera disconnected", BridgeServiceLog.Event.DEVICE_DISCONNECTED, null, null);
+        }
+        @Override public void onError(CameraDevice camera, int error) {
+            camera.close(); cameraDevice = null; fail("Camera error " + error, null, error);
+        }
     };
 
     private void createCaptureSession(CameraDevice camera) {
@@ -206,12 +217,19 @@ public final class CameraStreamService extends Service {
                         request.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
                         request.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(FPS, FPS));
                         session.setRepeatingRequest(request.build(), null, cameraHandler); state = "streaming";
+                        cameraReady = true; markReady();
                         updateNotification("Camera " + cameraId + " streaming • MPEG-TS • " + interfaceMode + " • port " + PORT);
-                    } catch (CameraAccessException | IllegalArgumentException e) { fail("Unable to start capture: " + message(e)); }
+                    } catch (CameraAccessException | IllegalArgumentException e) {
+                        fail("Unable to start capture: " + message(e), BridgeServiceLog.Event.CAPTURE_FAILED, e, null);
+                    }
                 }
-                @Override public void onConfigureFailed(CameraCaptureSession session) { fail("Camera capture session configuration failed"); }
+                @Override public void onConfigureFailed(CameraCaptureSession session) {
+                    fail("Camera capture session configuration failed", BridgeServiceLog.Event.CAMERA_CONFIG_FAILED, null, null);
+                }
             }, cameraHandler);
-        } catch (CameraAccessException | IllegalArgumentException e) { fail("Unable to configure camera: " + message(e)); }
+        } catch (CameraAccessException | IllegalArgumentException e) {
+            fail("Unable to configure camera: " + message(e), BridgeServiceLog.Event.CAMERA_CONFIG_FAILED, e, null);
+        }
     }
 
     private void drainEncoder() {
@@ -234,7 +252,10 @@ public final class CameraStreamService extends Service {
                 }
                 encoder.releaseOutputBuffer(index, false);
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) break;
-            } catch (IllegalStateException e) { if (running.get()) fail("Encoder stopped unexpectedly: " + message(e)); break; }
+            } catch (IllegalStateException e) {
+                if (running.get()) fail("Encoder stopped unexpectedly: " + message(e), BridgeServiceLog.Event.ENCODER_FAILED, e, null);
+                break;
+            }
         }
     }
 
@@ -273,7 +294,10 @@ public final class CameraStreamService extends Service {
                 }
                 videoMuxer.writeVideo(videoOutput, payload, presentationTimeUs, keyFrame);
                 videoOutput.flush();
-            } catch (IOException e) { closeVideoClientLocked(); }
+            } catch (IOException e) {
+                if (running.get()) diagnostic.failure(BridgeServiceLog.Event.CLIENT_FAILED, e);
+                closeVideoClientLocked();
+            }
         }
     }
 
@@ -283,8 +307,12 @@ public final class CameraStreamService extends Service {
                 serverSocket = socket; socket.setReuseAddress(true); InetAddress address = resolveBindAddress(interfaceMode);
                 if (address == null) throw new IOException(interfaceMode + " network is not available");
                 bindAddress = address.getHostAddress(); socket.bind(new InetSocketAddress(address, PORT));
+                listenerReady = true; diagnostic.record(BridgeServiceLog.Event.SERVER_READY); markReady();
                 while (running.get()) handleClient(socket.accept());
-            } catch (IOException e) { if (running.get()) fail("Video server error: " + message(e)); }
+            } catch (IOException e) {
+                listenerReady = false;
+                if (running.get()) fail("Video server error: " + message(e), BridgeServiceLog.Event.SERVER_FAILED, e, null);
+            }
         }, "orc-camera-http"); serverThread.start();
     }
 
@@ -317,6 +345,7 @@ public final class CameraStreamService extends Service {
         synchronized (clientLock) {
             closeVideoClientLocked(); videoClient = client; videoOutput = output; videoMuxer = new MpegTsMuxer(); connectedClients++;
             videoMuxer.writeHeaders(videoOutput); videoOutput.flush();
+            diagnostic.record(BridgeServiceLog.Event.CLIENT_CONNECTED);
         }
         requestSyncFrame();
     }
@@ -324,7 +353,10 @@ public final class CameraStreamService extends Service {
     private void requestSyncFrame() {
         MediaCodec activeEncoder = encoder; if (activeEncoder == null) return;
         try { Bundle p = new Bundle(); p.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0); activeEncoder.setParameters(p); }
-        catch (IllegalStateException e) { Log.w(TAG, "Unable to request sync frame for new viewer", e); }
+        catch (IllegalStateException e) {
+            diagnostic.failure(BridgeServiceLog.Event.SYNC_FRAME_FAILED, e);
+            Log.w(TAG, "Unable to request sync frame for new viewer", e);
+        }
     }
 
     private void writeStatus(Socket client) throws IOException {
@@ -346,7 +378,19 @@ public final class CameraStreamService extends Service {
         output.write(("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: " + body.length
                 + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII)); output.write(body); output.flush(); client.close();
     }
-    private void fail(String message) { Log.e(TAG, message); state = "error"; errorMessage = message; updateNotification(message); }
+    private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.CAMERA);
+    private volatile boolean cameraReady, listenerReady;
+    private void markReady() { if (running.get() && cameraReady && listenerReady) diagnostic.ready(); }
+    private void fail(String message) { fail(message, null, null); }
+    private void fail(String message, Throwable error) { fail(message, error, null); }
+    private void fail(String message, Throwable error, Integer code) {
+        fail(message, BridgeServiceLog.Event.FAILED, error, code);
+    }
+    private void fail(String message, BridgeServiceLog.Event event, Throwable error, Integer code) {
+        cameraReady = false;
+        if (running.get()) diagnostic.record(event, error, code);
+        Log.e(TAG, message); state = "error"; errorMessage = message; updateNotification(message);
+    }
     private void stopCameraPipeline() {
         if (captureSession != null) { try { captureSession.stopRepeating(); } catch (Exception ignored) { } captureSession.close(); captureSession = null; }
         if (cameraDevice != null) { cameraDevice.close(); cameraDevice = null; }
@@ -358,6 +402,7 @@ public final class CameraStreamService extends Service {
     private void closeServer() { if (serverSocket != null) { try { serverSocket.close(); } catch (IOException ignored) { } serverSocket = null; } }
     private void closeVideoClient() { synchronized (clientLock) { closeVideoClientLocked(); } }
     private void closeVideoClientLocked() {
+        if (videoClient != null) diagnostic.record(BridgeServiceLog.Event.CLIENT_DISCONNECTED);
         videoMuxer = null;
         if (videoOutput != null) { try { videoOutput.close(); } catch (IOException ignored) { } videoOutput = null; }
         if (videoClient != null) { closeQuietly(videoClient); videoClient = null; }

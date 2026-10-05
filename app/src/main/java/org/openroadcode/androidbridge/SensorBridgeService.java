@@ -74,6 +74,18 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     @Override
     public void onCreate() {
         super.onCreate();
+        diagnostic.start();
+        try { initializeBridge(); }
+        catch (RuntimeException error) {
+            diagnostic.failure(BridgeServiceLog.Event.FAILED, error);
+            throw error;
+        }
+    }
+
+    private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.SENSORS);
+    private volatile boolean destroyed;
+
+    private void initializeBridge() {
         remoteAccessEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
                 .getBoolean(PREF_REMOTE_ACCESS, false);
         provider = new ConfigRepository(this).sensorConfig().provider();
@@ -82,6 +94,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         startForeground(NOTIFICATION_ID, buildNotification());
 
         if (provider == ServiceProvider.SIMULATED_DRIVE) {
+            diagnostic.record(BridgeServiceLog.Event.SIMULATION_SELECTED);
             startSimulatedDrive();
         } else {
             sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
@@ -101,7 +114,8 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private void registerSensor(int sensorType, int delay) {
         if (sensorManager == null) return;
         Sensor sensor = sensorManager.getDefaultSensor(sensorType);
-        if (sensor != null) sensorManager.registerListener(this, sensor, delay);
+        if (sensor == null || !sensorManager.registerListener(this, sensor, delay))
+            diagnostic.record(BridgeServiceLog.Event.SENSOR_UNAVAILABLE, null, sensorType);
     }
 
     private boolean hasLocationPermission() {
@@ -112,20 +126,25 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     private void startLocationUpdates() {
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        diagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
         if (locationManager == null || !hasLocationPermission()) return;
         try {
             locationProviderAvailable = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            diagnostic.available(BridgeServiceLog.Condition.GPS_PROVIDER, locationProviderAvailable);
             if (locationProviderAvailable) {
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_PERIOD_MS, 0.0f, this);
                 if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                     locationManager.registerGnssStatusCallback(gnssStatusCallback);
                 }
             }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            boolean networkAvailable = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+            diagnostic.available(BridgeServiceLog.Condition.NETWORK_PROVIDER, networkAvailable);
+            if (networkAvailable) {
                 locationProviderAvailable = true;
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_PERIOD_MS, 0.0f, this);
             }
         } catch (SecurityException ignored) {
+            diagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, false);
             locationProviderAvailable = false;
         }
     }
@@ -221,6 +240,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     @Override
     public void onDestroy() {
+        destroyed = true;
         if (sensorManager != null) sensorManager.unregisterListener(this);
         if (locationManager != null) {
             try {
@@ -230,18 +250,29 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         }
         if (simulatedThread != null) simulatedThread.interrupt();
         if (serverSocket != null) try { serverSocket.close(); } catch (IOException ignored) { }
+        diagnostic.record(BridgeServiceLog.Event.STOPPED);
         super.onDestroy();
     }
 
     @Override
     public void onLocationChanged(Location value) {
+        diagnostic.available(BridgeServiceLog.Condition.LOCATION_FIX, true);
         location.set(new Location(value));
         locationCount++;
         locationProviderAvailable = true;
     }
 
-    @Override public void onProviderEnabled(String provider) { locationProviderAvailable = true; }
-    @Override public void onProviderDisabled(String provider) { }
+    @Override public void onProviderEnabled(String provider) {
+        locationProviderAvailable = true;
+        logProvider(provider, true);
+    }
+    @Override public void onProviderDisabled(String provider) { logProvider(provider, false); }
+    private void logProvider(String provider, boolean enabled) {
+        if (LocationManager.GPS_PROVIDER.equals(provider))
+            diagnostic.available(BridgeServiceLog.Condition.GPS_PROVIDER, enabled);
+        else if (LocationManager.NETWORK_PROVIDER.equals(provider))
+            diagnostic.available(BridgeServiceLog.Condition.NETWORK_PROVIDER, enabled);
+    }
     @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
 
     @Override
@@ -282,6 +313,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String bindAddress = remoteAccessEnabled ? "0.0.0.0" : "127.0.0.1";
         try {
             serverSocket = new ServerSocket(PORT, 8, InetAddress.getByName(bindAddress));
+            diagnostic.ready();
             while (!serverSocket.isClosed()) {
                 try {
                     Socket socket = serverSocket.accept();
@@ -290,11 +322,11 @@ public final class SensorBridgeService extends Service implements SensorEventLis
                         catch (IOException ignored) { }
                     }, "orc-sensor-http-client").start();
                 } catch (IOException e) {
-                    if (!serverSocket.isClosed()) e.printStackTrace();
+                    if (!serverSocket.isClosed()) diagnostic.failure(BridgeServiceLog.Event.SERVER_FAILED, e);
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            if (!destroyed) diagnostic.failure(BridgeServiceLog.Event.SERVER_FAILED, e);
         }
     }
 
@@ -325,12 +357,15 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         output.write("HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
                 .getBytes(StandardCharsets.US_ASCII));
         output.flush();
-        while (!socket.isClosed()) {
-            output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
-            output.flush();
-            try { Thread.sleep(STREAM_PERIOD_MS); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-        }
+        diagnostic.record(BridgeServiceLog.Event.CLIENT_CONNECTED);
+        try {
+            while (!socket.isClosed()) {
+                output.write((sampleJson() + "\n").getBytes(StandardCharsets.UTF_8));
+                output.flush();
+                try { Thread.sleep(STREAM_PERIOD_MS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+            }
+        } finally { diagnostic.record(BridgeServiceLog.Event.CLIENT_DISCONNECTED); }
     }
 
     private static JSONObject vector(float x, float y, float z) throws JSONException {
