@@ -630,6 +630,7 @@ public final class RtlSdrUsbProxyService extends Service {
             out.flush();
 
             if (recoverUsbConnection && running) {
+                RtlSdrUsbManager manager = getUsbManager();
                 Log.w(TAG, "Reopening RTL-SDR USB connection after terminal bulk-stream failure");
                 synchronized (usbLock) {
                     // The failed UsbDeviceConnection may no longer accept bulk IN.
