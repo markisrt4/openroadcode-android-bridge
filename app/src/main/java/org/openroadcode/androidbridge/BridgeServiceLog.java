@@ -75,6 +75,7 @@ final class BridgeServiceLog {
   private String operation = UUID.randomUUID().toString();
   private boolean started;
   private boolean failed;
+  private boolean stopped;
 
   BridgeServiceLog(Service service, int pid, Consumer<JSONObject> output) {
     this(service, pid, output, System::currentTimeMillis);
@@ -84,10 +85,12 @@ final class BridgeServiceLog {
   }
   synchronized void start() {
     operation = UUID.randomUUID().toString();
-    started = false; failed = false; states.clear(); lastErrors.clear(); suppressed.clear();
+    started = false; failed = false; stopped = false;
+    states.clear(); lastErrors.clear(); suppressed.clear();
     record(Event.START_REQUESTED);
   }
   synchronized void ready() {
+    if (stopped) return;
     if (!started) { started = true; record(Event.STARTED); }
     else if (failed) record(Event.RECOVERED);
     failed = false;
@@ -96,6 +99,9 @@ final class BridgeServiceLog {
   void failure(Event event, Throwable error) { record(event, error, null); }
   synchronized void record(Event event, Throwable error, Integer code) {
     try {
+      if (stopped && (event == Event.STARTED || event == Event.RECOVERED
+          || event == Event.SERVER_READY || event == Event.CLIENT_CONNECTED)) return;
+      if (event == Event.STOPPED) stopped = true;
       if (event.level.equals("ERROR")) failed = true;
       long now = clock.getAsLong();
       if (event != Event.SENSOR_UNAVAILABLE && (event.level.equals("WARNING") || event.level.equals("ERROR"))) {

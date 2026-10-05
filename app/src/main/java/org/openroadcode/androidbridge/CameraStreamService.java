@@ -380,7 +380,7 @@ public final class CameraStreamService extends Service {
     }
     private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.CAMERA);
     private volatile boolean cameraReady, listenerReady;
-    private void markReady() { if (cameraReady && listenerReady) diagnostic.ready(); }
+    private void markReady() { if (running.get() && cameraReady && listenerReady) diagnostic.ready(); }
     private void fail(String message) { fail(message, null, null); }
     private void fail(String message, Throwable error) { fail(message, error, null); }
     private void fail(String message, Throwable error, Integer code) {

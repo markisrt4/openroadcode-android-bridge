@@ -92,6 +92,18 @@ public final class BridgeLoggingContractTest {
     log.available(BridgeServiceLog.Condition.DEVICE_CONNECTION, false);
   }
 
+  @Test public void lateWorkerReadinessCannotReportSuccessAfterServiceStop() throws Exception {
+    List<JSONObject> events = new ArrayList<>();
+    BridgeServiceLog log = new BridgeServiceLog(BridgeServiceLog.Service.CAMERA, 123, events::add);
+    log.start();
+    log.record(BridgeServiceLog.Event.STOPPED);
+    log.ready(); log.record(BridgeServiceLog.Event.SERVER_READY);
+    log.record(BridgeServiceLog.Event.CLIENT_CONNECTED);
+    assertEquals(2, events.size());
+    log.start(); log.ready();
+    assertEquals("service.started", events.get(3).getString("event"));
+  }
+
   @Test public void queueDoesNotBlockAndReportsDropsWithoutGrowing() throws Exception {
     BridgeLogQueue queue = new BridgeLogQueue(2);
     JSONObject first = new JSONObject(), second = new JSONObject();
