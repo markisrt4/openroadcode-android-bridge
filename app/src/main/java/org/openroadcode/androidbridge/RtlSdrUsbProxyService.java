@@ -81,6 +81,8 @@ public final class RtlSdrUsbProxyService extends Service {
     private final java.util.concurrent.atomic.AtomicLong controlFirstAttemptSuccesses = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong controlRetryRecoveries = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong controlHardFailures = new java.util.concurrent.atomic.AtomicLong();
+    private static final int CONTROL_HISTORY_LIMIT = 12;
+    private final java.util.ArrayDeque<String> controlHistory = new java.util.ArrayDeque<>();
 
     @Override
     public void onCreate() {
@@ -351,21 +353,39 @@ public final class RtlSdrUsbProxyService extends Service {
             transferred = connection.controlTransfer(
                     requestType, request, value, index, buffer, length, timeoutMs);
         }
-        if (transferred < 0 || sequence <= 32) {
-            String payload = "";
-            if (!input && length > 0) {
-                StringBuilder hex = new StringBuilder();
-                int shown = Math.min(length, 16);
-                for (int i = 0; i < shown; i++) {
-                    if (i > 0) hex.append(' ');
-                    hex.append(String.format(java.util.Locale.US, "%02X", buffer[i] & 0xFF));
-                }
-                payload = " data=" + hex;
+        String payload = "";
+        if (!input && length > 0) {
+            StringBuilder hex = new StringBuilder();
+            int shown = Math.min(length, 16);
+            for (int i = 0; i < shown; i++) {
+                if (i > 0) hex.append(' ');
+                hex.append(String.format(java.util.Locale.US, "%02X", buffer[i] & 0xFF));
             }
-            Log.w(TAG, String.format(java.util.Locale.US,
-                    "ORCU control #%d type=0x%02X req=0x%02X value=0x%04X index=0x%04X len=%d timeout=%d result=%d%s",
-                    sequence, requestType & 0xFF, request & 0xFF, value & 0xFFFF,
-                    index & 0xFFFF, length, timeoutMs, transferred, payload));
+            payload = " data=" + hex;
+        } else if (input && transferred > 0) {
+            StringBuilder hex = new StringBuilder();
+            int shown = Math.min(transferred, 16);
+            for (int i = 0; i < shown; i++) {
+                if (i > 0) hex.append(' ');
+                hex.append(String.format(java.util.Locale.US, "%02X", buffer[i] & 0xFF));
+            }
+            payload = " data=" + hex;
+        }
+        String trace = String.format(java.util.Locale.US,
+                "ORCU control #%d type=0x%02X req=0x%02X value=0x%04X index=0x%04X len=%d timeout=%d result=%d%s",
+                sequence, requestType & 0xFF, request & 0xFF, value & 0xFFFF,
+                index & 0xFFFF, length, timeoutMs, transferred, payload);
+        synchronized (controlHistory) {
+            if (transferred < 0) {
+                Log.w(TAG, "ORCU control failure context BEGIN");
+                for (String previous : controlHistory) Log.w(TAG, previous);
+                Log.w(TAG, trace);
+                Log.w(TAG, "ORCU control failure context END");
+            } else if (sequence <= 32) {
+                Log.w(TAG, trace);
+            }
+            controlHistory.addLast(trace);
+            while (controlHistory.size() > CONTROL_HISTORY_LIMIT) controlHistory.removeFirst();
         }
         if (transferred < 0) {
             controlHardFailures.incrementAndGet();
