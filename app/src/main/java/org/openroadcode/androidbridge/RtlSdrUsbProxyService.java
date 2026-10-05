@@ -575,48 +575,6 @@ public final class RtlSdrUsbProxyService extends Service {
                         + " chunks=" + chunks.get()
                         + " bytes=" + bytes.get());
 
-                // Diagnostic only: on the first failed bulk read, force a real
-                // Android release/reclaim of interface 0 and immediately retry
-                // the same 64 KiB read. Do not touch RTL2832U registers here.
-                if (failure == 1) {
-                    UsbInterface streamInterface = findInterface(device, 0);
-                    if (streamInterface != null) {
-                        boolean released;
-                        boolean reclaimed;
-                        int recoveryResult;
-                        synchronized (usbLock) {
-                            released = connection.releaseInterface(streamInterface);
-                            reclaimed = connection.claimInterface(streamInterface, true);
-                            recoveryResult = reclaimed
-                                    ? connection.bulkTransfer(
-                                            endpoint, buffer, buffer.length, timeoutMs)
-                                    : -1;
-                        }
-                        Log.w(TAG, "RTL-SDR bulk recovery probe"
-                                + " • released=" + released
-                                + " reclaimed=" + reclaimed
-                                + " result=" + recoveryResult
-                                + " fd=" + connection.getFileDescriptor()
-                                + " chunks=" + chunks.get()
-                                + " bytes=" + bytes.get());
-                        if (recoveryResult > 0) {
-                            long chunk = chunks.incrementAndGet();
-                            long totalBytes = bytes.addAndGet(recoveryResult);
-                            out.writeInt(recoveryResult);
-                            out.write(buffer, 0, recoveryResult);
-                            out.flush();
-                            failures.set(0);
-                            Log.i(TAG, "RTL-SDR bulk recovery probe restored stream"
-                                    + " • chunks=" + chunk
-                                    + " bytes=" + totalBytes
-                                    + " last=" + recoveryResult);
-                            continue;
-                        }
-                    } else {
-                        Log.w(TAG, "RTL-SDR bulk recovery probe skipped • interface 0 not found");
-                    }
-                }
-
                 // A timeout/error can be transient. Three consecutive failures
                 // preserve the previous fallback policy without touching UsbRequest.
                 if (failure >= 3) {
