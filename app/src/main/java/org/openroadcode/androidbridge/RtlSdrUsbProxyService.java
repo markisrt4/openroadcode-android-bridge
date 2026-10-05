@@ -292,12 +292,19 @@ public final class RtlSdrUsbProxyService extends Service {
             writeError(out, "USB interface " + interfaceId + " not found");
             return;
         }
-        boolean ok = true;
+        boolean ok;
         synchronized (usbLock) {
             int count = interfaceClaimCounts.getOrDefault(interfaceId, 0);
-            if (count == 0) {
-                ok = connection.claimInterface(iface, force);
-            }
+            // Android's UsbDeviceConnection owns the claim, not the TCP client.
+            // Call claimInterface for every ORCU claim so we can verify whether
+            // the stream client's second claim changes endpoint usability.
+            ok = connection.claimInterface(iface, force);
+            Log.i(TAG, "RTL-SDR interface claim"
+                    + " • interfaceId=" + interfaceId
+                    + " force=" + force
+                    + " priorSharedCount=" + count
+                    + " androidResult=" + ok
+                    + " fd=" + connection.getFileDescriptor());
             if (ok) {
                 interfaceClaimCounts.put(interfaceId, count + 1);
                 claimed.put(interfaceId, iface);
