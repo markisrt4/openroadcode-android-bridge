@@ -123,6 +123,8 @@ final class CameraCard {
 
   boolean onRequestPermissionsResult(int requestCode, int[] grants) {
     if (requestCode != PERMISSION_REQUEST) return false;
+    diagnostic.available(BridgeServiceLog.Condition.CAMERA_PERMISSION,
+        grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED);
     if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) {
       startCamera();
     } else {
@@ -134,13 +136,15 @@ final class CameraCard {
   }
 
   private void startCamera() {
+    diagnostic.available(BridgeServiceLog.Condition.CAMERA_PERMISSION,
+        activity.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED);
     if (activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
       activity.requestPermissions(new String[] {Manifest.permission.CAMERA}, PERMISSION_REQUEST);
       return;
     }
     requestedRunning = true;
     updateButtons(true, false);
-    activity.startForegroundService(new Intent(activity, CameraStreamService.class));
+    requestCameraStart();
     setStatus("Camera starting…", UiTheme.BLUE);
   }
 
@@ -152,6 +156,15 @@ final class CameraCard {
     details.setText("Frames  —    Viewer  —    Preview  —");
   }
 
+  private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.CAMERA);
+  private void requestCameraStart() {
+    try { activity.startForegroundService(new Intent(activity, CameraStreamService.class)); }
+    catch (RuntimeException error) {
+      diagnostic.failure(BridgeServiceLog.Event.FAILED, error);
+      throw error;
+    }
+  }
+
   private void setInterface(String mode) {
     activity.getSharedPreferences(CameraStreamService.PREFERENCES, Activity.MODE_PRIVATE)
         .edit().putString(CameraStreamService.PREF_INTERFACE, mode).apply();
@@ -160,7 +173,7 @@ final class CameraCard {
     if (requestedRunning) {
       activity.stopService(new Intent(activity, CameraStreamService.class));
       updateButtons(true, false);
-      activity.startForegroundService(new Intent(activity, CameraStreamService.class));
+      requestCameraStart();
       setStatus("Camera restarting on " + interfaceLabel(mode) + "…", UiTheme.BLUE);
     }
   }

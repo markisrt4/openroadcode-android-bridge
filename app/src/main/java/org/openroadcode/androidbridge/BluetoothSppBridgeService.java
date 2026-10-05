@@ -75,7 +75,8 @@ public final class BluetoothSppBridgeService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIFICATION_ID, notification("Bluetooth SPP bridge starting"));
+        try { startForeground(NOTIFICATION_ID, notification("Bluetooth SPP bridge starting")); }
+        catch (RuntimeException error) { diagnostic.failure(BridgeServiceLog.Event.FAILED, error); throw error; }
         synchronized (lifecycleLock) {
             if (worker != null && worker.isAlive()) {
                 Log.i(TAG, "Start requested while Bluetooth SPP worker is already running");
@@ -83,6 +84,7 @@ public final class BluetoothSppBridgeService extends Service {
             }
 
             worker = null;
+            diagnostic.start();
             bluetoothReader = null;
             closeResources();
 
@@ -103,14 +105,18 @@ public final class BluetoothSppBridgeService extends Service {
         try {
             BluetoothManager manager = getSystemService(BluetoothManager.class);
             BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
+            diagnostic.available(BridgeServiceLog.Condition.BLUETOOTH_ADAPTER, adapter != null && adapter.isEnabled());
             if (adapter == null || !adapter.isEnabled()) {
                 throw new IOException("Bluetooth is unavailable or disabled");
             }
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            boolean permitted = checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
+            diagnostic.available(BridgeServiceLog.Condition.BLUETOOTH_PERMISSION, permitted);
+            if (!permitted) {
                 throw new SecurityException("Bluetooth connect permission is required");
             }
 
             BluetoothDevice device = findDevice(adapter.getBondedDevices(), requestedAddress);
+            diagnostic.available(BridgeServiceLog.Condition.DEVICE_SELECTION, device != null);
             if (device == null) throw new IOException("No paired Bluetooth device selected");
 
             String deviceName = safeName(device);
@@ -119,6 +125,7 @@ public final class BluetoothSppBridgeService extends Service {
 
             bluetoothSocket = connectDevice(device);
             connected = true;
+            diagnostic.available(BridgeServiceLog.Condition.DEVICE_CONNECTION, true);
 
             serverSocket = bindTcpServerWithRetry();
             startBluetoothReader(bluetoothSocket);
@@ -126,9 +133,11 @@ public final class BluetoothSppBridgeService extends Service {
             String connectedMessage = "Connected to " + deviceName + " • TCP 127.0.0.1:" + TCP_PORT;
             reportStatus(STATUS_CONNECTED, connectedMessage);
             updateNotification(connectedMessage);
+            diagnostic.ready();
 
             while (running) {
                 Socket client = serverSocket.accept();
+                diagnostic.record(BridgeServiceLog.Event.CLIENT_CONNECTED);
                 Log.i(TAG, "TCP client connected: " + client.getRemoteSocketAddress());
                 try {
                     setActiveClient(client);
@@ -136,11 +145,15 @@ public final class BluetoothSppBridgeService extends Service {
                 } catch (IOException clientFailure) {
                     IOException readerFailure = bluetoothReaderFailure.get();
                     if (readerFailure != null && running) throw readerFailure;
-                    if (running) Log.w(TAG, "TCP client I/O failure", clientFailure);
+                    if (running) {
+                        diagnostic.failure(BridgeServiceLog.Event.CLIENT_FAILED, clientFailure);
+                        Log.w(TAG, "TCP client I/O failure", clientFailure);
+                    }
                 } finally {
                     clearActiveClient(client);
                     try { client.close(); } catch (IOException ignored) { }
                     Log.i(TAG, "TCP client disconnected");
+                    diagnostic.record(BridgeServiceLog.Event.CLIENT_DISCONNECTED);
                 }
 
                 IOException readerFailure = bluetoothReaderFailure.get();
@@ -150,6 +163,8 @@ public final class BluetoothSppBridgeService extends Service {
             IOException readerFailure = bluetoothReaderFailure.get();
             if (readerFailure != null && running) exception = readerFailure;
             if (running) {
+                if (connected) diagnostic.available(BridgeServiceLog.Condition.DEVICE_CONNECTION, false);
+                diagnostic.failure(BridgeServiceLog.Event.FAILED, exception);
                 String message = exception.getMessage();
                 if (message == null || message.isEmpty()) message = exception.getClass().getSimpleName();
                 String display = connected
@@ -186,6 +201,7 @@ public final class BluetoothSppBridgeService extends Service {
                 lastBindFailure = exception;
                 try { candidate.close(); } catch (IOException ignored) { }
                 Log.w(TAG, "TCP bind attempt " + attempt + " failed", exception);
+                diagnostic.record(BridgeServiceLog.Event.BIND_RETRY, exception, attempt);
                 if (attempt < TCP_BIND_ATTEMPTS) Thread.sleep(TCP_BIND_RETRY_DELAY_MS);
             } catch (IOException exception) {
                 try { candidate.close(); } catch (IOException ignored) { }
@@ -204,6 +220,7 @@ public final class BluetoothSppBridgeService extends Service {
             return connectSocket(device, true, CONNECT_ATTEMPT_TIMEOUT_MS);
         } catch (IOException exception) {
             insecureFailure = exception;
+            diagnostic.failure(BridgeServiceLog.Event.CONNECT_FALLBACK, exception);
         }
 
         if (!running) throw new IOException("Connection cancelled");
@@ -400,7 +417,10 @@ public final class BluetoothSppBridgeService extends Service {
             reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
         }
         super.onDestroy();
+        diagnostic.record(BridgeServiceLog.Event.STOPPED);
     }
+
+    private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.BLUETOOTH);
 
     private void closeResources() {
         closeActiveClient(null);

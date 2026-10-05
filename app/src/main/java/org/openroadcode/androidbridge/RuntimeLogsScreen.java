@@ -42,6 +42,7 @@ final class RuntimeLogsScreen {
   private Target target;
   private String level = "INFO";
   private String component = "";
+  private boolean bridgeSource;
   private boolean visible;
   private boolean paused;
   private long retryDelay = 1000;
@@ -58,11 +59,11 @@ final class RuntimeLogsScreen {
         12, UiTheme.MUTED);
     root.addView(introduction);
 
-    Spinner targets = spinner(new String[] {"Termux", "Remote Linux"});
+    Spinner targets = spinner(new String[] {"Termux", "Remote Linux", "Android bridge"});
     targets.setSelection(target == Target.TERMUX ? 0 : 1);
     root.addView(targets);
     TextView targetHelp = UiTheme.text(activity,
-        "Remote Linux uses the pairing saved on the Runtime screen.", 11, UiTheme.MUTED);
+        "Android bridge reads this app's private logs. Remote Linux uses saved pairing.", 11, UiTheme.MUTED);
     root.addView(targetHelp);
 
     Spinner levels = spinner(new String[] {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"});
@@ -94,7 +95,7 @@ final class RuntimeLogsScreen {
     scope = UiTheme.text(activity, "", 11, UiTheme.MUTED);
     root.addView(scope);
     root.addView(UiTheme.text(activity,
-        "Keeps up to 200 events. Linux shows the manager's private store. Copy/share includes "
+        "Keeps up to 200 events. Each source is separate; Linux shows the manager's private store. Copy/share includes "
             + "the displayed history; review it before sending.", 10, UiTheme.MUTED));
 
     adapter = new ArrayAdapter<String>(activity, android.R.layout.simple_list_item_1) {
@@ -121,8 +122,13 @@ final class RuntimeLogsScreen {
     list.setEmptyView(empty);
 
     targets.setOnItemSelectedListener(selected(position -> {
+      boolean chosenBridge = position == 2;
       Target chosen = position == 0 ? Target.TERMUX : Target.REMOTE_PI;
-      if (chosen != target) { target = chosen; reload(); }
+      if (chosenBridge != bridgeSource || (!chosenBridge && chosen != target)) {
+        bridgeSource = chosenBridge;
+        if (!chosenBridge) target = chosen;
+        reload();
+      }
     }));
     levels.setOnItemSelectedListener(selected(position -> {
       String chosen = new String[] {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}[position];
@@ -152,11 +158,11 @@ final class RuntimeLogsScreen {
   private void connect() {
     cancel();
     if (!visible || paused) return;
-    if (target == Target.REMOTE_PI && !settings.hasRemotePiConfiguration()) {
+    if (!bridgeSource && target == Target.REMOTE_PI && !settings.hasRemotePiConfiguration()) {
       setStatus("Configure and pair Remote Linux on the Runtime screen.", UiTheme.AMBER);
       return;
     }
-    client = target == Target.TERMUX
+    client = bridgeSource ? null : target == Target.TERMUX
         ? new RuntimeLogClient(TermuxServiceManagerClient.BASE_URL, null)
         : new RuntimeLogClient(settings.piBaseUrl(), settings.piToken());
     polling.start();
@@ -166,15 +172,17 @@ final class RuntimeLogsScreen {
   }
 
   private void readPage() {
-    if (!visible || paused || client == null) return;
+    if (!visible || paused || (!bridgeSource && client == null)) return;
     long requestGeneration = polling.begin();
     if (requestGeneration < 0) return;
     RuntimeLogClient requestClient = client;
+    boolean local = bridgeSource;
     String cursor = buffer.cursor(), requestLevel = level, requestComponent = component;
     new Thread(() -> {
       JSONObject page = null;
       Exception failure = null;
-      try { page = requestClient.read(cursor, requestLevel, requestComponent); }
+      try { page = local ? BridgeLog.read(cursor, requestLevel, requestComponent)
+                         : requestClient.read(cursor, requestLevel, requestComponent); }
       catch (Exception error) { failure = error; }
       final JSONObject result = page;
       final Exception error = failure;
@@ -258,7 +266,9 @@ final class RuntimeLogsScreen {
     Toast.makeText(activity, "No displayed logs to copy or share", Toast.LENGTH_SHORT).show();
   }
 
-  private String targetLabel() { return target == Target.TERMUX ? "Termux" : "Remote Linux"; }
+  private String targetLabel() {
+    return bridgeSource ? "Android bridge" : target == Target.TERMUX ? "Termux" : "Remote Linux";
+  }
   private int dp(int value) { return UiTheme.dp(activity, value); }
   private void setStatus(String value, int color) { status.setText(value); status.setTextColor(color); }
   private void addAction(LinearLayout row, Button button) {

@@ -32,8 +32,9 @@ public final class PlaybackAudioService extends Service {
   private volatile double peakDb = -60.0;
   private byte[] latest;
   private long sequence;
+  private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.PLAYBACK);
   private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
-    @Override public void onStop() { stopSelf(); }
+    @Override public void onStop() { diagnostic.record(BridgeServiceLog.Event.CONSENT_ENDED); stopSelf(); }
   };
 
   @Override public android.os.IBinder onBind(Intent intent) { return null; }
@@ -41,9 +42,15 @@ public final class PlaybackAudioService extends Service {
     if (intent == null) return START_NOT_STICKY;
     if (STOP.equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
     if (!START.equals(intent.getAction()) || running.get()) return START_NOT_STICKY;
-    if (Build.VERSION.SDK_INT < 29) { stopSelf(); return START_NOT_STICKY; }
+    diagnostic.start();
+    diagnostic.available(BridgeServiceLog.Condition.AUDIO_PERMISSION,
+        checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED);
+    if (Build.VERSION.SDK_INT < 29) {
+      diagnostic.record(BridgeServiceLog.Event.UNSUPPORTED); stopSelf(); return START_NOT_STICKY;
+    }
     Intent data = intent.getParcelableExtra(DATA);
     if (intent.getIntExtra(RESULT, Activity.RESULT_CANCELED) != Activity.RESULT_OK || data == null) {
+      diagnostic.record(BridgeServiceLog.Event.CONSENT_DENIED);
       stopSelf(); return START_NOT_STICKY;
     }
     try {
@@ -78,7 +85,9 @@ public final class PlaybackAudioService extends Service {
       synchronized (lock) { sequence = 0; latest = null; }
       new Thread(this::captureLoop, "orc-playback-pcm").start();
       new Thread(this::serveLoop, "orc-playback-http").start();
+      diagnostic.ready();
     } catch (Exception ex) {
+      diagnostic.failure(BridgeServiceLog.Event.FAILED, ex);
       error = ex.toString(); android.util.Log.e("ORCPlayback", "Capture start failed", ex); stopSelf();
     }
     return START_NOT_STICKY;
@@ -89,7 +98,10 @@ public final class PlaybackAudioService extends Service {
     try {
       while (running.get()) {
         int count = recorder.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
-        if (count < 0) throw new IOException("AudioRecord read error " + count);
+        if (count < 0) {
+          if (running.get()) diagnostic.record(BridgeServiceLog.Event.CAPTURE_FAILED, null, count);
+          throw new IOException("AudioRecord read error " + count);
+        }
         if (count == 0) continue;
         byte[] bytes = new byte[count * 2];
         int peak = 0;
@@ -106,7 +118,10 @@ public final class PlaybackAudioService extends Service {
         }
       }
     } catch (Exception ex) {
-      if (running.get()) { error = ex.toString(); android.util.Log.e("ORCPlayback", "Capture failed", ex); stopSelf(); }
+      if (running.get()) {
+        diagnostic.failure(BridgeServiceLog.Event.FAILED, ex);
+        error = ex.toString(); android.util.Log.e("ORCPlayback", "Capture failed", ex); stopSelf();
+      }
     }
   }
 
@@ -116,7 +131,12 @@ public final class PlaybackAudioService extends Service {
         Socket socket = server.accept();
         socket.setSoTimeout(3000);
         new Thread(() -> serve(socket), "orc-playback-client").start();
-      } catch (IOException ex) { if (running.get()) android.util.Log.w("ORCPlayback", "HTTP accept failed", ex); }
+      } catch (IOException ex) {
+        if (running.get()) {
+          diagnostic.failure(BridgeServiceLog.Event.SERVER_FAILED, ex);
+          android.util.Log.w("ORCPlayback", "HTTP accept failed", ex);
+        }
+      }
     }
   }
 
@@ -142,6 +162,7 @@ public final class PlaybackAudioService extends Service {
         synchronized (lock) {
           if (client != null) { respond(out, 409, "text/plain", "A client is already connected".getBytes(StandardCharsets.UTF_8)); return; }
           client = connection;
+          diagnostic.record(BridgeServiceLog.Event.CLIENT_CONNECTED);
         }
         out.write(("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
         out.write(PlaybackPcmProtocol.header(RATE, 1));
@@ -160,7 +181,12 @@ public final class PlaybackAudioService extends Service {
     } catch (Exception ignored) {
       // Disconnecting a client must not terminate the capture service.
     } finally {
-      synchronized (lock) { if (client == socket) client = null; }
+      synchronized (lock) {
+        if (client == socket) {
+          client = null;
+          diagnostic.record(BridgeServiceLog.Event.CLIENT_DISCONNECTED);
+        }
+      }
     }
   }
 
@@ -183,6 +209,7 @@ public final class PlaybackAudioService extends Service {
     if (projection != null) { projection.unregisterCallback(projectionCallback); projection.stop(); projection = null; }
     server = null; client = null;
     stopForeground(STOP_FOREGROUND_REMOVE);
+    diagnostic.record(BridgeServiceLog.Event.STOPPED);
     super.onDestroy();
   }
 }
