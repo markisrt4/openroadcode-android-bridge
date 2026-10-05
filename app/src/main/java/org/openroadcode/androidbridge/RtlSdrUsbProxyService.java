@@ -500,8 +500,39 @@ public final class RtlSdrUsbProxyService extends Service {
         control.start();
 
         try {
+            Log.i(TAG, "RTL-SDR USB topology"
+                    + " • device=" + String.format(java.util.Locale.US, "%04X:%04X",
+                            device.getVendorId(), device.getProductId())
+                    + " interfaces=" + device.getInterfaceCount());
+            for (int interfaceIndex = 0; interfaceIndex < device.getInterfaceCount(); interfaceIndex++) {
+                UsbInterface usbInterface = device.getInterface(interfaceIndex);
+                Log.i(TAG, "RTL-SDR USB interface"
+                        + " • index=" + interfaceIndex
+                        + " id=" + usbInterface.getId()
+                        + " class=" + usbInterface.getInterfaceClass()
+                        + " subclass=" + usbInterface.getInterfaceSubclass()
+                        + " protocol=" + usbInterface.getInterfaceProtocol()
+                        + " endpoints=" + usbInterface.getEndpointCount());
+                for (int endpointIndex = 0; endpointIndex < usbInterface.getEndpointCount(); endpointIndex++) {
+                    UsbEndpoint usbEndpoint = usbInterface.getEndpoint(endpointIndex);
+                    Log.i(TAG, "RTL-SDR USB endpoint"
+                            + " • interfaceId=" + usbInterface.getId()
+                            + " index=" + endpointIndex
+                            + " address=0x" + Integer.toHexString(usbEndpoint.getAddress())
+                            + " attributes=0x" + Integer.toHexString(usbEndpoint.getAttributes())
+                            + " direction=0x" + Integer.toHexString(usbEndpoint.getDirection())
+                            + " type=" + usbEndpoint.getType()
+                            + " maxPacketSize=" + usbEndpoint.getMaxPacketSize()
+                            + " interval=" + usbEndpoint.getInterval());
+                }
+            }
             Log.i(TAG, "RTL-SDR synchronous bulk stream starting"
                     + " • endpoint=0x" + Integer.toHexString(endpoint.getAddress())
+                    + " attributes=0x" + Integer.toHexString(endpoint.getAttributes())
+                    + " direction=0x" + Integer.toHexString(endpoint.getDirection())
+                    + " type=" + endpoint.getType()
+                    + " maxPacketSize=" + endpoint.getMaxPacketSize()
+                    + " interval=" + endpoint.getInterval()
                     + " transferLength=" + transferLength
                     + " timeoutMs=" + timeoutMs);
             while (running && streaming.get()) {
