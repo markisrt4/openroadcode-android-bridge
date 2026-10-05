@@ -542,6 +542,40 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " interval=" + endpoint.getInterval()
                     + " transferLength=" + transferLength
                     + " timeoutMs=" + timeoutMs);
+
+            // Before entering the long-lived stream loop, probe the endpoint
+            // with packet-aligned sizes. This distinguishes an endpoint that
+            // Android rejects outright from a problem specific to the 256 KiB
+            // streaming request size.
+            int[] probeLengths = new int[] {512, 16384, 65536, transferLength};
+            for (int probeLength : probeLengths) {
+                if (probeLength <= 0 || probeLength > buffer.length) continue;
+                byte[] probeBuffer = probeLength == buffer.length ? buffer : new byte[probeLength];
+                long startedNs = System.nanoTime();
+                int probeResult;
+                synchronized (usbLock) {
+                    probeResult = connection.bulkTransfer(
+                            endpoint, probeBuffer, probeBuffer.length, timeoutMs);
+                }
+                long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                        System.nanoTime() - startedNs);
+                Log.i(TAG, "RTL-SDR synchronous bulk probe"
+                        + " • length=" + probeLength
+                        + " result=" + probeResult
+                        + " elapsedMs=" + elapsedMs);
+                if (probeResult > 0) {
+                    long chunk = chunks.incrementAndGet();
+                    long totalBytes = bytes.addAndGet(probeResult);
+                    out.writeInt(probeResult);
+                    out.write(probeBuffer, 0, probeResult);
+                    out.flush();
+                    Log.i(TAG, "RTL-SDR synchronous bulk probe delivered IQ"
+                            + " • chunks=" + chunk
+                            + " bytes=" + totalBytes);
+                    break;
+                }
+            }
+
             while (running && streaming.get()) {
                 int transferred;
                 synchronized (usbLock) {
