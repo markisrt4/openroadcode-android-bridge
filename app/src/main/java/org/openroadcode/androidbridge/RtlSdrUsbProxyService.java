@@ -296,9 +296,10 @@ public final class RtlSdrUsbProxyService extends Service {
         synchronized (usbLock) {
             int count = interfaceClaimCounts.getOrDefault(interfaceId, 0);
             // Android's UsbDeviceConnection owns the claim, not the TCP client.
-            // Call claimInterface for every ORCU claim so we can verify whether
-            // the stream client's second claim changes endpoint usability.
-            ok = connection.claimInterface(iface, force);
+            // Multiple ORCU clients share that single Android-side claim. Re-claiming
+            // the same interface for the stream socket can disturb endpoint state on
+            // some Android USB stacks.
+            ok = count > 0 || connection.claimInterface(iface, force);
             Log.i(TAG, "RTL-SDR interface claim"
                     + " • interfaceId=" + interfaceId
                     + " force=" + force
@@ -481,6 +482,7 @@ public final class RtlSdrUsbProxyService extends Service {
         java.util.concurrent.atomic.AtomicLong chunks = new java.util.concurrent.atomic.AtomicLong();
         java.util.concurrent.atomic.AtomicLong bytes = new java.util.concurrent.atomic.AtomicLong();
         java.util.concurrent.atomic.AtomicLong failures = new java.util.concurrent.atomic.AtomicLong();
+        long consecutiveFailures = 0;
 
         Thread control = new Thread(() -> {
             try {
@@ -554,6 +556,7 @@ public final class RtlSdrUsbProxyService extends Service {
                             endpoint, buffer, buffer.length, timeoutMs);
                 }
                 if (transferred > 0) {
+                    consecutiveFailures = 0;
                     long chunk = chunks.incrementAndGet();
                     long totalBytes = bytes.addAndGet(transferred);
                     out.writeInt(transferred);
@@ -569,19 +572,22 @@ public final class RtlSdrUsbProxyService extends Service {
                 }
 
                 long failure = failures.incrementAndGet();
+                consecutiveFailures++;
                 Log.w(TAG, "RTL-SDR synchronous bulk read failed"
                         + " • result=" + transferred
                         + " failure=" + failure
+                        + " consecutive=" + consecutiveFailures
                         + " chunks=" + chunks.get()
                         + " bytes=" + bytes.get());
 
                 // A timeout/error can be transient. Three consecutive failures
                 // preserve the previous fallback policy without touching UsbRequest.
-                if (failure >= 3) {
+                if (consecutiveFailures >= 3) {
                     stopReason.compareAndSet("unknown",
                             "synchronous bulk stream failed"
                                     + " • result=" + transferred
-                                    + " failures=" + failure);
+                                    + " failures=" + failure
+                                    + " consecutive=" + consecutiveFailures);
                     streaming.set(false);
                     break;
                 }
