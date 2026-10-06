@@ -624,8 +624,9 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " bytes=" + bytes.get()
                     + " failures=" + failures.get();
             Log.w(TAG, terminatorStatus);
-            getSharedPreferences(DIAGNOSTIC_PREFERENCES, MODE_PRIVATE)
-                    .edit().putString(PREF_LAST_STREAM_STATUS, terminatorStatus).commit();
+            // Keep PREF_LAST_STREAM_STATUS pointed at the actual termination cause.
+            // The zero-length frame below is only the ORCU stream terminator; persisting
+            // that transport detail here used to overwrite the useful failure reason.
             out.writeInt(0);
             out.flush();
 
