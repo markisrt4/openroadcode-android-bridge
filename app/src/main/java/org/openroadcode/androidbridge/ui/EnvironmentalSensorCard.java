@@ -19,9 +19,8 @@ public final class EnvironmentalSensorCard {
     this.context = context;
     root = UiTheme.card(context);
 
-    TextView title = UiTheme.text(context, "ENVIRONMENTAL SENSORS", 18, UiTheme.TEXT);
+    TextView title = UiTheme.text(context, "Phone environment", 16, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    title.setLetterSpacing(.08f);
     root.addView(title);
 
     TextView subtitle = UiTheme.text(context, "Phone environment telemetry", 12, UiTheme.GREEN);

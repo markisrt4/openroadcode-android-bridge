@@ -25,6 +25,11 @@ control remains available in Navigation. Location permission must be granted
 before navigation start is sent. Home status polls every five seconds only while
 Home is visible; feature service polling also stops when leaving the screen.
 
+Home uses a consistent set of line icons and subtle accent colors. Environment
+uses the same half-width as the other feature cards. Feature pages keep current
+status and primary actions visible; source changes, motion readings, sensor
+sharing, stream settings, audio details, and log filters expand on demand.
+
 The master activity switch and text input are not implemented in this revision.
 
 ## Architecture

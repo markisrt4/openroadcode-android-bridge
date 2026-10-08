@@ -112,7 +112,6 @@ public final class MainActivity extends Activity {
     stopVisibleCards();
     currentScreen = subsystem;
     resetContent();
-    addBrandHeader(content);
 
     switch (subsystem) {
       case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
@@ -133,7 +132,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showAutomotive() {
-    addSubsystemHeader("🚗", "AUTOMOTIVE", "Vehicle bridge and automotive runtime", GREEN);
+    addSubsystemHeader("🚗", "Automotive", "Vehicle bridge and automotive runtime", GREEN);
 
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
     addServiceCard(content, "AUTOMOTIVE SERVICE", "Runtime service and input source", GREEN,
@@ -146,7 +145,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showNavigation() {
-    addSubsystemHeader("⌖", "NAVIGATION", "Phone motion, GPS, and navigation runtime", BLUE);
+    addSubsystemHeader("⌖", "Navigation", "Phone motion, GPS, and navigation runtime", BLUE);
 
     ServiceConfig sensorConfig = serviceManager.sensorConfig();
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
@@ -163,7 +162,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showEnvironmental() {
-    addSubsystemHeader("☀", "ENVIRONMENTAL", "Ambient light and environmental telemetry", GREEN);
+    addSubsystemHeader("☀", "Environment", "Ambient light and environmental telemetry", GREEN);
 
     environmentalSensorCard = new EnvironmentalSensorCard(this);
     addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
@@ -171,7 +170,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showMedia() {
-    addSubsystemHeader("◉", "MEDIA I/O", "Camera and playback-audio bridges", RED);
+    addSubsystemHeader("◉", "Media", "Camera and playback-audio bridges", RED);
 
     cameraCard = new CameraCard(this);
     addServiceCard(content, "CAMERA",
@@ -183,7 +182,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showConfiguration() {
-    addSubsystemHeader("⚙", "CONFIGURATION",
+    addSubsystemHeader("⚙", "Configuration",
         "Pair, choose, and manage computing units", SILVER);
 
     RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
@@ -196,14 +195,14 @@ public final class MainActivity extends Activity {
     boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
         .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
     remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    addServiceCard(content, "SENSOR SHARING",
-        "This phone or local network", GREEN, remoteAccessCard.view(), true, false);
+    addServiceCard(content, "Sensor sharing",
+        "This phone or local network", GREEN, remoteAccessCard.view(), false, false);
     updateRemoteAccessStatus();
 
   }
 
   private void showRadio() {
-    addSubsystemHeader("◉", "RADIO", "Radio hardware and aircraft reception", UiTheme.VIOLET);
+    addSubsystemHeader("◉", "Radio", "Radio hardware and aircraft reception", UiTheme.VIOLET);
     radioCard = new RadioCard(this);
     addServiceCard(content, "RTL-SDR", "USB receiver and local radio bridge", UiTheme.VIOLET,
         radioCard.view(), true, false);
@@ -213,7 +212,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showRuntime() {
-    addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
+    addSubsystemHeader("≡", "Runtime", "Running Termux and remote Linux services", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
     content.addView(UiTheme.actionButton(this, "Paired devices & settings  ›", UiTheme.SURFACE_RAISED,
@@ -224,7 +223,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showPerformance() {
-    addSubsystemHeader("▥", "PERFORMANCE", "Computing-unit workload, sensors, and service traffic", BLUE);
+    addSubsystemHeader("▥", "Performance", "Computing-unit workload, sensors, and service traffic", BLUE);
     systemPerformanceCard = new SystemPerformanceCard(this);
     addServiceCard(content, "COMPUTING UNIT PERFORMANCE",
         "CPU • memory • thermal • storage • activity", BLUE,
@@ -232,7 +231,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showDiagnostics() {
-    addSubsystemHeader("≡", "DIAGNOSTICS · LOGS", "Recent history and live runtime logs", SILVER);
+    addSubsystemHeader("≡", "Live logs", "Recent history and live runtime logs", SILVER);
     runtimeLogsScreen = new RuntimeLogsScreen(this);
     content.addView(runtimeLogsScreen.view(), sectionEndCardParams());
   }
@@ -248,15 +247,11 @@ public final class MainActivity extends Activity {
     backParams.setMargins(0, 0, dp(10), 0);
     row.addView(back, backParams);
 
-    CircuitIconView iconView = new CircuitIconView(this, icon, accent);
-    row.addView(iconView, new LinearLayout.LayoutParams(dp(52), dp(52)));
-
     LinearLayout labels = new LinearLayout(this);
     labels.setOrientation(LinearLayout.VERTICAL);
 
-    TextView heading = text(title, 17, UiTheme.TEXT);
+    TextView heading = text(title, 21, UiTheme.TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    heading.setLetterSpacing(.08f);
     labels.addView(heading);
 
     TextView detail = text(subtitle, 11, MUTED);
@@ -359,9 +354,11 @@ public final class MainActivity extends Activity {
       View detailView,
       boolean initiallyExpanded,
       boolean sectionEnd) {
-    ExpandableCard card = new ExpandableCard(
-        this, title, subtitle, accent, detailView, initiallyExpanded);
-    parent.addView(card.view(), sectionEnd ? sectionEndCardParams() : cardParams());
+    View section = detailView;
+    if (!initiallyExpanded) {
+      section = new ExpandableCard(this, title, subtitle, accent, detailView, false).view();
+    }
+    parent.addView(section, sectionEnd ? sectionEndCardParams() : cardParams());
   }
 
   private void addFooter() {

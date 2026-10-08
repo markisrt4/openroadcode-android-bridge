@@ -59,6 +59,8 @@ final class RuntimeLogsScreen {
         12, UiTheme.MUTED);
     root.addView(introduction);
 
+    LinearLayout filters = new LinearLayout(activity);
+    filters.setOrientation(LinearLayout.VERTICAL);
     var devices = settings.devices();
     String[] targetLabels = new String[devices.size() + 1];
     targetLabels[0] = "Local Termux";
@@ -71,24 +73,28 @@ final class RuntimeLogsScreen {
     }
     Spinner targets = spinner(targetLabels);
     targets.setSelection(selectedTarget);
-    root.addView(targets);
+    filters.addView(targets);
     TextView targetHelp = UiTheme.text(activity,
         "Pair remote computing units in Configuration.", 11, UiTheme.MUTED);
-    root.addView(targetHelp);
+    filters.addView(targetHelp);
 
     Spinner levels = spinner(new String[] {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"});
     levels.setSelection(1);
-    root.addView(UiTheme.text(activity, "Minimum severity", 12, UiTheme.SILVER));
-    root.addView(levels);
+    filters.addView(UiTheme.text(activity, "Minimum severity", 12, UiTheme.SILVER));
+    filters.addView(levels);
     componentInput = new EditText(activity);
     componentInput.setSingleLine(true);
     componentInput.setTextColor(UiTheme.TEXT);
     componentInput.setHintTextColor(UiTheme.MUTED);
     componentInput.setHint("Component prefix (optional), e.g. runtime");
     componentInput.setTextSize(12);
-    root.addView(componentInput);
-    root.addView(UiTheme.actionButton(activity, "Apply component filter", UiTheme.SURFACE_RAISED,
+    filters.addView(componentInput);
+    filters.addView(UiTheme.actionButton(activity, "Apply component filter", UiTheme.SURFACE_RAISED,
         v -> applyComponent()));
+
+    root.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
+        "Filters & runtime", "Choose a computing unit, severity and component",
+        UiTheme.SILVER, filters, false).view());
 
     LinearLayout actions = new LinearLayout(activity);
     pause = UiTheme.actionButton(activity, "Pause", UiTheme.BLUE, v -> togglePause());
@@ -212,7 +218,7 @@ final class RuntimeLogsScreen {
           adapter.notifyDataSetChanged();
           if (result.getJSONArray("events").length() > 0 && adapter.getCount() > 0)
             list.setSelection(adapter.getCount() - 1);
-          scope.setText(targetLabel() + " • " + buffer.scope());
+          scope.setText(targetLabel() + " • " + level + (component.isEmpty() ? "" : " • " + component) + " • " + buffer.scope());
           setStatus(reset ? "Live • older history rotated out; showing recent logs"
                           : "Live • " + adapter.getCount() + " recent events", UiTheme.GREEN);
           retryDelay = 1000;

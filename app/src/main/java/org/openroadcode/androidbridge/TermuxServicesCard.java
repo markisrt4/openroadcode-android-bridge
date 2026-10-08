@@ -85,13 +85,6 @@ public final class TermuxServicesCard {
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
-    TextView title = text(
-        showTargetControls ? "OPENROADCODE RUNTIME" : "SERVICE CONTROLS",
-        18, UiTheme.TEXT);
-    title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    title.setLetterSpacing(.05f);
-    root.addView(title);
-
     targetSummary = text("", 12, UiTheme.MUTED);
     targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     targetSummary.setPadding(0, dp(2), 0, dp(10));
@@ -233,15 +226,13 @@ public final class TermuxServicesCard {
   private void addService(String id, String label, String descriptionText, boolean profiles) {
     LinearLayout card = new LinearLayout(activity);
     card.setOrientation(LinearLayout.VERTICAL);
-    card.setPadding(dp(12), dp(10), dp(12), dp(10));
-    card.setBackground(UiTheme.rounded(
-        activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 10));
+    card.setPadding(0, dp(8), 0, dp(8));
 
     LinearLayout heading = new LinearLayout(activity);
     heading.setOrientation(LinearLayout.HORIZONTAL);
     heading.setGravity(Gravity.CENTER_VERTICAL);
 
-    TextView name = text(label, 14, UiTheme.TEXT);
+    TextView name = text(showTargetControls ? label : label + " service", 15, UiTheme.TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
 
@@ -257,6 +248,21 @@ public final class TermuxServicesCard {
         10, UiTheme.SILVER);
     description.setPadding(0, dp(2), 0, profiles ? dp(7) : dp(6));
     card.addView(description);
+
+    LinearLayout actions = new LinearLayout(activity);
+    actions.setOrientation(LinearLayout.HORIZONTAL);
+    actions.setPadding(0, dp(8), 0, 0);
+    Button startButton = actionButton("START", UiTheme.BLUE, v -> startService(id));
+    Button stopButton = actionButton("STOP", UiTheme.RED,
+        v -> runAction(client -> client.stopService(id)));
+    startButton.setEnabled(false);
+    stopButton.setEnabled(false);
+    startButtons.put(id, startButton);
+    stopButtons.put(id, stopButton);
+    actions.addView(startButton, pairedButtonParams(false));
+    actions.addView(stopButton, pairedButtonParams(true));
+    card.addView(actions);
+
 
     if (profiles) {
       LinearLayout profileColumn = new LinearLayout(activity);
@@ -282,23 +288,11 @@ public final class TermuxServicesCard {
       addProfileButton(profileRow, id, "ANDROID BRIDGE", "local");
       addProfileButton(profileRow, id, "DEVICE HARDWARE", "remote");
       addProfileButton(profileRow, id, "SIMULATED", "simulated");
-      profileColumn.addView(profileRow);
+      profileColumn.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
+          "Change input source", "Android Bridge, device hardware or simulation",
+          UiTheme.SILVER, profileRow, false).view());
       card.addView(profileColumn);
     }
-
-    LinearLayout actions = new LinearLayout(activity);
-    actions.setOrientation(LinearLayout.HORIZONTAL);
-    actions.setPadding(0, dp(8), 0, 0);
-    Button startButton = actionButton("START", UiTheme.BLUE, v -> startService(id));
-    Button stopButton = actionButton("STOP", UiTheme.RED,
-        v -> runAction(client -> client.stopService(id)));
-    startButton.setEnabled(false);
-    stopButton.setEnabled(false);
-    startButtons.put(id, startButton);
-    stopButtons.put(id, stopButton);
-    actions.addView(startButton, pairedButtonParams(false));
-    actions.addView(stopButton, pairedButtonParams(true));
-    card.addView(actions);
 
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, 0, 0, dp(ROW_GAP));

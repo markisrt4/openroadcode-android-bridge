@@ -119,11 +119,11 @@ final class BluetoothCard {
     view.setPadding(dp(12), dp(16), dp(12), dp(16));
     view.setBackground(rounded(SURFACE, BORDER, 14));
 
-    TextView heading = text("VEHICLE BRIDGE", 18, TEXT);
+    TextView heading = text("Phone vehicle connection", 16, TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    heading.setLetterSpacing(.08f);
+    heading.setLetterSpacing(0);
     view.addView(heading);
-    TextView subtitle = text("Selectable OBD source • shared TCP transport", 12, GREEN);
+    TextView subtitle = text("Bluetooth OBD or a simulated vehicle", 12, GREEN);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, dp(2), 0, dp(10));
     view.addView(subtitle);

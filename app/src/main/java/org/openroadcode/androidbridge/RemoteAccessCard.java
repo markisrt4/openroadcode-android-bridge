@@ -26,7 +26,7 @@ final class RemoteAccessCard {
     this.listener = listener;
     view = UiTheme.card(activity);
 
-    TextView heading = UiTheme.text(activity, "SENSOR SHARING", 18, UiTheme.TEXT);
+    TextView heading = UiTheme.text(activity, "Sharing scope", 15, UiTheme.TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.setLetterSpacing(.08f);
     view.addView(heading);

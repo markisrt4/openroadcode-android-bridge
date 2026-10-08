@@ -48,7 +48,7 @@ final class PlaybackAudioCard {
     headingRow.setGravity(Gravity.START);
     headingRow.setPadding(0, 0, 0, UiTheme.dp(activity, 2));
 
-    TextView heading = UiTheme.text(activity, "ANDROID PLAYBACK AUDIO", 18, UiTheme.TEXT);
+    TextView heading = UiTheme.text(activity, "Playback audio", 16, UiTheme.TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.setLetterSpacing(.04f);
     headingRow.addView(heading, new LinearLayout.LayoutParams(-1, -2));
@@ -61,7 +61,7 @@ final class PlaybackAudioCard {
     view.addView(headingRow);
 
     TextView subtitle = UiTheme.text(activity,
-        "Native playback capture • PCM16 • localhost:8768", 12, UiTheme.MUTED);
+        "Share playback from supported apps. Android asks for permission each session.", 12, UiTheme.MUTED);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, 0, 0, UiTheme.dp(activity, 10));
     view.addView(subtitle);
@@ -100,7 +100,9 @@ final class PlaybackAudioCard {
     facts.addView(infoTile("Local port", UiTheme.text(activity, "8768", 11, UiTheme.TEXT)), tileParams(true, false));
     levelDetail = UiTheme.text(activity, "-60 dB", 11, UiTheme.TEXT);
     facts.addView(infoTile("Level", levelDetail), tileParams(false, true));
-    view.addView(facts);
+    LinearLayout captureDetails = new LinearLayout(activity);
+    captureDetails.setOrientation(LinearLayout.VERTICAL);
+    captureDetails.addView(facts);
 
     LinearLayout noteBox = new LinearLayout(activity);
     noteBox.setOrientation(LinearLayout.HORIZONTAL);
@@ -119,7 +121,10 @@ final class PlaybackAudioCard {
         12, UiTheme.MUTED);
     note.setLineSpacing(0, 1.08f);
     noteBox.addView(note, new LinearLayout.LayoutParams(0, -2, 1));
-    view.addView(noteBox);
+    captureDetails.addView(noteBox);
+    view.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
+        "Capture details", "Format and playback support", UiTheme.SILVER,
+        captureDetails, false).view());
 
     update(false, "Stopped");
     updateLevel(-60.0);

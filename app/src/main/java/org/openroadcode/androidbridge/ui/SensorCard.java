@@ -33,11 +33,10 @@ public final class SensorCard {
         this.context = context;
         root = UiTheme.card(context);
 
-        TextView title = UiTheme.text(context, "SENSOR BRIDGE", 18, UiTheme.TEXT);
+        TextView title = UiTheme.text(context, "Phone sensors", 16, UiTheme.TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setLetterSpacing(.08f);
         root.addView(title);
-        TextView subtitle = UiTheme.text(context, "Phone telemetry • HTTP 8766", 12, UiTheme.BLUE);
+        TextView subtitle = UiTheme.text(context, "Motion and GPS from this phone", 12, UiTheme.BLUE);
         subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         subtitle.setPadding(0, dp(2), 0, dp(10));
         root.addView(subtitle);
@@ -110,6 +109,10 @@ public final class SensorCard {
         String[] icons = {"↗", "⇢", "↻", "⌖", "◎"};
         int[] accents = {UiTheme.BLUE, UiTheme.GREEN, UiTheme.RED, UiTheme.BLUE,
                 UiTheme.RED};
+        LinearLayout readings = new LinearLayout(context);
+        readings.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout position = new LinearLayout(context);
+        position.setOrientation(LinearLayout.VERTICAL);
         for (int i = 0; i < values.length; i++) {
             LinearLayout row = new LinearLayout(context);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -129,7 +132,8 @@ public final class SensorCard {
             values[i].setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             values[i].setTypeface(Typeface.MONOSPACE);
             row.addView(values[i], new LinearLayout.LayoutParams(0, -2, 1.62f));
-            root.addView(row);
+            if (i == values.length - 1) position.addView(row);
+            else readings.addView(row);
         }
 
         start = UiTheme.actionButton(context, "START BRIDGE", UiTheme.BLUE, v -> onStart.run());
@@ -143,6 +147,9 @@ public final class SensorCard {
             buttons.addView(button, p);
         }
         root.addView(buttons);
+        root.addView(position);
+        root.addView(new ExpandableCard(context, "Motion readings",
+                "Acceleration, rotation and magnetic field", UiTheme.SILVER, readings, false).view());
     }
 
     public LinearLayout view() { return root; }
