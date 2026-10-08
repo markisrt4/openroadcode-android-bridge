@@ -14,8 +14,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- Android 11+ package visibility: the bridge intentionally integrates
+         with the installed RTL-SDR driver through its iqsrc activity. -->
+    <queries>
+        <package android:name="marto.rtl_tcp_andro" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="iqsrc" />
+        </intent>
+    </queries>
 
     <application
         android:name=".OpenRoadCodeBridgeApplication"
@@ -71,5 +82,19 @@
             android:name=".PlaybackAudioService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".PcmAudioOutputService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name=".RtlTcpProviderControlService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Provides localhost-only control for launching the Android RTL-TCP SDR provider used by OpenRoadCode." />
+        </service>
     </application>
 </manifest>

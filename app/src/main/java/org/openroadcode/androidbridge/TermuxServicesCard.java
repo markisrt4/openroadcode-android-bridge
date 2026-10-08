@@ -149,6 +149,9 @@ public final class TermuxServicesCard {
     polling.start();
     handler.removeCallbacks(refreshTask);
     handler.post(refreshTask);
+    if (settings.target() == Target.REMOTE_PI && settings.hasRemotePiConfiguration()) {
+      runAction(RuntimeServiceManagerClient::registerAndroidBridge);
+    }
   }
 
   public void stop() {
@@ -543,7 +546,9 @@ public final class TermuxServicesCard {
     new Thread(() -> {
       try {
         action.run(client);
-        activity.runOnUiThread(this::refresh);
+        activity.runOnUiThread(() -> {
+          if (active && target.equals(targetKey())) refresh();
+        });
       } catch (Exception e) {
         activity.runOnUiThread(() -> {
           if (!active || !target.equals(targetKey())) return;

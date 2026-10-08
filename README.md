@@ -13,8 +13,8 @@ accent colors and group the controls with their data:
 
 - Navigation: navigation service start/stop, input source, GPS/motion, sensor sharing.
 - Automotive: automotive service start/stop, input source, Bluetooth/OBD.
-- Radio: local RTL-SDR USB connect/disconnect and the selected runtime's ADS-B service.
-- Media: camera and playback audio.
+- Radio: local RTL-SDR USB connect/disconnect, expandable receiver diagnostics, and the selected runtime's ADS-B service.
+- Media: camera, playback capture, and PCM audio output through Android speakers/Bluetooth.
 - Environment: ambient light and pressure.
 
 Runtime owns computing-unit selection, the message broker, and whole-core-stack
@@ -31,6 +31,11 @@ status and primary actions visible; source changes, motion readings, sensor
 sharing, stream settings, audio details, and log filters expand on demand.
 
 The master activity switch and text input are not implemented in this revision.
+
+The `review/companion-sdr-integration` branch combines the companion layout with
+the SDR branch as a **1.0.0-rc.1** candidate build. It has not been tagged or merged
+to main. See [SDR integration review](docs/reviews/companion-sdr-integration.md)
+for validation and the phone checklist.
 
 ## Architecture
 

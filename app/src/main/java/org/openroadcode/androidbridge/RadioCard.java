@@ -6,12 +6,14 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.view.View;
 import org.openroadcode.androidbridge.ui.UiTheme;
+import org.openroadcode.androidbridge.ui.ExpandableCard;
+import android.content.Context;
 
 /** Radio device controls use the application's USB owner; leaving the screen keeps reception alive. */
 final class RadioCard {
   private final OpenRoadCodeBridgeApplication application;
   private final LinearLayout root;
-  private final TextView status, device;
+  private final TextView status, device, diagnostics;
   private final Button connect, disconnect;
 
   RadioCard(Activity activity) {
@@ -40,6 +42,11 @@ final class RadioCard {
     actions.addView(connect, left);
     actions.addView(disconnect, right);
     root.addView(actions);
+    diagnostics = UiTheme.text(activity, "", 11, UiTheme.MUTED);
+    diagnostics.setPadding(0, UiTheme.dp(activity, 8), 0, 0);
+    root.addView(new ExpandableCard(activity, "Receiver details",
+        "USB endpoint and recent stream diagnostics", UiTheme.VIOLET,
+        diagnostics, false).view());
   }
 
   View view() { return root; }
@@ -53,6 +60,12 @@ final class RadioCard {
     status.setTextColor(open ? UiTheme.GREEN : UiTheme.MUTED);
     device.setText(state.device == null ? "Attach an RTL-SDR USB receiver to use the local source."
         : state.deviceLabel());
+    android.content.SharedPreferences preferences = application.getSharedPreferences(
+        RtlSdrUsbProxyService.DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE);
+    diagnostics.setText("USB proxy: 127.0.0.1:" + RtlSdrUsbProxyService.TCP_PORT
+        + "\nLast stream: " + preferences.getString(RtlSdrUsbProxyService.PREF_LAST_STREAM_STATUS, "none recorded")
+        + "\nControl: " + preferences.getString(RtlSdrUsbProxyService.PREF_CONTROL_STATUS, "none recorded")
+        + "\nService: " + preferences.getString(RtlSdrUsbProxyService.PREF_LAST_SERVICE_STATUS, "none recorded"));
     boolean pending = state.status == RtlSdrUsbManager.Status.PERMISSION_PENDING;
     connect.setEnabled(!open && !pending && state.device != null);
     disconnect.setEnabled(open || pending);

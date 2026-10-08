@@ -66,6 +66,16 @@ public final class RuntimeServiceManagerClientTest {
     } catch (IOException expected) { }
   }
 
+  @Test public void registerAndroidBridgeUsesAuthenticatedRuntimeEndpoint() throws Exception {
+    try (Stub server = new Stub(200, "{\"status\":\"configured\"}", "")) {
+      JSONObject result = new RuntimeServiceManagerClient(server.url(), "Remote Linux", "client-token")
+          .registerAndroidBridge();
+      assertEquals("configured", result.getString("status"));
+      assertTrue(server.request().startsWith("POST /runtime/android-bridge "));
+      assertTrue(server.request().contains("Authorization: Bearer client-token"));
+    }
+  }
+
   /** Minimal HTTP fixture; no Android runtime or external network required. */
   private static final class Stub implements AutoCloseable {
     final ServerSocket server = new ServerSocket(0);

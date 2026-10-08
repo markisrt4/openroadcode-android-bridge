@@ -25,13 +25,7 @@ public final class OpenRoadCodeBridgeApplication extends Application {
                 return;
             }
             if (state.status == RtlSdrUsbManager.Status.OPEN && !proxyStarted) {
-                proxyStarted = true;
-                try {
-                    startForegroundService(new Intent(this, RtlSdrUsbProxyService.class));
-                } catch (RuntimeException error) {
-                    proxyStarted = false;
-                    Log.e(TAG, "Unable to start radio bridge", error);
-                }
+                startRtlSdrProxy();
             }
         });
 
@@ -39,8 +33,7 @@ public final class OpenRoadCodeBridgeApplication extends Application {
         if (state.status == RtlSdrUsbManager.Status.DETECTED) {
             rtlSdrUsbManager.open();
         } else if (state.status == RtlSdrUsbManager.Status.OPEN && !proxyStarted) {
-            proxyStarted = true;
-            startForegroundService(new Intent(this, RtlSdrUsbProxyService.class));
+            startRtlSdrProxy();
         }
     }
 
@@ -48,7 +41,6 @@ public final class OpenRoadCodeBridgeApplication extends Application {
 
     public void startRadioBridge() {
         radioEnabled = true;
-        proxyStarted = false;
         rtlSdrUsbManager.open();
     }
 
@@ -62,4 +54,23 @@ public final class OpenRoadCodeBridgeApplication extends Application {
     public RtlSdrUsbManager getRtlSdrUsbManager() {
         return rtlSdrUsbManager;
     }
+
+    public void startRtlSdrProxy() {
+        if (!radioEnabled || proxyStarted) return;
+        proxyStarted = true;
+        try {
+            startForegroundService(new Intent(this, RtlSdrUsbProxyService.class));
+        } catch (RuntimeException error) {
+            proxyStarted = false;
+            Log.e(TAG, "Unable to start radio bridge", error);
+        }
+    }
+
+    public void stopRtlSdrProxy() {
+        stopRadioBridge();
+    }
+
+    public boolean isRadioEnabled() { return radioEnabled; }
+
+    public void onRadioProxyStopped() { proxyStarted = false; }
 }

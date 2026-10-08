@@ -8,6 +8,8 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.net.Uri;
+import java.lang.ref.WeakReference;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -35,6 +37,34 @@ import org.openroadcode.androidbridge.ui.SensorCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 public final class MainActivity extends Activity {
+  private static volatile WeakReference<MainActivity> visibleActivity = new WeakReference<>(null);
+
+  static boolean launchRtlTcpProvider(String uri, String driverPackage, String driverActivity) {
+    MainActivity activity = visibleActivity.get();
+    if (activity == null) return false;
+    java.util.concurrent.FutureTask<Boolean> launch = new java.util.concurrent.FutureTask<>(() -> {
+      if (visibleActivity.get() != activity || activity.isFinishing()) return false;
+      Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
+      intent.setClassName(driverPackage, driverActivity);
+      activity.startActivity(intent);
+      return true;
+    });
+    if (Looper.myLooper() == Looper.getMainLooper()) launch.run();
+    else activity.dashboardHandler.post(launch);
+    try {
+      return launch.get(3, java.util.concurrent.TimeUnit.SECONDS);
+    } catch (InterruptedException error) {
+      launch.cancel(false);
+      Thread.currentThread().interrupt();
+      return false;
+    } catch (java.util.concurrent.TimeoutException error) {
+      launch.cancel(false);
+      return false;
+    } catch (java.util.concurrent.ExecutionException error) {
+      throw new IllegalStateException("Unable to launch RTL-TCP provider", error.getCause());
+    }
+  }
+
   private static final int LOCATION_PERMISSION_REQUEST = 1001;
   private static final long DASHBOARD_PERIOD_MS = 500;
   private static final String IMU_URL = "http://127.0.0.1:8766/imu";
@@ -59,6 +89,7 @@ public final class MainActivity extends Activity {
       if (playbackAudioCard != null) playbackAudioCard.refresh();
       if (radioCard != null) radioCard.refresh();
       if (remoteAccessCard != null) updateRemoteAccessStatus();
+      if (pcmAudioOutputCard != null) pcmAudioOutputCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
   };
@@ -71,6 +102,7 @@ public final class MainActivity extends Activity {
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
   private RadioCard radioCard;
+  private PcmAudioOutputCard pcmAudioOutputCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
   private SystemPerformanceCard systemPerformanceCard;
@@ -81,6 +113,7 @@ public final class MainActivity extends Activity {
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     serviceManager = new BridgeServiceManager(this);
+    startForegroundService(new Intent(this, RtlTcpProviderControlService.class));
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
 
@@ -170,15 +203,20 @@ public final class MainActivity extends Activity {
   }
 
   private void showMedia() {
-    addSubsystemHeader("◉", "Media", "Camera and playback-audio bridges", RED);
+    addSubsystemHeader("◉", "Media", "Camera, playback capture and audio output", RED);
 
     cameraCard = new CameraCard(this);
     addServiceCard(content, "CAMERA",
         "Video capture and stream", RED, cameraCard.view(), true, false);
 
     playbackAudioCard = new PlaybackAudioCard(this);
-    addServiceCard(content, "PLAYBACK AUDIO",
-        "Audio bridge and playback", BLUE, playbackAudioCard.view(), true, true);
+    addServiceCard(content, "PLAYBACK AUDIO CAPTURE",
+        "Android playback → ORC PCM", BLUE, playbackAudioCard.view(), true, false);
+
+    pcmAudioOutputCard = new PcmAudioOutputCard(this);
+    addServiceCard(content, "AUDIO OUTPUT",
+        "ORC PCM → Android AudioTrack", BLUE, pcmAudioOutputCard.view(), true, false);
+
   }
 
   private void showConfiguration() {
@@ -270,6 +308,7 @@ public final class MainActivity extends Activity {
     cameraCard = null;
     playbackAudioCard = null;
     radioCard = null;
+    pcmAudioOutputCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
     systemPerformanceCard = null;
@@ -293,6 +332,7 @@ public final class MainActivity extends Activity {
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();
     if (radioCard != null) radioCard.refresh();
+    if (pcmAudioOutputCard != null) pcmAudioOutputCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
     if (runtimeLogsScreen != null) runtimeLogsScreen.start();
@@ -389,6 +429,11 @@ public final class MainActivity extends Activity {
     return UiTheme.dp(this, value);
   }
 
+  @Override protected void onStart() {
+    super.onStart();
+    visibleActivity = new WeakReference<>(this);
+  }
+
   @Override protected void onResume() {
     super.onResume();
     dashboardActive = true;
@@ -402,6 +447,12 @@ public final class MainActivity extends Activity {
     dashboardHandler.removeCallbacks(dashboardRefresh);
     stopVisibleCards();
     super.onPause();
+  }
+
+  @Override protected void onStop() {
+    MainActivity visible = visibleActivity.get();
+    if (visible == this) visibleActivity.clear();
+    super.onStop();
   }
 
   @Override public void onBackPressed() {
