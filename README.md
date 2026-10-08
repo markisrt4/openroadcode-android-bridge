@@ -6,12 +6,24 @@ The foreground services expose Android sensors, GNSS, Bluetooth SPP devices, and
 
 ## Companion home
 
-The launcher is named **ORC Companion**. Home shows the selected runtime and its
-live running-service count, followed by Performance and Live Logs shortcuts.
-Phone hardware is grouped into Navigation, Vehicle, Environment, and Media.
-Runtime services owns start/stop and input-source controls; Configuration owns
-paired devices and LAN sensor sharing. Configuration is also available from the
-header. Runtime status polls every five seconds only while Home is visible.
+The launcher is named **ORC Companion**. Home is ordered Your Runtime, Manage,
+Features, then Monitor. Your Runtime shows connection and running-service status;
+Manage has the single Runtime entry and Configuration. Feature cards use distinct
+accent colors and group the controls with their data:
+
+- Navigation: navigation service start/stop, input source, GPS/motion, sensor sharing.
+- Automotive: automotive service start/stop, input source, Bluetooth/OBD.
+- Radio: local RTL-SDR USB connect/disconnect and the selected runtime's ADS-B service.
+- Media: camera and playback audio.
+- Environment: ambient light and pressure.
+
+Runtime owns computing-unit selection, the message broker, and whole-core-stack
+actions. Configuration owns pairing and saved computing units. Monitor contains
+Performance and Live Logs. When Navigation starts with Android Bridge input on a
+remote runtime, sensor sharing is enabled for the local network; the sharing
+control remains available in Navigation. Location permission must be granted
+before navigation start is sent. Home status polls every five seconds only while
+Home is visible; feature service polling also stops when leaving the screen.
 
 The master activity switch and text input are not implemented in this revision.
 

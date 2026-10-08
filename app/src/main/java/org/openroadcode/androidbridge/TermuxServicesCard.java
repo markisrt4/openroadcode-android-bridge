@@ -1,17 +1,12 @@
 package org.openroadcode.androidbridge;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.graphics.Typeface;
-import android.content.Intent;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.LinkedHashMap;
@@ -35,8 +30,11 @@ public final class TermuxServicesCard {
   private final Activity activity;
   private final RuntimeServiceManagerSettings settings;
   private final Handler handler = new Handler(Looper.getMainLooper());
+  private final RuntimeLogPolling polling = new RuntimeLogPolling();
+  private boolean active;
   private final Map<String, TextView> serviceStates = new LinkedHashMap<>();
   private final Map<String, TextView> serviceProfiles = new LinkedHashMap<>();
+  private final Map<String, String> selectedProfiles = new LinkedHashMap<>();
   private final Map<String, TextView> serviceInputHealth = new LinkedHashMap<>();
   private final Map<String, Button> startButtons = new LinkedHashMap<>();
   private final Map<String, Button> stopButtons = new LinkedHashMap<>();
@@ -44,8 +42,7 @@ public final class TermuxServicesCard {
   private final Set<String> visibleServices = new LinkedHashSet<>();
   private final boolean showCoreControls;
   private final boolean showTargetControls;
-  private final boolean profileOnly;
-  private final Runnable beforeLocalNavigationStart;
+  private final java.util.function.BooleanSupplier beforeNavigationStart;
 
   private final LinearLayout root;
   private final TextView targetSummary;
@@ -58,36 +55,38 @@ public final class TermuxServicesCard {
   private final Runnable refreshTask = new Runnable() {
     @Override
     public void run() {
+      if (!active) return;
       refresh();
       handler.postDelayed(this, REFRESH_MS);
     }
   };
 
   public TermuxServicesCard(Activity activity) {
-    this(activity, (Runnable) null,
-        "openroadcode-message-broker",
-        "openroadcode-navigation",
-        "openroadcode-automotive",
-        "openroadcode-adsb");
+    this(activity, null, true, "openroadcode-message-broker");
   }
 
   public TermuxServicesCard(Activity activity, String... services) {
-    this(activity, (Runnable) null, services);
+    this(activity, null, false, services);
   }
 
   public TermuxServicesCard(
-      Activity activity, Runnable beforeLocalNavigationStart, String... services) {
+      Activity activity, java.util.function.BooleanSupplier beforeNavigationStart, String... services) {
+    this(activity, beforeNavigationStart, false, services);
+  }
+
+  private TermuxServicesCard(
+      Activity activity, java.util.function.BooleanSupplier beforeNavigationStart,
+      boolean runtime, String... services) {
     this.activity = activity;
-    this.beforeLocalNavigationStart = beforeLocalNavigationStart;
+    this.beforeNavigationStart = beforeNavigationStart;
     for (String service : services) visibleServices.add(service);
-    showCoreControls = visibleServices.size() > 1;
-    showTargetControls = showCoreControls;
-    profileOnly = !showTargetControls && visibleServices.size() == 1;
+    showCoreControls = runtime;
+    showTargetControls = runtime;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
 
     TextView title = text(
-        showTargetControls ? "OPENROADCODE RUNTIME" : "INPUT PROFILE",
+        showTargetControls ? "OPENROADCODE RUNTIME" : "SERVICE CONTROLS",
         18, UiTheme.TEXT);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     title.setLetterSpacing(.05f);
@@ -96,7 +95,7 @@ public final class TermuxServicesCard {
     targetSummary = text("", 12, UiTheme.MUTED);
     targetSummary.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     targetSummary.setPadding(0, dp(2), 0, dp(10));
-    if (showTargetControls) root.addView(targetSummary);
+    root.addView(targetSummary);
 
     termuxButton = actionButton("TERMUX", UiTheme.BLUE, v -> selectTermux());
     remotePiButton = actionButton("REMOTE", UiTheme.SURFACE_RAISED, v -> selectRemotePi());
@@ -108,7 +107,7 @@ public final class TermuxServicesCard {
     }
 
     managerStatus = statusPill(
-        profileOnly ? "Checking selected profile…" : "Checking service manager…",
+        "Checking service manager…",
         UiTheme.MUTED);
     LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
     statusParams.setMargins(0, dp(1), 0, dp(11));
@@ -140,6 +139,8 @@ public final class TermuxServicesCard {
           v -> runAction(RuntimeServiceManagerClient::startCoreStack));
       stopCoreButton = actionButton("STOP CORE", UiTheme.RED,
           v -> runAction(RuntimeServiceManagerClient::stopCoreStack));
+      startCoreButton.setEnabled(false);
+      stopCoreButton.setEnabled(false);
       coreRow.addView(startCoreButton, pairedButtonParams(false));
       coreRow.addView(stopCoreButton, pairedButtonParams(true));
       root.addView(coreRow);
@@ -151,15 +152,21 @@ public final class TermuxServicesCard {
   public View view() { return root; }
 
   public void start() {
+    active = true;
+    polling.start();
     handler.removeCallbacks(refreshTask);
     handler.post(refreshTask);
   }
 
-  public void stop() { handler.removeCallbacks(refreshTask); }
+  public void stop() {
+    active = false;
+    polling.stop();
+    handler.removeCallbacks(refreshTask);
+  }
 
   public void refreshConfiguration() {
     refreshTargetSummary();
-    refresh();
+    if (active) start();
   }
 
   private void addSectionLabel(String label) {
@@ -172,8 +179,7 @@ public final class TermuxServicesCard {
 
   private void selectTermux() {
     settings.setTarget(Target.TERMUX);
-    refreshTargetSummary();
-    refresh();
+    refreshConfiguration();
   }
 
   private void selectRemotePi() {
@@ -183,8 +189,7 @@ public final class TermuxServicesCard {
       return;
     }
     settings.setTarget(Target.REMOTE_PI);
-    refreshTargetSummary();
-    refresh();
+    refreshConfiguration();
   }
 
   private void refreshTargetSummary() {
@@ -192,10 +197,10 @@ public final class TermuxServicesCard {
     if (remote) {
       RuntimeDevice device = settings.activeDevice();
       targetSummary.setText(device == null
-          ? "Target: Remote Linux • systemd • not configured"
-          : "Target: " + device.name() + " • systemd • " + device.baseUrl());
+          ? "Target: choose a paired computing unit"
+          : "Target: " + device.name());
     } else {
-      targetSummary.setText("Target: Termux • runit • local runtime");
+      targetSummary.setText("Target: Local Termux");
     }
     if (showTargetControls) {
       UiTheme.setButtonColor(activity, termuxButton,
@@ -240,17 +245,15 @@ public final class TermuxServicesCard {
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
 
-    if (!profileOnly) {
-      TextView state = text("●  Unknown", 11, UiTheme.MUTED);
-      state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-      state.setGravity(Gravity.END);
-      heading.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
-      serviceStates.put(id, state);
-    }
+    TextView state = text("●  Unknown", 11, UiTheme.MUTED);
+    state.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    state.setGravity(Gravity.END);
+    heading.addView(state, new LinearLayout.LayoutParams(0, -2, 1));
+    serviceStates.put(id, state);
     card.addView(heading);
 
     TextView description = text(
-        profileOnly ? "Choose the input source used next time this service runs" : descriptionText,
+        descriptionText,
         10, UiTheme.SILVER);
     description.setPadding(0, dp(2), 0, profiles ? dp(7) : dp(6));
     card.addView(description);
@@ -265,7 +268,7 @@ public final class TermuxServicesCard {
       serviceProfiles.put(id, profile);
       profileColumn.addView(profile);
 
-      if (("openroadcode-navigation".equals(id) || "openroadcode-automotive".equals(id)) && !profileOnly) {
+      if (("openroadcode-navigation".equals(id) || "openroadcode-automotive".equals(id))) {
         TextView inputHealth = text("○  Input health unavailable", 10, UiTheme.MUTED);
         inputHealth.setPadding(0, 0, 0, dp(6));
         serviceInputHealth.put(id, inputHealth);
@@ -283,19 +286,19 @@ public final class TermuxServicesCard {
       card.addView(profileColumn);
     }
 
-    if (!profileOnly) {
-      LinearLayout actions = new LinearLayout(activity);
-      actions.setOrientation(LinearLayout.HORIZONTAL);
-      actions.setPadding(0, dp(8), 0, 0);
-      Button startButton = actionButton("START", UiTheme.BLUE, v -> startService(id));
-      Button stopButton = actionButton("STOP", UiTheme.RED,
-          v -> runAction(client -> client.stopService(id)));
-      startButtons.put(id, startButton);
-      stopButtons.put(id, stopButton);
-      actions.addView(startButton, pairedButtonParams(false));
-      actions.addView(stopButton, pairedButtonParams(true));
-      card.addView(actions);
-    }
+    LinearLayout actions = new LinearLayout(activity);
+    actions.setOrientation(LinearLayout.HORIZONTAL);
+    actions.setPadding(0, dp(8), 0, 0);
+    Button startButton = actionButton("START", UiTheme.BLUE, v -> startService(id));
+    Button stopButton = actionButton("STOP", UiTheme.RED,
+        v -> runAction(client -> client.stopService(id)));
+    startButton.setEnabled(false);
+    stopButton.setEnabled(false);
+    startButtons.put(id, startButton);
+    stopButtons.put(id, stopButton);
+    actions.addView(startButton, pairedButtonParams(false));
+    actions.addView(stopButton, pairedButtonParams(true));
+    card.addView(actions);
 
     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
     params.setMargins(0, 0, 0, dp(ROW_GAP));
@@ -316,44 +319,26 @@ public final class TermuxServicesCard {
 
   private void startService(String service) {
     if ("openroadcode-navigation".equals(service)
-        && settings.target() == Target.TERMUX
         && selectedProfile(service).equals("local")
-        && beforeLocalNavigationStart != null) {
-      beforeLocalNavigationStart.run();
+        && beforeNavigationStart != null) {
+      if (!beforeNavigationStart.getAsBoolean()) {
+        managerStatus.setText("Check sensor permission and bridge status, then tap START again.");
+        managerStatus.setTextColor(UiTheme.AMBER);
+        return;
+      }
     }
     runAction(client -> client.startService(service));
   }
 
   private String selectedProfile(String service) {
-    TextView view = serviceProfiles.get(service);
-    if (view == null) return "";
-    String value = view.getText().toString().toLowerCase(Locale.US);
-    if (value.contains("android bridge")) return "local";
-    if (value.contains("device hardware")) return "remote";
-    if (value.contains("simulated")) return "simulated";
-    return "";
+    return selectedProfiles.getOrDefault(service, "");
   }
 
   private void setProfile(String service, String profile) {
-    if ("openroadcode-navigation".equals(service)
-        && "local".equals(profile)
-        && settings.target() == Target.REMOTE_PI) {
-      ensureRemoteSensorBridge();
-    }
     managerStatus.setText("●  Switching " + shortServiceName(service)
         + " input source…");
     managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.VIOLET : UiTheme.BLUE);
     runAction(client -> client.setServiceProfile(service, profile));
-  }
-
-  private void ensureRemoteSensorBridge() {
-    activity.getSharedPreferences(SensorBridgeService.PREFERENCES, Activity.MODE_PRIVATE)
-        .edit()
-        .putBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, true)
-        .apply();
-    Intent service = new Intent(activity, SensorBridgeService.class);
-    activity.stopService(service);
-    activity.startForegroundService(service);
   }
 
   private String shortServiceName(String service) {
@@ -362,27 +347,59 @@ public final class TermuxServicesCard {
     return service;
   }
 
+  private String targetKey() {
+    if (settings.target() == Target.TERMUX) return "termux";
+    RuntimeDevice device = settings.activeDevice();
+    return device == null ? "unpaired" : device.deviceId() + "|" + device.baseUrl() + "|" + device.accessToken();
+  }
+
   private void refresh() {
+    long generation = polling.begin();
+    if (generation < 0) return;
+    refreshTargetSummary();
+    String target = targetKey();
+    final RuntimeServiceManagerClient client;
+    try { client = activeClient(); }
+    catch (Exception error) {
+      if (polling.complete(generation)) renderUnavailable(error.getMessage());
+      return;
+    }
     new Thread(() -> {
       try {
-        RuntimeServiceManagerClient client = activeClient();
         JSONObject result = client.getServices();
-        String label = client.targetLabel();
-        activity.runOnUiThread(() -> render(result, label));
+        activity.runOnUiThread(() -> {
+          if (!polling.complete(generation) || !target.equals(targetKey())) return;
+          render(result, client.targetLabel());
+        });
       } catch (Exception e) {
-        String message = e.getMessage();
-        activity.runOnUiThread(() -> renderUnavailable(message));
+        activity.runOnUiThread(() -> {
+          if (!polling.complete(generation) || !target.equals(targetKey())) return;
+          renderUnavailable(e.getMessage());
+        });
       }
     }, "orc-service-status").start();
   }
 
   private void render(JSONObject result, String targetLabel) {
-    if (!profileOnly) {
-      managerStatus.setText("●  " + targetLabel + " connected");
-      managerStatus.setTextColor(UiTheme.GREEN);
-    }
+    managerStatus.setText("●  " + targetLabel + " connected");
+    managerStatus.setTextColor(UiTheme.GREEN);
     JSONArray services = result.optJSONArray("services");
-    if (services == null) return;
+    if (services == null) {
+      renderUnavailable("Service status is unavailable");
+      return;
+    }
+    renderCoreLifecycleButtons(services);
+    selectedProfiles.clear();
+    for (String id : visibleServices) {
+      TextView state = serviceStates.get(id);
+      state.setText("●  Unknown");
+      state.setTextColor(UiTheme.MUTED);
+      renderLifecycleButtons(id, "unknown");
+      TextView profile = serviceProfiles.get(id);
+      if (profile != null) profile.setText("○  INPUT SOURCE UNKNOWN");
+      TextView health = serviceInputHealth.get(id);
+      if (health != null) health.setVisibility(View.GONE);
+    }
     for (int i = 0; i < services.length(); i++) {
       JSONObject service = services.optJSONObject(i);
       if (service == null) continue;
@@ -397,19 +414,11 @@ public final class TermuxServicesCard {
         else if ("stopped".equals(state)) stateView.setTextColor(UiTheme.MUTED);
         else stateView.setTextColor(UiTheme.RED);
         renderLifecycleButtons(id, state);
-        renderCoreLifecycleButtons();
       }
       if (profileView != null) {
         String profile = service.optString("profile", "");
         renderProfile(id, profileView, profile, service.optJSONObject("profile_labels"));
         renderInputHealth(id, service, profile);
-        if (profileOnly) {
-          managerStatus.setText("●  " + titleCase(profile.isBlank() ? "unknown" : profile)
-              + " profile selected");
-          managerStatus.setTextColor("simulated".equals(profile) ? UiTheme.VIOLET
-              : ("local".equals(profile) ? UiTheme.GREEN
-                  : ("remote".equals(profile) ? UiTheme.BLUE : UiTheme.MUTED)));
-        }
       }
     }
   }
@@ -446,24 +455,11 @@ public final class TermuxServicesCard {
     }
   }
 
-  private void renderCoreLifecycleButtons() {
+  private void renderCoreLifecycleButtons(JSONArray services) {
     if (startCoreButton == null || stopCoreButton == null) return;
-    boolean anyRunning = false;
-    boolean allRunning = true;
-    boolean haveCore = false;
-    for (String id : new String[] {
-        "openroadcode-message-broker", "openroadcode-navigation", "openroadcode-automotive"
-    }) {
-      TextView stateView = serviceStates.get(id);
-      if (stateView == null) continue;
-      haveCore = true;
-      String state = stateView.getText().toString().toLowerCase(Locale.US);
-      boolean running = state.contains("running");
-      anyRunning |= running;
-      allRunning &= running;
-    }
-    startCoreButton.setEnabled(haveCore && !allRunning);
-    stopCoreButton.setEnabled(haveCore && anyRunning);
+    CoreStackState state = CoreStackState.from(services);
+    startCoreButton.setEnabled(state.canStart());
+    stopCoreButton.setEnabled(state.canStop());
     UiTheme.setButtonColor(activity, startCoreButton,
         startCoreButton.isEnabled() ? UiTheme.BLUE : UiTheme.DISABLED);
     UiTheme.setButtonColor(activity, stopCoreButton,
@@ -483,6 +479,7 @@ public final class TermuxServicesCard {
   }
 
   private void renderProfile(String id, TextView view, String profile, JSONObject labels) {
+    selectedProfiles.put(id, profile);
     Map<String, Button> buttons = profileButtons.get(id);
     if (buttons == null) return;
     String label = labels == null ? "" : labels.optString(profile, "");
@@ -515,6 +512,13 @@ public final class TermuxServicesCard {
   }
 
   private void renderUnavailable(String message) {
+    selectedProfiles.clear();
+    if (startCoreButton != null) {
+      startCoreButton.setEnabled(false);
+      stopCoreButton.setEnabled(false);
+      UiTheme.setButtonColor(activity, startCoreButton, UiTheme.DISABLED);
+      UiTheme.setButtonColor(activity, stopCoreButton, UiTheme.DISABLED);
+    }
     RuntimeDevice active = settings.activeDevice();
     String target = settings.target() == Target.REMOTE_PI
         ? (active == null ? "Remote" : active.name())
@@ -538,12 +542,17 @@ public final class TermuxServicesCard {
   }
 
   private void runAction(Action action) {
+    String target = targetKey();
+    final RuntimeServiceManagerClient client;
+    try { client = activeClient(); }
+    catch (Exception error) { renderUnavailable(error.getMessage()); return; }
     new Thread(() -> {
       try {
-        action.run(activeClient());
+        action.run(client);
         activity.runOnUiThread(this::refresh);
       } catch (Exception e) {
         activity.runOnUiThread(() -> {
+          if (!active || !target.equals(targetKey())) return;
           String message = e.getMessage();
           managerStatus.setText("●  "
               + (message == null ? "Service request failed" : message));

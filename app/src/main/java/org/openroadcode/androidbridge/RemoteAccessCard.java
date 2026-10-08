@@ -26,13 +26,13 @@ final class RemoteAccessCard {
     this.listener = listener;
     view = UiTheme.card(activity);
 
-    TextView heading = UiTheme.text(activity, "REMOTE SENSOR ACCESS", 18, UiTheme.TEXT);
+    TextView heading = UiTheme.text(activity, "SENSOR SHARING", 18, UiTheme.TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.setLetterSpacing(.08f);
     view.addView(heading);
 
     TextView subtitle = UiTheme.text(activity,
-        "Choose whether sensor telemetry stays local or is shared on your LAN", 12, UiTheme.BLUE);
+        "Keep sensors local for Termux. Share on your local network when a remote computing unit uses Android sensors.", 12, UiTheme.BLUE);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, dp(2), 0, dp(10));
     view.addView(subtitle);
@@ -68,8 +68,8 @@ final class RemoteAccessCard {
     binding = true;
     remoteAccessSwitch.setChecked(enabled);
     remoteAccessSwitch.setText(enabled
-        ? "Sharing Android sensors on local network"
-        : "Keep Android sensors on this phone");
+        ? "Sensor sharing: Local network"
+        : "Sensor sharing: This phone");
     binding = false;
   }
 

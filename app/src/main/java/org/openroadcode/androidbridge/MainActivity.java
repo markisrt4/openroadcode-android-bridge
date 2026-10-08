@@ -57,6 +57,8 @@ public final class MainActivity extends Activity {
       if (sensorCard != null || environmentalSensorCard != null) refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
       if (playbackAudioCard != null) playbackAudioCard.refresh();
+      if (radioCard != null) radioCard.refresh();
+      if (remoteAccessCard != null) updateRemoteAccessStatus();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
   };
@@ -68,6 +70,7 @@ public final class MainActivity extends Activity {
   private RemoteAccessCard remoteAccessCard;
   private CameraCard cameraCard;
   private PlaybackAudioCard playbackAudioCard;
+  private RadioCard radioCard;
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
   private SystemPerformanceCard systemPerformanceCard;
@@ -97,7 +100,7 @@ public final class MainActivity extends Activity {
     currentScreen = "dashboard";
     resetContent();
     addBrandHeader(content);
-    companionStatusCard = new CompanionStatusCard(this, () -> showSubsystem(SubsystemDashboard.RUNTIME));
+    companionStatusCard = new CompanionStatusCard(this);
     content.addView(companionStatusCard.view(), cardParams());
     content.addView(new SubsystemDashboard(this, this::showSubsystem).view());
     if (dashboardActive) companionStatusCard.start();
@@ -115,6 +118,7 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
       case SubsystemDashboard.NAVIGATION -> showNavigation();
       case SubsystemDashboard.MEDIA -> showMedia();
+      case SubsystemDashboard.RADIO -> showRadio();
       case SubsystemDashboard.ENVIRONMENTAL -> showEnvironmental();
       case SubsystemDashboard.RUNTIME -> showRuntime();
       case SubsystemDashboard.PERFORMANCE -> showPerformance();
@@ -129,8 +133,11 @@ public final class MainActivity extends Activity {
   }
 
   private void showAutomotive() {
-    addSubsystemHeader("▣", "AUTOMOTIVE", "Vehicle bridge and automotive runtime", GREEN);
+    addSubsystemHeader("🚗", "AUTOMOTIVE", "Vehicle bridge and automotive runtime", GREEN);
 
+    termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
+    addServiceCard(content, "AUTOMOTIVE SERVICE", "Runtime service and input source", GREEN,
+        termuxServicesCard.view(), true, false);
     bluetoothCard = new BluetoothCard(this, serviceManager);
     addServiceCard(content, "VEHICLE DATA",
         serviceManager.vehicleConfig().provider().displayName(), GREEN,
@@ -145,8 +152,13 @@ public final class MainActivity extends Activity {
     sensorCard = new SensorCard(this, sensorConfig.provider(), this::selectSensorProvider,
         this::startBridge, this::stopBridge);
     sensorCard.setRunning(sensorConfig.enabled());
+    termuxServicesCard = new TermuxServicesCard(this, this::ensureNavigationSensorBridge,
+        "openroadcode-navigation");
+    addServiceCard(content, "NAVIGATION SERVICE", "Runtime service and input source", BLUE,
+        termuxServicesCard.view(), true, false);
     addServiceCard(content, "MOTION & POSITION",
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
+    showSensorSharing();
 
   }
 
@@ -172,19 +184,32 @@ public final class MainActivity extends Activity {
 
   private void showConfiguration() {
     addSubsystemHeader("⚙", "CONFIGURATION",
-        "Devices, remote access, pairing, and persistent bridge settings", SILVER);
-
-    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
-        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
-    remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
-    addServiceCard(content, "REMOTE SENSOR ACCESS",
-        "Local phone or LAN telemetry", GREEN, remoteAccessCard.view(), true, false);
-    updateRemoteAccessStatus();
+        "Pair, choose, and manage computing units", SILVER);
 
     RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
     addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
         "Pairing • remote Linux connection", SILVER,
         remoteDevices.view(), true, true);
+  }
+
+  private void showSensorSharing() {
+    boolean remoteEnabled = getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+        .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false);
+    remoteAccessCard = new RemoteAccessCard(this, remoteEnabled, this::setRemoteAccess);
+    addServiceCard(content, "SENSOR SHARING",
+        "This phone or local network", GREEN, remoteAccessCard.view(), true, false);
+    updateRemoteAccessStatus();
+
+  }
+
+  private void showRadio() {
+    addSubsystemHeader("◉", "RADIO", "Radio hardware and aircraft reception", UiTheme.VIOLET);
+    radioCard = new RadioCard(this);
+    addServiceCard(content, "RTL-SDR", "USB receiver and local radio bridge", UiTheme.VIOLET,
+        radioCard.view(), true, false);
+    termuxServicesCard = new TermuxServicesCard(this, "openroadcode-adsb");
+    addServiceCard(content, "ADS-B", "Aircraft receiver service on your selected runtime", BLUE,
+        termuxServicesCard.view(), true, true);
   }
 
   private void showRuntime() {
@@ -194,7 +219,7 @@ public final class MainActivity extends Activity {
     content.addView(UiTheme.actionButton(this, "Paired devices & settings  ›", UiTheme.SURFACE_RAISED,
         v -> showSubsystem(SubsystemDashboard.CONFIGURATION)), cardParams());
     addServiceCard(content, "OPENROADCODE SERVICES",
-        "Runtime target • input sources • core stack", SILVER,
+        "Computing unit • message broker • core stack", SILVER,
         termuxServicesCard.view(), true, true);
   }
 
@@ -249,6 +274,7 @@ public final class MainActivity extends Activity {
     remoteAccessCard = null;
     cameraCard = null;
     playbackAudioCard = null;
+    radioCard = null;
     bluetoothCard = null;
     termuxServicesCard = null;
     systemPerformanceCard = null;
@@ -271,6 +297,7 @@ public final class MainActivity extends Activity {
     if (sensorCard != null) reconcileSensor(false);
     if (cameraCard != null) cameraCard.refresh();
     if (playbackAudioCard != null) playbackAudioCard.refresh();
+    if (radioCard != null) radioCard.refresh();
     if (bluetoothCard != null) bluetoothCard.start();
     if (termuxServicesCard != null) termuxServicesCard.start();
     if (runtimeLogsScreen != null) runtimeLogsScreen.start();
@@ -518,13 +545,20 @@ public final class MainActivity extends Activity {
     }
   }
 
-  private void ensureNavigationSensorBridge() {
+  private boolean ensureNavigationSensorBridge() {
     if (serviceManager.sensorConfig().provider() != ServiceProvider.ANDROID_SENSORS) {
       serviceManager.setSensorProvider(ServiceProvider.ANDROID_SENSORS);
+      if (sensorCard != null) sensorCard.setProvider(ServiceProvider.ANDROID_SENSORS);
     }
+    org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings runtime =
+        new org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings(this);
+    if (runtime.target() == org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Target.REMOTE_PI
+        && !getSharedPreferences(SensorBridgeService.PREFERENCES, MODE_PRIVATE)
+            .getBoolean(SensorBridgeService.PREF_REMOTE_ACCESS, false)) setRemoteAccess(true);
     serviceManager.requestSensorEnabled();
     sensorStartFailed = false;
     reconcileSensor(true);
+    return !sensorPermissionRequired && !sensorStartFailed;
   }
 
   private void startBridge() {

@@ -95,12 +95,19 @@ public final class RtlSdrUsbManager implements AutoCloseable {
         }
     };
 
+    // Android 13+ requires an explicit receiver flag. Older Android versions use
+    // the legacy registration path; this suppression covers only that API guard.
+    @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
     public RtlSdrUsbManager(Context context, Listener listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
         this.usbManager = this.context.getSystemService(UsbManager.class);
         IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
-        this.context.registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        if (Build.VERSION.SDK_INT >= 33) {
+            this.context.registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            this.context.registerReceiver(permissionReceiver, filter);
+        }
         receiverRegistered = true;
     }
 

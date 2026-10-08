@@ -22,7 +22,7 @@ final class CompanionStatusCard {
   private final RuntimeLogPolling polling = new RuntimeLogPolling();
   private final Runnable refresh = this::refresh;
 
-  CompanionStatusCard(Activity activity, Runnable manageRuntime) {
+  CompanionStatusCard(Activity activity) {
     this.activity = activity;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
@@ -37,10 +37,8 @@ final class CompanionStatusCard {
     status = UiTheme.text(activity, "Checking connection…", 13, UiTheme.MUTED);
     root.addView(status);
     detail = UiTheme.text(activity, "", 12, UiTheme.MUTED);
-    detail.setPadding(0, dp(6), 0, dp(14));
+    detail.setPadding(0, dp(6), 0, 0);
     root.addView(detail);
-    root.addView(UiTheme.actionButton(activity, "Manage runtime  ›", UiTheme.BLUE,
-        v -> manageRuntime.run()), new LinearLayout.LayoutParams(-1, dp(48)));
     target.setText(targetName());
   }
 
