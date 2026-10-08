@@ -71,7 +71,7 @@ public final class MainActivity extends Activity {
   private BluetoothCard bluetoothCard;
   private TermuxServicesCard termuxServicesCard;
   private SystemPerformanceCard systemPerformanceCard;
-  private RemoteDeviceManagementCard remoteDeviceManagementCard;
+  private CompanionStatusCard companionStatusCard;
   private RuntimeLogsScreen runtimeLogsScreen;
   private BridgeServiceManager serviceManager;
 
@@ -97,7 +97,10 @@ public final class MainActivity extends Activity {
     currentScreen = "dashboard";
     resetContent();
     addBrandHeader(content);
+    companionStatusCard = new CompanionStatusCard(this, () -> showSubsystem(SubsystemDashboard.RUNTIME));
+    content.addView(companionStatusCard.view(), cardParams());
     content.addView(new SubsystemDashboard(this, this::showSubsystem).view());
+    if (dashboardActive) companionStatusCard.start();
     addFooter();
     scrollView.scrollTo(0, 0);
   }
@@ -188,11 +191,8 @@ public final class MainActivity extends Activity {
     addSubsystemHeader("≡", "RUNTIME", "Running Termux and remote Linux services", SILVER);
 
     termuxServicesCard = new TermuxServicesCard(this);
-    remoteDeviceManagementCard = new RemoteDeviceManagementCard(
-        this, termuxServicesCard::refreshConfiguration);
-    addServiceCard(content, "REMOTE DEVICES",
-        "Pair • choose • edit • delete", BLUE,
-        remoteDeviceManagementCard.view(), true, false);
+    content.addView(UiTheme.actionButton(this, "Paired devices & settings  ›", UiTheme.SURFACE_RAISED,
+        v -> showSubsystem(SubsystemDashboard.CONFIGURATION)), cardParams());
     addServiceCard(content, "OPENROADCODE SERVICES",
         "Runtime target • input sources • core stack", SILVER,
         termuxServicesCard.view(), true, true);
@@ -252,11 +252,12 @@ public final class MainActivity extends Activity {
     bluetoothCard = null;
     termuxServicesCard = null;
     systemPerformanceCard = null;
-    remoteDeviceManagementCard = null;
+    companionStatusCard = null;
     runtimeLogsScreen = null;
   }
 
   private void stopVisibleCards() {
+    if (companionStatusCard != null) companionStatusCard.stop();
     if (systemPerformanceCard != null) systemPerformanceCard.stop();
     if (bluetoothCard != null) bluetoothCard.stop();
     if (termuxServicesCard != null) termuxServicesCard.stop();
@@ -264,6 +265,7 @@ public final class MainActivity extends Activity {
   }
 
   private void startVisibleCards() {
+    if (companionStatusCard != null) companionStatusCard.start();
     updateRemoteAccessStatus();
     if (systemPerformanceCard != null) systemPerformanceCard.start();
     if (sensorCard != null) reconcileSensor(false);
@@ -298,31 +300,26 @@ public final class MainActivity extends Activity {
     ImageView mark = new ImageView(this);
     mark.setImageResource(R.drawable.ic_openroadcode);
     mark.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-    LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(54), dp(54));
-    markParams.setMargins(0, 0, dp(2), 0);
+    LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(42), dp(42));
+    markParams.setMargins(0, 0, dp(10), 0);
     brand.addView(mark, markParams);
 
     LinearLayout words = new LinearLayout(this);
     words.setOrientation(LinearLayout.VERTICAL);
-    LinearLayout titleRow = new LinearLayout(this);
-    titleRow.setOrientation(LinearLayout.HORIZONTAL);
-    addBrandWord(titleRow, "OPEN", BLUE);
-    addBrandWord(titleRow, " ROAD", RED);
-    addBrandWord(titleRow, " CODE", GREEN);
-    words.addView(titleRow);
-
-    TextView subtitle = text("ANDROID HARDWARE BRIDGE", 11, SILVER);
-    subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    subtitle.setLetterSpacing(.14f);
+    TextView title = text("ORC Companion", 22, UiTheme.TEXT);
+    title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    words.addView(title);
+    TextView subtitle = text("OPEN ROAD CODE", 10, MUTED);
+    subtitle.setLetterSpacing(.12f);
+    subtitle.setPadding(0, dp(3), 0, 0);
     words.addView(subtitle);
     brand.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
 
-    ImageView badge = new ImageView(this);
-    badge.setImageResource(R.drawable.ic_linux_sensor_bridge);
-    badge.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-    LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(46), dp(46));
-    badgeParams.setMargins(dp(4), 0, 0, 0);
-    brand.addView(badge, badgeParams);
+    Button settings = UiTheme.actionButton(this, "⚙", UiTheme.SURFACE_RAISED,
+        v -> showSubsystem(SubsystemDashboard.CONFIGURATION));
+    settings.setTextSize(20);
+    settings.setContentDescription("Configuration: paired devices and network sharing");
+    brand.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
     parent.addView(brand);
   }
@@ -340,15 +337,8 @@ public final class MainActivity extends Activity {
     parent.addView(card.view(), sectionEnd ? sectionEndCardParams() : cardParams());
   }
 
-  private void addBrandWord(LinearLayout row, String value, int color) {
-    TextView word = text(value, 21, color);
-    word.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    word.setLetterSpacing(.035f);
-    row.addView(word);
-  }
-
   private void addFooter() {
-    TextView footer = text("OPENROADC0DE  •  BUILD " + BuildConfig.VERSION_NAME, 11, MUTED);
+    TextView footer = text("ORC Companion  •  " + BuildConfig.VERSION_NAME, 11, MUTED);
     footer.setGravity(Gravity.CENTER);
     footer.setLetterSpacing(.12f);
     footer.setPadding(0, dp(8), 0, 0);

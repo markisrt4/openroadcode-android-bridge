@@ -1,8 +1,19 @@
-# OpenRoadCode Android Bridge
+# ORC Companion
 
 Android hardware bridge for OpenRoadCode running either on the same phone or another device on the selected network.
 
 The foreground services expose Android sensors, GNSS, Bluetooth SPP devices, and the rear camera through small HTTP-facing interfaces. OpenRoadCode owns the normalized application contracts and higher-level messaging architecture.
+
+## Companion home
+
+The launcher is named **ORC Companion**. Home shows the selected runtime and its
+live running-service count, followed by Performance and Live Logs shortcuts.
+Phone hardware is grouped into Navigation, Vehicle, Environment, and Media.
+Runtime services owns start/stop and input-source controls; Configuration owns
+paired devices and LAN sensor sharing. Configuration is also available from the
+header. Runtime status polls every five seconds only while Home is visible.
+
+The master activity switch and text input are not implemented in this revision.
 
 ## Architecture
 
