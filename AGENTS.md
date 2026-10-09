@@ -1,0 +1,20 @@
+# Agent instructions
+
+## Host-aware command output
+
+When asking a user to share terminal output, adapt commands to the user's host.
+
+- **Android / Termux:** Prefer piping output to `termux-clipboard-set` instead of asking the user to select or manually copy long terminal output. Show a command that captures **stdout and stderr** when diagnostics need both, for example:
+  ```sh
+  { git status --short; git diff --check; } 2>&1 | termux-clipboard-set
+  ```
+  Tell the user to paste the clipboard contents into the conversation afterward.
+- Check that the Termux:API Android companion app and the `termux-api` package are installed if `termux-clipboard-set` is unavailable. Do not assume it is installed.
+- If the user needs to **see** the output as well as copy it, use `2>&1 | tee /dev/stderr | termux-clipboard-set`; note that pipeline exit status can hide failures without `set -o pipefail`.
+- On non-Android Linux/macOS/Windows hosts, do not suggest Termux-specific tools. Use ordinary output or a host-appropriate clipboard utility if available.
+- Avoid copying tokens, passwords, private messages, or other sensitive material to the clipboard; warn before capturing potentially sensitive output.
+- Never run commands on the user's device implicitly. Provide explicit commands for the user to execute.
+
+## Merge safety
+
+During an in-progress merge, do not suggest switching branches, resetting, or committing until conflicts have been resolved and verified. Preserve both sides' functionality, and run relevant tests before completing the merge.
