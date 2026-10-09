@@ -57,16 +57,10 @@ RUN_ID="$(gh run list \
 
 if [[ -z "$RUN_ID" ]]; then
     echo "No build exists yet for ${HEAD_SHA:0:12}."
-    echo "Falling back to the newest successful build on branch '$BRANCH'."
-    RUN_ID="$(gh run list \
-        --repo "$REPO" \
-        --workflow "$WORKFLOW" \
-        --branch "$BRANCH" \
-        --status success \
-        --limit 1 \
-        --json databaseId \
-        --jq '.[0].databaseId // empty')"
-    [[ -n "$RUN_ID" ]] || fail "No successful '$WORKFLOW' run found for branch '$BRANCH'."
+    echo
+    echo "Refusing to install an APK from an older commit."
+    echo "Push this commit and wait for the '$WORKFLOW' workflow to start, then run this script again."
+    fail "No '$WORKFLOW' run found for current commit ${HEAD_SHA:0:12} on branch '$BRANCH'."
 else
     STATUS="$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')"
     CONCLUSION="$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion // ""')"

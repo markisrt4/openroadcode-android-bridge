@@ -6,22 +6,21 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import org.openroadcode.androidbridge.ui.CircuitIconView;
 import org.openroadcode.androidbridge.ui.UiTheme;
+import org.openroadcode.androidbridge.ui.FeatureIconView;
 
-/** Icon-first launcher for the major OpenRoadCode bridge subsystems. */
+/** Home navigation grouped around monitoring, phone hardware, and runtime controls. */
 final class SubsystemDashboard {
-  interface Listener {
-    void onSubsystemSelected(String subsystem);
-  }
-
+  interface Listener { void onSubsystemSelected(String subsystem); }
   static final String AUTOMOTIVE = "automotive";
   static final String NAVIGATION = "navigation";
   static final String MEDIA = "media";
-  static final String CONNECTIVITY = "connectivity";
+  static final String RADIO = "radio";
+  static final String ENVIRONMENTAL = "environmental";
   static final String RUNTIME = "runtime";
+  static final String PERFORMANCE = "performance";
+  static final String CONFIGURATION = "configuration";
   static final String DIAGNOSTICS = "diagnostics";
-
   private final Context context;
   private final Listener listener;
 
@@ -31,81 +30,105 @@ final class SubsystemDashboard {
   }
 
   View view() {
-    LinearLayout root = new LinearLayout(context);
-    root.setOrientation(LinearLayout.VERTICAL);
-
-    TextView heading = UiTheme.text(context, "SUBSYSTEMS", 13, UiTheme.SILVER);
-    heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    heading.setLetterSpacing(.12f);
-    heading.setPadding(dp(2), dp(4), dp(2), dp(4));
-    root.addView(heading);
-
-    TextView subtitle = UiTheme.text(context,
-        "Choose a subsystem to configure inputs, bridges, and runtime services",
-        11, UiTheme.MUTED);
-    subtitle.setPadding(dp(2), 0, dp(2), dp(12));
-    root.addView(subtitle);
-
+    LinearLayout root = vertical();
+    heading(root, "MANAGE");
+    root.addView(link("Runtime", "Core stack and message broker", RUNTIME));
+    root.addView(link("Configuration", "Paired computing units", CONFIGURATION));
+    heading(root, "FEATURES");
     root.addView(row(
-        tile("▣", "AUTOMOTIVE", "OBD • Bluetooth • vehicle service",
-            UiTheme.GREEN, AUTOMOTIVE),
-        tile("⌖", "NAVIGATION", "GPS • sensors • navigation service",
-            UiTheme.BLUE, NAVIGATION)));
-
+        tile("⌖", "Navigation", "GPS, sensors and service", UiTheme.BLUE, NAVIGATION),
+        tile("🚗", "Automotive", "OBD, Bluetooth and service", UiTheme.GREEN, AUTOMOTIVE)));
     root.addView(row(
-        tile("◉", "MEDIA I/O", "Camera • playback audio",
-            UiTheme.RED, MEDIA),
-        tile("⇄", "CONNECTIVITY", "LAN access • bridge endpoints",
-            UiTheme.BLUE, CONNECTIVITY)));
-
+        tile("◉", "Radio", "RTL-SDR and ADS-B", UiTheme.VIOLET, RADIO),
+        tile("▶", "Media", "Camera and audio", UiTheme.RED, MEDIA)));
+    root.addView(row(tile("☀", "Environment", "Light and pressure", UiTheme.AMBER, ENVIRONMENTAL), new View(context)));
+    heading(root, "MONITOR");
     root.addView(row(
-        tile("⚙", "RUNTIME", "Termux • Linux • service profiles", UiTheme.SILVER, RUNTIME),
-        tile("≡", "DIAGNOSTICS", "Live logs • filters • sharing", UiTheme.SILVER, DIAGNOSTICS)));
-
+        tile("▥", "Performance", "Workload and service health", UiTheme.BLUE, PERFORMANCE),
+        tile("≡", "Live logs", "Events, filters and sharing", UiTheme.GREEN, DIAGNOSTICS)));
     return root;
+  }
+
+  private void heading(LinearLayout root, String title) {
+    TextView text = UiTheme.text(context, title, 11, UiTheme.MUTED);
+    text.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    text.setLetterSpacing(.12f);
+    text.setPadding(dp(2), dp(16), 0, dp(10));
+    root.addView(text);
   }
 
   private LinearLayout row(View left, View right) {
     LinearLayout row = new LinearLayout(context);
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(0, dp(142), 1);
-    leftParams.setMargins(0, 0, dp(5), dp(5));
-    LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, dp(142), 1);
-    rightParams.setMargins(dp(5), 0, 0, dp(5));
-    row.addView(left, leftParams);
-    row.addView(right, rightParams);
+    row.setBaselineAligned(false);
+    LinearLayout.LayoutParams a = new LinearLayout.LayoutParams(0, -1, 1);
+    a.setMargins(0, 0, dp(5), dp(10));
+    LinearLayout.LayoutParams b = new LinearLayout.LayoutParams(0, -1, 1);
+    b.setMargins(dp(5), 0, 0, dp(10));
+    row.addView(left, a);
+    row.addView(right, b);
     return row;
   }
 
-  private LinearLayout tile(
-      String icon, String title, String subtitle, int accent, String subsystem) {
-    LinearLayout tile = new LinearLayout(context);
-    tile.setOrientation(LinearLayout.VERTICAL);
-    tile.setGravity(Gravity.CENTER);
-    tile.setPadding(dp(12), dp(12), dp(12), dp(12));
-    tile.setBackground(UiTheme.rounded(context, UiTheme.SURFACE, UiTheme.BORDER, 14));
-    tile.setClickable(true);
-    tile.setFocusable(true);
-    tile.setOnClickListener(v -> listener.onSubsystemSelected(subsystem));
-
-    CircuitIconView iconView = new CircuitIconView(context, icon, accent);
-    tile.addView(iconView, new LinearLayout.LayoutParams(dp(64), dp(64)));
-
-    TextView titleView = UiTheme.text(context, title, 13, UiTheme.TEXT);
-    titleView.setGravity(Gravity.CENTER);
-    titleView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    titleView.setLetterSpacing(.08f);
-    titleView.setPadding(0, dp(5), 0, dp(3));
-    tile.addView(titleView);
-
-    TextView subtitleView = UiTheme.text(context, subtitle, 10, UiTheme.MUTED);
-    subtitleView.setGravity(Gravity.CENTER);
-    tile.addView(subtitleView);
-
-    return tile;
+  private LinearLayout tile(String icon, String title, String detail, int accent, String route) {
+    LinearLayout card = vertical();
+    card.setMinimumHeight(dp(128));
+    card.setPadding(dp(14), dp(14), dp(14), dp(14));
+    boolean feature = !PERFORMANCE.equals(route) && !DIAGNOSTICS.equals(route);
+    int weight = feature ? 16 : 24;
+    int tint = android.graphics.Color.rgb(
+        (android.graphics.Color.red(UiTheme.SURFACE) * (weight - 1) + android.graphics.Color.red(accent)) / weight,
+        (android.graphics.Color.green(UiTheme.SURFACE) * (weight - 1) + android.graphics.Color.green(accent)) / weight,
+        (android.graphics.Color.blue(UiTheme.SURFACE) * (weight - 1) + android.graphics.Color.blue(accent)) / weight);
+    int edge = android.graphics.Color.rgb(
+        (android.graphics.Color.red(UiTheme.BORDER) * 3 + android.graphics.Color.red(accent)) / 4,
+        (android.graphics.Color.green(UiTheme.BORDER) * 3 + android.graphics.Color.green(accent)) / 4,
+        (android.graphics.Color.blue(UiTheme.BORDER) * 3 + android.graphics.Color.blue(accent)) / 4);
+    card.setBackground(UiTheme.rounded(context, tint, feature ? edge : UiTheme.BORDER, 14));
+    card.addView(new FeatureIconView(context, route, accent),
+        new LinearLayout.LayoutParams(dp(28), dp(28)));
+    TextView name = UiTheme.text(context, title, 15, UiTheme.TEXT);
+    name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    name.setPadding(0, dp(12), 0, dp(5));
+    card.addView(name);
+    card.addView(UiTheme.text(context, detail, 11, UiTheme.MUTED));
+    navigate(card, title + ". " + detail, route);
+    return card;
   }
 
-  private int dp(int value) {
-    return UiTheme.dp(context, value);
+  private View link(String title, String detail, String route) {
+    LinearLayout row = new LinearLayout(context);
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    row.setPadding(dp(14), dp(14), dp(14), dp(14));
+    row.setBackground(UiTheme.rounded(context, UiTheme.SURFACE, UiTheme.BORDER, 12));
+    LinearLayout words = vertical();
+    TextView name = UiTheme.text(context, title, 14, UiTheme.TEXT);
+    name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+    words.addView(name);
+    TextView subtitle = UiTheme.text(context, detail, 11, UiTheme.MUTED);
+    subtitle.setPadding(0, dp(4), dp(8), 0);
+    words.addView(subtitle);
+    row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+    row.addView(UiTheme.text(context, "›", 24, UiTheme.MUTED));
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+    params.setMargins(0, 0, 0, dp(8));
+    row.setLayoutParams(params);
+    navigate(row, title + ". " + detail, route);
+    return row;
   }
+
+  private void navigate(View view, String description, String route) {
+    view.setClickable(true);
+    view.setFocusable(true);
+    view.setContentDescription(description);
+    android.util.TypedValue ripple = new android.util.TypedValue();
+    context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
+    if (ripple.resourceId != 0) view.setForeground(context.getDrawable(ripple.resourceId));
+    view.setOnClickListener(v -> listener.onSubsystemSelected(route));
+  }
+  private LinearLayout vertical() {
+    LinearLayout view = new LinearLayout(context);
+    view.setOrientation(LinearLayout.VERTICAL);
+    return view;
+  }
+  private int dp(int value) { return UiTheme.dp(context, value); }
 }

@@ -1,8 +1,9 @@
 package org.openroadcode.androidbridge;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -54,8 +55,38 @@ public final class RuntimeServiceManagerClient {
     return request("POST", "/pair", body);
   }
 
+  /** Start a browser-approved pairing session for this client. */
+  public JSONObject startBrowserPairing(String clientName) throws Exception {
+    if (clientName == null || clientName.isBlank()) {
+      throw new IllegalArgumentException("Client name is required");
+    }
+    JSONObject body = new JSONObject();
+    body.put("client_name", clientName.trim());
+    return request("POST", "/pairing/browser/start", body);
+  }
+
+  /** Poll a browser pairing session until the administrator approves it. */
+  public JSONObject browserPairingStatus(String sessionId, String pollToken) throws Exception {
+    if (sessionId == null || sessionId.isBlank()) {
+      throw new IllegalArgumentException("Pairing session ID is required");
+    }
+    if (pollToken == null || pollToken.isBlank()) {
+      throw new IllegalArgumentException("Pairing poll token is required");
+    }
+    return request(
+        "GET",
+        "/pairing/browser/status/" + sessionId.trim(),
+        null,
+        pollToken.trim());
+  }
+
   public JSONObject getServices() throws Exception {
     return request("GET", "/services");
+  }
+
+  /** Read the selected computing unit's metrics and bounded performance history. */
+  public JSONObject getPerformance() throws Exception {
+    return request("GET", "/performance");
   }
 
   /** Register this Android Bridge as the selected runtime's shared bridge endpoint. */
@@ -107,54 +138,83 @@ public final class RuntimeServiceManagerClient {
   }
 
   private JSONObject request(String method, String path, JSONObject requestBody) throws Exception {
+    return request(method, path, requestBody, null);
+  }
+
+  private JSONObject request(
+      String method, String path, JSONObject requestBody, String pairingToken) throws Exception {
     HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
-    connection.setRequestMethod(method);
-    connection.setConnectTimeout(1000);
-    connection.setReadTimeout(2000);
-    connection.setUseCaches(false);
-    if (bearerToken != null) {
-      connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
-    }
-    if ("POST".equals(method)) {
-      connection.setDoOutput(true);
-      if (requestBody == null) {
-        connection.setFixedLengthStreamingMode(0);
-      } else {
-        byte[] encoded = requestBody.toString().getBytes(StandardCharsets.UTF_8);
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        connection.setFixedLengthStreamingMode(encoded.length);
-        try (OutputStream output = connection.getOutputStream()) {
-          output.write(encoded);
+    try {
+      connection.setInstanceFollowRedirects(false);
+      connection.setRequestMethod(method);
+      connection.setConnectTimeout(1000);
+      connection.setReadTimeout(2000);
+      connection.setUseCaches(false);
+      if (bearerToken != null) {
+        connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+      }
+      if (pairingToken != null) {
+        connection.setRequestProperty("X-OpenRoadCode-Pairing-Token", pairingToken);
+      }
+      if ("POST".equals(method)) {
+        connection.setDoOutput(true);
+        if (requestBody == null) {
+          connection.setFixedLengthStreamingMode(0);
+        } else {
+          byte[] encoded = requestBody.toString().getBytes(StandardCharsets.UTF_8);
+          connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+          connection.setFixedLengthStreamingMode(encoded.length);
+          try (OutputStream output = connection.getOutputStream()) {
+            output.write(encoded);
+          }
         }
       }
-    }
-    try {
       int status = connection.getResponseCode();
-      BufferedReader reader = new BufferedReader(new InputStreamReader(
-          status >= 200 && status < 300
-              ? connection.getInputStream()
-              : connection.getErrorStream(),
-          StandardCharsets.UTF_8));
-      StringBuilder body = new StringBuilder();
-      String line;
-      while ((line = reader.readLine()) != null) {
-        body.append(line);
-      }
-      reader.close();
-      JSONObject response = new JSONObject(body.toString());
       if (status < 200 || status >= 300) {
+        if (status == 404 && "/performance".equals(path)) {
+          throw new IllegalStateException(
+              "Performance monitoring is not available on " + targetLabel
+              + ". Update and restart its OpenRoadCode service manager.");
+        }
         if (status == 404 && path.contains("/profile/")) {
           throw new IllegalStateException(
               "Runtime profile API is not available on " + targetLabel
               + ". Update and restart the OpenRoadCode service manager.");
         }
-        throw new IllegalStateException(response.optString(
-            "error", targetLabel + " service request failed"));
+        if (status == 401 || status == 403) {
+          throw new IllegalStateException("Pair " + targetLabel + " again in Configuration.");
+        }
+        String detail = targetLabel + " service request failed (HTTP " + status + ")";
+        // Preserve actionable JSON errors from runtime actions, with a safe fallback
+        // when an older server or gateway returns plain text or HTML.
+        if (status >= 400) {
+          try (InputStream input = connection.getErrorStream()) {
+            if (input != null) detail = new JSONObject(
+                new String(readBounded(input), StandardCharsets.UTF_8)).optString("error", detail);
+          } catch (Exception ignored) { }
+        }
+        throw new IOException(detail);
       }
-      return response;
+      try (InputStream input = connection.getInputStream()) {
+        return new JSONObject(new String(readBounded(input), StandardCharsets.UTF_8));
+      }
     } finally {
       connection.disconnect();
     }
+  }
+
+  static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+  static byte[] readBounded(InputStream input) throws IOException {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    byte[] chunk = new byte[8192];
+    int count;
+    while ((count = input.read(chunk)) != -1) {
+      if (body.size() + count > MAX_RESPONSE_BYTES)
+        throw new IOException("Service response exceeded size limit");
+      body.write(chunk, 0, count);
+    }
+    return body.toByteArray();
   }
 
   private static String trimTrailingSlash(String value) {

@@ -23,7 +23,7 @@ public final class SensorCard {
     private final Context context;
     private final LinearLayout root;
     private final TextView status;
-    private final TextView[] values = new TextView[7];
+    private final TextView[] values = new TextView[5];
     private final Button start, stop;
     private final Spinner providerSpinner;
     private boolean bindingProvider;
@@ -33,11 +33,10 @@ public final class SensorCard {
         this.context = context;
         root = UiTheme.card(context);
 
-        TextView title = UiTheme.text(context, "SENSOR BRIDGE", 18, UiTheme.TEXT);
+        TextView title = UiTheme.text(context, "Phone sensors", 16, UiTheme.TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setLetterSpacing(.08f);
         root.addView(title);
-        TextView subtitle = UiTheme.text(context, "Phone telemetry • HTTP 8766", 12, UiTheme.BLUE);
+        TextView subtitle = UiTheme.text(context, "Motion and GPS from this phone", 12, UiTheme.BLUE);
         subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         subtitle.setPadding(0, dp(2), 0, dp(10));
         root.addView(subtitle);
@@ -104,12 +103,16 @@ public final class SensorCard {
         root.addView(providerSpinner, providerParams);
 
         String[] names = {"Accelerometer", "Linear acceleration", "Gyroscope", "Magnetometer",
-                "Barometer", "Ambient light", "Position"};
-        String[] units = {"m/s²", "m/s²", "rad/s", "µT", "hPa", "lux",
+                "Position"};
+        String[] units = {"m/s²", "m/s²", "rad/s", "µT",
                 "lat / lon • accuracy • sats"};
-        String[] icons = {"↗", "⇢", "↻", "⌖", "◉", "☀", "◎"};
+        String[] icons = {"↗", "⇢", "↻", "⌖", "◎"};
         int[] accents = {UiTheme.BLUE, UiTheme.GREEN, UiTheme.RED, UiTheme.BLUE,
-                UiTheme.GREEN, UiTheme.BLUE, UiTheme.RED};
+                UiTheme.RED};
+        LinearLayout readings = new LinearLayout(context);
+        readings.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout position = new LinearLayout(context);
+        position.setOrientation(LinearLayout.VERTICAL);
         for (int i = 0; i < values.length; i++) {
             LinearLayout row = new LinearLayout(context);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -129,7 +132,8 @@ public final class SensorCard {
             values[i].setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             values[i].setTypeface(Typeface.MONOSPACE);
             row.addView(values[i], new LinearLayout.LayoutParams(0, -2, 1.62f));
-            root.addView(row);
+            if (i == values.length - 1) position.addView(row);
+            else readings.addView(row);
         }
 
         start = UiTheme.actionButton(context, "START BRIDGE", UiTheme.BLUE, v -> onStart.run());
@@ -143,6 +147,9 @@ public final class SensorCard {
             buttons.addView(button, p);
         }
         root.addView(buttons);
+        root.addView(position);
+        root.addView(new ExpandableCard(context, "Motion readings",
+                "Acceleration, rotation and magnetic field", UiTheme.SILVER, readings, false).view());
     }
 
     public LinearLayout view() { return root; }
@@ -175,19 +182,15 @@ public final class SensorCard {
         values[2].setText(vector(r.optJSONObject("angular_velocity_rad_s")));
         values[3].setText(r.optBoolean("magnetometer_available")
                 ? vector(r.optJSONObject("magnetic_field_uT")) : "Not available");
-        values[4].setText(r.optBoolean("pressure_available")
-                ? String.format(Locale.US, "%.2f", r.optDouble("pressure_hpa")) : "Not available");
-        values[5].setText(r.optBoolean("ambient_light_available")
-                ? String.format(Locale.US, "%.1f", r.optDouble("ambient_light_lux")) : "Not available");
     }
 
     public void displayPosition(JSONObject r) {
         if (!r.optBoolean("permission_granted", true)) {
-            values[6].setText("Permission required");
+            values[4].setText("Permission required");
             return;
         }
         if (!r.optBoolean("ready")) {
-            values[6].setText(r.optBoolean("available") ? "Waiting for fix" : "Provider unavailable");
+            values[4].setText(r.optBoolean("available") ? "Waiting for fix" : "Provider unavailable");
             return;
         }
         double accuracy = r.optDouble("horizontal_accuracy_m", Double.NaN);
@@ -195,7 +198,7 @@ public final class SensorCard {
         int used = r.optInt("satellites_used_in_fix", -1);
         String sats = visible < 0 ? "sats —"
                 : (used >= 0 ? "sats " + used + "/" + visible : "sats " + visible);
-        values[6].setText(String.format(Locale.US, "%.6f, %.6f\n%s  %s\n%s",
+        values[4].setText(String.format(Locale.US, "%.6f, %.6f\n%s  %s\n%s",
                 r.optDouble("latitude"), r.optDouble("longitude"),
                 Double.isNaN(accuracy) ? "accuracy —"
                         : String.format(Locale.US, "±%.1f m", accuracy),

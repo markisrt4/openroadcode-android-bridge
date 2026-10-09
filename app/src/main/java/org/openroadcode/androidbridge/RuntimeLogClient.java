@@ -41,7 +41,7 @@ final class RuntimeLogClient {
         request.setRequestProperty("Authorization", "Bearer " + token);
       int status = request.getResponseCode();
       if (status == 401 || status == 403)
-        throw new LogAccessException("Pair this runtime again from the Runtime screen.");
+        throw new LogAccessException("Pair this computing unit again in Configuration.");
       if (status == 404)
         throw new LogAccessException("Update and restart the ORC service manager to view logs.");
       if (status == 400)

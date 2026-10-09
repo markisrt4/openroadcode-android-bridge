@@ -1,8 +1,41 @@
-# OpenRoadCode Android Bridge
+# ORC Companion
 
 Android hardware bridge for OpenRoadCode running either on the same phone or another device on the selected network.
 
 The foreground services expose Android sensors, GNSS, Bluetooth SPP devices, and the rear camera through small HTTP-facing interfaces. OpenRoadCode owns the normalized application contracts and higher-level messaging architecture.
+
+## Companion home
+
+The launcher is named **ORC Companion**. Home is ordered Your Runtime, Manage,
+Features, then Monitor. Your Runtime shows connection and running-service status;
+Manage has the single Runtime entry and Configuration. Feature cards use distinct
+accent colors and group the controls with their data:
+
+- Navigation: navigation service start/stop, input source, GPS/motion, sensor sharing.
+- Automotive: automotive service start/stop, input source, Bluetooth/OBD.
+- Radio: local RTL-SDR USB connect/disconnect, expandable receiver diagnostics, and the selected runtime's ADS-B service.
+- Media: camera, playback capture, and PCM audio output through Android speakers/Bluetooth.
+- Environment: ambient light and pressure.
+
+Runtime owns computing-unit selection, the message broker, and whole-core-stack
+actions. Configuration owns pairing and saved computing units. Monitor contains
+Performance and Live Logs. When Navigation starts with Android Bridge input on a
+remote runtime, sensor sharing is enabled for the local network; the sharing
+control remains available in Navigation. Location permission must be granted
+before navigation start is sent. Home status polls every five seconds only while
+Home is visible; feature service polling also stops when leaving the screen.
+
+Home uses a consistent set of line icons and subtle accent colors. Environment
+uses the same half-width as the other feature cards. Feature pages keep current
+status and primary actions visible; source changes, motion readings, sensor
+sharing, stream settings, audio details, and log filters expand on demand.
+
+The master activity switch and text input are not implemented in this revision.
+
+The `review/companion-sdr-integration` branch combines the companion layout with
+the SDR branch as a **1.0.0-rc.1** candidate build. It has not been tagged or merged
+to main. See [SDR integration review](docs/reviews/companion-sdr-integration.md)
+for validation and the phone checklist.
 
 ## Architecture
 
@@ -175,3 +208,47 @@ Pushes to `main`, pull requests, and manual workflow runs build and validate the
 ## OpenRoadCode integration
 
 The corresponding Termux-side hardware adapters and ZeroMQ publisher live in the main OpenRoadCode repository. See `docs/android_sensor_pipeline.md` there for the sensor build, run, and diagnostic procedure. Camera consumption belongs behind an OpenRoadCode camera/video controller so UI code does not need to know the bridge transport details.
+## Computing-unit performance
+
+With an updated OpenRoadCode service manager, open **Performance** from the subsystem dashboard, select the
+local Termux runtime or a paired remote computing unit using **Computing unit**,
+and view **Computing Unit Performance**. Runtime contains service controls only. The card prioritizes combined ORC workload and per-process CPU, RSS/PSS memory,
+thread counts, and disk activity, plus observed sensor telemetry freshness,
+rates, and invalid-message counts. Host CPU, memory, thermal, storage, and
+network activity remain available with two-minute trends. Diagnostics processes
+are identified separately and excluded from workload totals. It uses the existing pairing and
+endpoint. Polling stops when you leave Performance or pause the app; unavailable
+and stale readings are cleared. An older computing unit reports that its
+service manager needs updating.
+
+
+If Local Termux reports that performance monitoring is unavailable, update the
+main OpenRoadCode checkout to `computing-unit-performance` and restart its Python
+service manager; installing this APK does not replace the computing-unit service:
+
+```bash
+cd ~/src/OpenRoadCode
+git fetch origin computing-unit-performance
+git switch computing-unit-performance
+git merge --ff-only FETCH_HEAD
+sv restart openroadcode-service-manager
+```
+
+If runit still points to an older checkout, reinstall the version-controlled
+definitions with `bash scripts/runit/install_termux_services.sh`, then restart
+`openroadcode-service-manager`. Pairing and configured targets stay saved.
+
+Termux battery status is shown separately in Performance: temperature in °C,
+charge percentage, Android health, charging state, and plugged state. The
+computing unit needs the Termux:API companion app and `termux-api` CLI package.
+Battery polling runs every 30 seconds independently of CPU sampling; stale or
+unavailable values stay unavailable. Battery temperature is never CPU temperature.
+
+Performance uses four tabs: **Workload**, **System**, **Sensors**, and **Services**.
+Summary tiles show the main readings. Process and stream rows show short names
+and color-coded states; tap a row for full names, sources, counters, and details.
+Service endpoints are grouped by process and protocol; tap a group for each
+endpoint's bandwidth and queues. **About these readings** contains measurement
+notes. Two-minute charts are available through **Show trends**, collapsed by
+default. Live values update in place so reading or opening details is not
+interrupted by rebuilding the list every second.

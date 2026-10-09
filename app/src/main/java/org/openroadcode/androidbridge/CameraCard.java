@@ -46,12 +46,12 @@ final class CameraCard {
     this.activity = activity;
     view = UiTheme.card(activity);
 
-    TextView heading = UiTheme.text(activity, "CAMERA STREAM", 18, UiTheme.TEXT);
+    TextView heading = UiTheme.text(activity, "Camera", 16, UiTheme.TEXT);
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.setLetterSpacing(.08f);
     view.addView(heading);
     TextView subtitle = UiTheme.text(activity,
-        "Selectable camera • H.264 • 1280×720 • 30 FPS • HTTP 8767", 12, UiTheme.RED);
+        "Capture and share video from this phone", 12, UiTheme.RED);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, dp(2), 0, dp(10));
     view.addView(subtitle);
@@ -70,32 +70,39 @@ final class CameraCard {
     previewParams.setMargins(dp(2), dp(2), dp(2), dp(8));
     view.addView(preview, previewParams);
 
+    LinearLayout streamSettings = new LinearLayout(activity);
+    streamSettings.setOrientation(LinearLayout.VERTICAL);
     TextView routeLabel = UiTheme.text(activity, "VIDEO INTERFACE", 11, UiTheme.MUTED);
     routeLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     routeLabel.setLetterSpacing(.10f);
     routeLabel.setPadding(dp(2), dp(4), 0, 0);
-    view.addView(routeLabel);
+    streamSettings.addView(routeLabel);
 
     localButton = actionButton("LOCAL", v -> setInterface(CameraStreamService.INTERFACE_LOCALHOST));
     wifiButton = actionButton("WI-FI", v -> setInterface(CameraStreamService.INTERFACE_WIFI));
     cellularButton = actionButton("5G", v -> setInterface(CameraStreamService.INTERFACE_CELLULAR));
-    view.addView(buttonRow(localButton, wifiButton, cellularButton));
+    streamSettings.addView(buttonRow(localButton, wifiButton, cellularButton));
     updateInterfaceButtons();
 
     details = UiTheme.text(activity, "Frames  —    Viewer  —    Preview  —", 13, UiTheme.TEXT);
     details.setTypeface(Typeface.MONOSPACE);
     details.setPadding(dp(2), dp(5), 0, dp(4));
-    view.addView(details);
+    streamSettings.addView(details);
 
     endpoint = UiTheme.text(activity, "Video endpoint  waiting for network", 12, UiTheme.MUTED);
     endpoint.setTypeface(Typeface.MONOSPACE);
     endpoint.setPadding(dp(2), dp(2), 0, dp(4));
-    view.addView(endpoint);
+    streamSettings.addView(endpoint);
     updateEndpoint();
 
     startButton = UiTheme.actionButton(activity, "START CAMERA", UiTheme.RED, v -> startCamera());
     stopButton = UiTheme.actionButton(activity, "STOP", UiTheme.SURFACE_RAISED, v -> stopCamera());
     view.addView(buttonRow(startButton, stopButton));
+    view.removeView(preview);
+    view.addView(preview, previewParams);
+    view.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
+        "Stream settings & details", "Network interface, endpoint and frame statistics",
+        UiTheme.SILVER, streamSettings, false).view());
   }
 
   View view() { return view; }
@@ -226,6 +233,8 @@ final class CameraCard {
 
   private void updateButtons(boolean running, boolean streaming) {
     startButton.setText(running ? (streaming ? "RUNNING" : "STARTING") : "START CAMERA");
+    startButton.setEnabled(!running);
+    stopButton.setEnabled(running);
     UiTheme.setButtonColor(activity, startButton,
         running ? UiTheme.SURFACE_RAISED : UiTheme.RED);
     UiTheme.setButtonColor(activity, stopButton,

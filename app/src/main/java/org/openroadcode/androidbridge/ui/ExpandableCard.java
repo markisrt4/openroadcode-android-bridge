@@ -12,6 +12,8 @@ public final class ExpandableCard {
     private final LinearLayout root;
     private final LinearLayout body;
     private final TextView indicator;
+    private final LinearLayout header;
+    private final String title;
     private boolean expanded;
 
     public ExpandableCard(
@@ -21,10 +23,11 @@ public final class ExpandableCard {
             int accent,
             View detailView,
             boolean initiallyExpanded) {
+        this.title = title;
         root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        LinearLayout header = new LinearLayout(context);
+        header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(
@@ -38,7 +41,6 @@ public final class ExpandableCard {
         labels.setOrientation(LinearLayout.VERTICAL);
         TextView heading = UiTheme.text(context, title, 14, accent);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        heading.setLetterSpacing(.08f);
         labels.addView(heading);
 
         TextView detail = UiTheme.text(context, subtitle, 11, UiTheme.MUTED);
@@ -49,7 +51,7 @@ public final class ExpandableCard {
         indicator = UiTheme.text(context, "›", 25, UiTheme.SILVER);
         indicator.setGravity(Gravity.CENTER);
         header.addView(indicator, new LinearLayout.LayoutParams(
-                UiTheme.dp(context, 34), UiTheme.dp(context, 40)));
+                UiTheme.dp(context, 34), UiTheme.dp(context, 44)));
 
         body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -59,6 +61,9 @@ public final class ExpandableCard {
 
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
         root.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        android.util.TypedValue ripple = new android.util.TypedValue();
+        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
+        if (ripple.resourceId != 0) header.setForeground(context.getDrawable(ripple.resourceId));
         header.setOnClickListener(v -> setExpanded(!expanded));
         setExpanded(initiallyExpanded);
     }
@@ -71,6 +76,7 @@ public final class ExpandableCard {
         expanded = value;
         body.setVisibility(expanded ? View.VISIBLE : View.GONE);
         indicator.setText(expanded ? "⌄" : "›");
+        header.setContentDescription(title + (expanded ? ", expanded. Collapse" : ", collapsed. Expand"));
     }
 
     public boolean isExpanded() {
