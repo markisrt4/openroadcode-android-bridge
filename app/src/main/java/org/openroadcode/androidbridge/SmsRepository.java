@@ -1,6 +1,8 @@
 package org.openroadcode.androidbridge;
 
 import android.Manifest;
+import android.app.PendingIntent;
+import android.content.Intent;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -80,7 +82,7 @@ public final class SmsRepository {
     return result;
   }
 
-  public void send(String address, String body) {
+  public void send(String address, String body, String requestId) {
     if (!canSend()) throw new SecurityException("SMS send permission required");
     if (address == null || !address.matches("[+0-9() .-]{3,32}"))
       throw new IllegalArgumentException("Invalid recipient");
@@ -89,7 +91,18 @@ public final class SmsRepository {
     SmsManager manager = context.getSystemService(SmsManager.class);
     if (manager == null) throw new IllegalStateException("SMS service unavailable");
     java.util.ArrayList<String> parts = manager.divideMessage(body);
-    if (parts.size() == 1) manager.sendTextMessage(address, null, body, null, null);
-    else manager.sendMultipartTextMessage(address, null, parts, null, null);
+    java.util.ArrayList<PendingIntent> sent = new java.util.ArrayList<>();
+    for (int i = 0; i < parts.size(); i++) {
+      Intent callback = new Intent(context, SmsSendResultReceiver.class);
+      callback.setAction(SmsSendResultReceiver.ACTION);
+      callback.putExtra("request_id", requestId);
+      callback.putExtra("part", i);
+      callback.putExtra("count", parts.size());
+      callback.setData(Uri.parse("orc-sms-result://" + requestId + "/" + i));
+      sent.add(PendingIntent.getBroadcast(context, 0, callback,
+          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+    }
+    if (parts.size() == 1) manager.sendTextMessage(address, null, body, sent.get(0), null);
+    else manager.sendMultipartTextMessage(address, null, parts, sent, null);
   }
 }
