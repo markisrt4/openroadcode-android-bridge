@@ -48,6 +48,7 @@
         </activity>
 
         <service android:name=".SmsGatewayService" android:exported="false" />
+        <receiver android:name=".SmsSendResultReceiver" android:exported="false" />
 
         <service
             android:name=".SensorBridgeService"
