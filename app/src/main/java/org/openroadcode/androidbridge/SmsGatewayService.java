@@ -54,6 +54,7 @@ public final class SmsGatewayService extends Service {
       socket.setSoTimeout(3000);
       InputStream in = socket.getInputStream();
       OutputStream out = socket.getOutputStream();
+      try {
       String first = line(in);
       if (first == null) return;
       String[] request = first.split(" ");
@@ -122,11 +123,20 @@ public final class SmsGatewayService extends Service {
         respond(out, 404, new JSONObject().put("error", "not found")); return;
       }
       respond(out, 200, result);
-    } catch (SecurityException error) {
-      // Never log private SMS data or bearer tokens.
-      android.util.Log.w("ORCSms", "SMS permission denied");
-    } catch (Exception error) {
-      android.util.Log.w("ORCSms", "SMS request failed: " + error.getClass().getSimpleName());
+      } catch (SecurityException error) {
+        android.util.Log.w("ORCSms", "SMS permission denied");
+        respond(out, 403, new JSONObject().put("error", "permission denied"));
+      } catch (IllegalArgumentException | org.json.JSONException error) {
+        android.util.Log.w("ORCSms", "Invalid SMS request");
+        respond(out, 400, new JSONObject().put("error", "invalid request"));
+      } catch (Exception error) {
+        // Never include recipient, message body, or credentials in errors.
+        android.util.Log.w("ORCSms", "SMS request failed: " + error.getClass().getSimpleName());
+        respond(out, 500, new JSONObject().put("error", "request failed"));
+      }
+    } catch (IOException error) {
+      // Connection dropped or the peer stopped reading.
+      android.util.Log.w("ORCSms", "SMS connection closed");
     }
   }
 
