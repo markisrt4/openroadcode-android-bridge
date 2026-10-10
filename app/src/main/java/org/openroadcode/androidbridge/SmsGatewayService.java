@@ -17,6 +17,7 @@ public final class SmsGatewayService extends Service {
   public static final String STOP = "org.openroadcode.sms.STOP";
   private static final int MAX_BODY = 16384;
   private final AtomicBoolean running = new AtomicBoolean();
+  private final Object sendLock = new Object();
   private ServerSocket server;
 
   @Override public IBinder onBind(Intent intent) { return null; }
@@ -117,8 +118,29 @@ public final class SmsGatewayService extends Service {
         result.put("messages", sms.messages(threadId, limit));
       else if (request[0].equals("POST") && path.equals("/sms/send")) {
         JSONObject payload = new JSONObject(new String(body, StandardCharsets.UTF_8));
-        sms.send(payload.getString("address"), payload.getString("body"));
+        String requestId = payload.getString("request_id");
+        if (!requestId.matches("[A-Za-z0-9_-]{16,128}"))
+          throw new IllegalArgumentException("Invalid request identifier");
+        String address = payload.getString("address");
+        String message = payload.getString("body");
+        // Reserve before dispatch and persist the reservation. If Android or the
+        // process fails after dispatch, a retry must never send a second SMS.
+        synchronized (sendLock) {
+          android.content.SharedPreferences preferences =
+              getSharedPreferences("orc_sms_send_requests", MODE_PRIVATE);
+          if (preferences.contains(requestId)) {
+            respond(out, 409, new JSONObject().put("error", "request already processed")
+                .put("request_id", requestId)); return;
+          }
+          // A failed synchronous dispatch is also treated as indeterminate.
+          // Never silently retry it; explicit user action requires a fresh ID.
+          if (!preferences.edit().putLong(requestId, System.currentTimeMillis()).commit())
+            throw new IllegalStateException("Cannot persist SMS send reservation");
+          sms.send(address, message);
+        }
+        result.put("request_id", requestId);
         result.put("status", "submitted");
+        result.put("delivery_confirmed", false);
       } else {
         respond(out, 404, new JSONObject().put("error", "not found")); return;
       }
