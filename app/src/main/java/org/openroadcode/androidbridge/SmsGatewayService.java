@@ -12,7 +12,7 @@ import org.json.JSONObject;
 
 /** Explicitly started, loopback-only, bearer-authenticated SMS HTTP endpoint. */
 public final class SmsGatewayService extends Service {
-  public static final int PORT = 8772;
+  public static final int PORT = 8773;
   public static final String START = "org.openroadcode.sms.START";
   public static final String STOP = "org.openroadcode.sms.STOP";
   private static final int MAX_BODY = 16384;
