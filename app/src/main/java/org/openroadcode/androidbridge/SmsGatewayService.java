@@ -112,6 +112,24 @@ public final class SmsGatewayService extends Service {
         result.put("read_sms_granted", sms.canRead());
         result.put("send_sms_granted", sms.canSend());
         result.put("send_supported", sms.canSend());
+      } else if (request[0].equals("GET") && path.equals("/sms/send/status")) {
+        String id = null;
+        if (target.length > 1) {
+          for (String param : target[1].split("&")) {
+            String[] pair = param.split("=", 2);
+            if (pair.length == 2 && pair[0].equals("request_id")) id = pair[1];
+          }
+        }
+        if (id == null || !id.matches("[A-Za-z0-9_-]{16,128}"))
+          throw new IllegalArgumentException("Invalid request identifier");
+        android.content.SharedPreferences prefs =
+            getSharedPreferences("orc_sms_send_requests", MODE_PRIVATE);
+        if (!prefs.contains(id)) {
+          respond(out, 404, new JSONObject().put("error", "request not found")); return;
+        }
+        result.put("request_id", id);
+        result.put("status", prefs.getString(id + ".status", "pending"));
+        result.put("delivery_confirmed", false);
       } else if (request[0].equals("GET") && path.equals("/sms/conversations"))
         result.put("conversations", sms.conversations(limit));
       else if (request[0].equals("GET") && path.equals("/sms/messages"))
@@ -136,7 +154,7 @@ public final class SmsGatewayService extends Service {
           // Never silently retry it; explicit user action requires a fresh ID.
           if (!preferences.edit().putLong(requestId, System.currentTimeMillis()).commit())
             throw new IllegalStateException("Cannot persist SMS send reservation");
-          sms.send(address, message);
+          sms.send(address, message, requestId);
         }
         result.put("request_id", requestId);
         result.put("status", "submitted");
