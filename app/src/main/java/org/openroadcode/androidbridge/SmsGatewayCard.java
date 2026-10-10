@@ -109,7 +109,10 @@ public final class SmsGatewayCard {
       refresh();
       return;
     }
-    permissionFeedback.setText("Requesting SMS sending permission from Android...");
+    boolean rationale = activity.shouldShowRequestPermissionRationale(Manifest.permission.SEND_SMS);
+    permissionFeedback.setText(rationale
+        ? "Android previously denied SMS sending. Requesting permission again..."
+        : "Requesting SMS sending permission from Android. If no dialog appears, check app settings.");
     activity.requestPermissions(new String[] {Manifest.permission.SEND_SMS}, SEND_PERMISSION_REQUEST);
   }
 
@@ -117,9 +120,12 @@ public final class SmsGatewayCard {
     refresh();
     if (requestCode == SEND_PERMISSION_REQUEST) {
       boolean granted = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
+      boolean rationale = activity.shouldShowRequestPermissionRationale(Manifest.permission.SEND_SMS);
       permissionFeedback.setText(granted
-          ? "SMS sending permission granted."
-          : "Android did not grant SMS sending. Read-only messaging remains available. Check app settings.");
+          ? "SMS sending permission granted. No message was sent."
+          : rationale
+              ? "SMS sending was denied. Tap Request SMS sending permission to try again. Read-only messaging still works."
+              : "SMS sending remains denied. If Android did not show a prompt, open Android app settings to check SMS access. Read-only messaging still works.");
     } else if (requestCode == READ_PERMISSION_REQUEST) {
       boolean granted = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
       permissionFeedback.setText(granted
