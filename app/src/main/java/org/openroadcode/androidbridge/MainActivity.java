@@ -680,7 +680,8 @@ public final class MainActivity extends Activity {
   @Override public void onRequestPermissionsResult(
       int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
-    if (requestCode == SmsGatewayCard.PERMISSION_REQUEST) {
+    if (requestCode == SmsGatewayCard.READ_PERMISSION_REQUEST
+        || requestCode == SmsGatewayCard.SEND_PERMISSION_REQUEST) {
       if (smsGatewayCard != null) smsGatewayCard.refresh();
       return;
     }
