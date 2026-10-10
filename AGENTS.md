@@ -1,5 +1,20 @@
 # Agent instructions
 
+## Android APK build and local development workflow
+
+- **Do not instruct the user to run `./gradlew`, `gradlew assembleDebug`, or `gradlew testDebugUnitTest` on the Termux host.** Android APK compilation and automated tests run in **GitHub Actions** using the **Build Android APK** workflow.
+- Commit and push changes to the intended feature branch. Check the GitHub Actions build and test results for that exact commit; do not claim success until CI confirms it.
+- For local device testing from Termux, use the repository's supported installer script, **`development/termux/install_latest_apk.sh`**, from within the bridge repository after fetching and checking out the intended branch:
+  ```sh
+  git fetch origin
+  git switch <feature-branch>
+  git pull --ff-only
+  development/termux/install_latest_apk.sh
+  ```
+- The installer selects the **Build Android APK** run for the current branch **and HEAD commit**, waits for an in-progress run, refuses failed builds or missing runs, downloads the `openroadcode-android-bridge-debug` artifact, and opens Android's package installer for user confirmation.
+- Never substitute an APK from a different or older commit when the current commit has no successful build. Do not bypass the script by proposing a host-side Gradle build.
+- Use `gh run list` / `gh run view` when CI diagnostics are needed; for terminal output on Termux, follow the clipboard instructions below.
+
 ## Host-aware command output
 
 When asking a user to share terminal output, adapt commands to the user's host.
