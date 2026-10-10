@@ -1,69 +1,114 @@
 package org.openroadcode.androidbridge;
 
-import static org.junit.Assert.assertEquals;
-
+import static org.junit.Assert.*;
+import java.io.ByteArrayInputStream;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.After;
-import org.junit.Before;
+import org.json.JSONObject;
 import org.junit.Test;
 
 public final class RuntimeServiceManagerClientTest {
-  private ServerSocket server;
-  private Thread serverThread;
-  private final AtomicReference<String> method = new AtomicReference<>();
-  private final AtomicReference<String> path = new AtomicReference<>();
-  private final AtomicReference<String> authorization = new AtomicReference<>();
+  @Test public void performanceUsesPairedTargetAndCredentials() throws Exception {
+    try (Stub server = new Stub(200, "{\"version\":1,\"snapshot\":{}}", "")) {
+      JSONObject result = new RuntimeServiceManagerClient(server.url(), "Test unit", "test-token").getPerformance();
+      assertEquals(1, result.getInt("version"));
+      assertTrue(server.request().startsWith("GET /performance "));
+      assertTrue(server.request().contains("Authorization: Bearer test-token"));
+    }
+  }
 
-  @Before
-  public void startServer() throws Exception {
-    server = new ServerSocket(0);
-    serverThread = new Thread(() -> {
-      try (Socket socket = server.accept();
-           BufferedReader reader = new BufferedReader(new InputStreamReader(
-               socket.getInputStream(), StandardCharsets.UTF_8))) {
-        String[] request = reader.readLine().split(" ");
-        method.set(request[0]);
-        path.set(request[1]);
-        String line;
-        while ((line = reader.readLine()) != null && !line.isEmpty()) {
-          if (line.regionMatches(true, 0, "Authorization:", 0, 14)) {
-            authorization.set(line.substring(14).trim());
-          }
-        }
-        byte[] response = "{\"status\":\"configured\"}".getBytes(StandardCharsets.UTF_8);
-        String headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-            + "Content-Length: " + response.length + "\r\nConnection: close\r\n\r\n";
-        socket.getOutputStream().write(headers.getBytes(StandardCharsets.UTF_8));
-        socket.getOutputStream().write(response);
-        socket.getOutputStream().flush();
-      } catch (Exception exception) {
-        throw new RuntimeException(exception);
+  @Test public void missingPerformanceApiExplainsUpgradeEvenWithHtmlBody() throws Exception {
+    try (Stub server = new Stub(404, "<html>Not found</html>", "")) {
+      try {
+        new RuntimeServiceManagerClient(server.url(), "Test unit").getPerformance();
+        fail("Missing API accepted");
+      } catch (IllegalStateException expected) {
+        assertTrue(expected.getMessage().contains("Update and restart"));
       }
-    });
-    serverThread.start();
+    }
   }
 
-  @After
-  public void stopServer() throws Exception {
-    server.close();
+  @Test public void authenticationFailureExplainsPairingWithoutParsingBody() throws Exception {
+    try (Stub server = new Stub(401, "private detail", "")) {
+      try {
+        new RuntimeServiceManagerClient(server.url(), "Test unit", "test-token").getPerformance();
+        fail("Unauthorized response accepted");
+      } catch (IllegalStateException expected) {
+        assertTrue(expected.getMessage().contains("Configuration"));
+        assertFalse(expected.getMessage().contains("private detail"));
+      }
+    }
   }
 
-  @Test
-  public void registerAndroidBridgeUsesAuthenticatedRuntimeEndpoint() throws Exception {
-    RuntimeServiceManagerClient client = new RuntimeServiceManagerClient(
-        "http://127.0.0.1:" + server.getLocalPort(),
-        "Remote Linux",
-        "client-token");
+  @Test public void performanceDoesNotFollowCredentialRedirects() throws Exception {
+    try (Stub destination = new Stub(200, "{}", "");
+         Stub redirect = new Stub(302, "", "Location: " + destination.url() + "\r\n")) {
+      try {
+        new RuntimeServiceManagerClient(redirect.url(), "Test unit", "test-token").getPerformance();
+        fail("Redirect accepted");
+      } catch (IOException expected) { }
+      assertFalse(destination.received.await(200, TimeUnit.MILLISECONDS));
+    }
+  }
 
-    assertEquals("configured", client.registerAndroidBridge().getString("status"));
-    serverThread.join(1000);
-    assertEquals("POST", method.get());
-    assertEquals("/runtime/android-bridge", path.get());
-    assertEquals("Bearer client-token", authorization.get());
+  @Test public void responseMemoryIsBounded() throws Exception {
+    assertEquals(3, RuntimeServiceManagerClient.readBounded(new ByteArrayInputStream(new byte[3])).length);
+    try {
+      RuntimeServiceManagerClient.readBounded(new ByteArrayInputStream(new byte[RuntimeServiceManagerClient.MAX_RESPONSE_BYTES + 1]));
+      fail("Oversized response accepted");
+    } catch (IOException expected) { }
+  }
+
+  @Test public void registerAndroidBridgeUsesAuthenticatedRuntimeEndpoint() throws Exception {
+    try (Stub server = new Stub(200, "{\"status\":\"configured\"}", "")) {
+      JSONObject result = new RuntimeServiceManagerClient(server.url(), "Remote Linux", "client-token")
+          .registerAndroidBridge();
+      assertEquals("configured", result.getString("status"));
+      assertTrue(server.request().startsWith("POST /runtime/android-bridge "));
+      assertTrue(server.request().contains("Authorization: Bearer client-token"));
+    }
+  }
+
+  /** Minimal HTTP fixture; no Android runtime or external network required. */
+  private static final class Stub implements AutoCloseable {
+    final ServerSocket server = new ServerSocket(0);
+    final CountDownLatch received = new CountDownLatch(1);
+    final AtomicReference<String> request = new AtomicReference<>();
+    final Thread worker;
+
+    Stub(int status, String body, String extraHeaders) throws IOException {
+      worker = new Thread(() -> {
+        try (Socket socket = server.accept()) {
+          socket.setSoTimeout(2000);
+          BufferedReader reader = new BufferedReader(new InputStreamReader(
+              socket.getInputStream(), StandardCharsets.UTF_8));
+          StringBuilder headers = new StringBuilder();
+          String line;
+          while ((line = reader.readLine()) != null && !line.isEmpty()) headers.append(line).append('\n');
+          request.set(headers.toString());
+          received.countDown();
+          byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+          socket.getOutputStream().write(("HTTP/1.1 " + status + " Response\r\n"
+              + "Content-Length: " + bytes.length + "\r\nConnection: close\r\n"
+              + extraHeaders + "\r\n").getBytes(StandardCharsets.UTF_8));
+          socket.getOutputStream().write(bytes);
+        } catch (IOException ignored) { }
+      });
+      worker.start();
+    }
+
+    String url() { return "http://127.0.0.1:" + server.getLocalPort(); }
+    String request() throws InterruptedException {
+      assertTrue(received.await(3, TimeUnit.SECONDS));
+      return request.get();
+    }
+    @Override public void close() throws Exception { server.close(); worker.join(3000); }
   }
 }

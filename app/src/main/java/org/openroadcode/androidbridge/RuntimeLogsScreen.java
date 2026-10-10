@@ -22,6 +22,7 @@ import android.widget.Toast;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.Target;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.RuntimeDevice;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** Visible-screen-only live viewing; never starts or controls a runtime service. */
@@ -59,26 +60,43 @@ final class RuntimeLogsScreen {
         12, UiTheme.MUTED);
     root.addView(introduction);
 
-    Spinner targets = spinner(new String[] {"Termux", "Remote Linux", "Android bridge"});
-    targets.setSelection(target == Target.TERMUX ? 0 : 1);
-    root.addView(targets);
+    LinearLayout filters = new LinearLayout(activity);
+    filters.setOrientation(LinearLayout.VERTICAL);
+    var devices = settings.devices();
+    String[] targetLabels = new String[devices.size() + 2];
+    targetLabels[0] = "Local Termux";
+    targetLabels[targetLabels.length - 1] = "Android Companion";
+    int selectedTarget = 0;
+    RuntimeDevice current = settings.activeDevice();
+    for (int i = 0; i < devices.size(); i++) {
+      targetLabels[i + 1] = devices.get(i).name();
+      if (target != Target.TERMUX && current != null
+          && current.deviceId().equals(devices.get(i).deviceId())) selectedTarget = i + 1;
+    }
+    Spinner targets = spinner(targetLabels);
+    targets.setSelection(selectedTarget);
+    filters.addView(targets);
     TextView targetHelp = UiTheme.text(activity,
-        "Android bridge reads this app's private logs. Remote Linux uses saved pairing.", 11, UiTheme.MUTED);
-    root.addView(targetHelp);
+        "Pair remote computing units in Configuration.", 11, UiTheme.MUTED);
+    filters.addView(targetHelp);
 
     Spinner levels = spinner(new String[] {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"});
     levels.setSelection(1);
-    root.addView(UiTheme.text(activity, "Minimum severity", 12, UiTheme.SILVER));
-    root.addView(levels);
+    filters.addView(UiTheme.text(activity, "Minimum severity", 12, UiTheme.SILVER));
+    filters.addView(levels);
     componentInput = new EditText(activity);
     componentInput.setSingleLine(true);
     componentInput.setTextColor(UiTheme.TEXT);
     componentInput.setHintTextColor(UiTheme.MUTED);
     componentInput.setHint("Component prefix (optional), e.g. runtime");
     componentInput.setTextSize(12);
-    root.addView(componentInput);
-    root.addView(UiTheme.actionButton(activity, "Apply component filter", UiTheme.SURFACE_RAISED,
+    filters.addView(componentInput);
+    filters.addView(UiTheme.actionButton(activity, "Apply component filter", UiTheme.SURFACE_RAISED,
         v -> applyComponent()));
+
+    root.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
+        "Filters & runtime", "Choose a computing unit, severity and component",
+        UiTheme.SILVER, filters, false).view());
 
     LinearLayout actions = new LinearLayout(activity);
     pause = UiTheme.actionButton(activity, "Pause", UiTheme.BLUE, v -> togglePause());
@@ -95,7 +113,7 @@ final class RuntimeLogsScreen {
     scope = UiTheme.text(activity, "", 11, UiTheme.MUTED);
     root.addView(scope);
     root.addView(UiTheme.text(activity,
-        "Keeps up to 200 events. Each source is separate; Linux shows the manager's private store. Copy/share includes "
+        "Keeps up to 200 events. Linux shows the manager's private store. Copy/share includes "
             + "the displayed history; review it before sending.", 10, UiTheme.MUTED));
 
     adapter = new ArrayAdapter<String>(activity, android.R.layout.simple_list_item_1) {
@@ -108,27 +126,40 @@ final class RuntimeLogsScreen {
         return text;
       }
     };
-    list = new ListView(activity);
+    // Keep native ListView click/accessibility behavior while allowing history
+    // to scroll independently of the activity's outer ScrollView.
+    list = new ListView(activity) {
+      @Override public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+        return super.dispatchTouchEvent(event);
+      }
+    };
     list.setAdapter(adapter);
     list.setBackgroundColor(UiTheme.BG);
-    // The activity has an outer ScrollView; let history handle its own scroll.
-    list.setOnTouchListener((v, event) -> {
-      v.getParent().requestDisallowInterceptTouchEvent(true);
-      return false;
-    });
     root.addView(list, new LinearLayout.LayoutParams(-1, dp(360)));
     empty = UiTheme.text(activity, "No matching events yet.", 12, UiTheme.MUTED);
     root.addView(empty);
     list.setEmptyView(empty);
 
     targets.setOnItemSelectedListener(selected(position -> {
-      boolean chosenBridge = position == 2;
+      boolean chosenBridge = position == targetLabels.length - 1;
       Target chosen = position == 0 ? Target.TERMUX : Target.REMOTE_PI;
-      if (chosenBridge != bridgeSource || (!chosenBridge && chosen != target)) {
-        bridgeSource = chosenBridge;
-        if (!chosenBridge) target = chosen;
-        reload();
+      RuntimeDevice active = settings.activeDevice();
+      boolean changed = chosenBridge != bridgeSource
+          || (!chosenBridge && chosen != target)
+          || (!chosenBridge && position > 0
+              && (active == null
+                  || !active.deviceId().equals(devices.get(position - 1).deviceId())));
+
+      bridgeSource = chosenBridge;
+
+      if (!chosenBridge) {
+        if (position == 0) settings.setTarget(Target.TERMUX);
+        else settings.setActiveDevice(devices.get(position - 1).deviceId());
+        target = chosen;
       }
+
+      if (changed) reload();
     }));
     levels.setOnItemSelectedListener(selected(position -> {
       String chosen = new String[] {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}[position];
@@ -159,7 +190,7 @@ final class RuntimeLogsScreen {
     cancel();
     if (!visible || paused) return;
     if (!bridgeSource && target == Target.REMOTE_PI && !settings.hasRemotePiConfiguration()) {
-      setStatus("Configure and pair Remote Linux on the Runtime screen.", UiTheme.AMBER);
+      setStatus("Pair and choose a computing unit in Configuration.", UiTheme.AMBER);
       return;
     }
     client = bridgeSource ? null : target == Target.TERMUX
@@ -181,8 +212,9 @@ final class RuntimeLogsScreen {
     new Thread(() -> {
       JSONObject page = null;
       Exception failure = null;
-      try { page = local ? BridgeLog.read(cursor, requestLevel, requestComponent)
-                         : requestClient.read(cursor, requestLevel, requestComponent); }
+      try { page = local
+          ? BridgeLog.read(cursor, requestLevel, requestComponent)
+          : requestClient.read(cursor, requestLevel, requestComponent); }
       catch (Exception error) { failure = error; }
       final JSONObject result = page;
       final Exception error = failure;
@@ -202,7 +234,7 @@ final class RuntimeLogsScreen {
           adapter.notifyDataSetChanged();
           if (result.getJSONArray("events").length() > 0 && adapter.getCount() > 0)
             list.setSelection(adapter.getCount() - 1);
-          scope.setText(targetLabel() + " • " + buffer.scope());
+          scope.setText(targetLabel() + " • " + level + (component.isEmpty() ? "" : " • " + component) + " • " + buffer.scope());
           setStatus(reset ? "Live • older history rotated out; showing recent logs"
                           : "Live • " + adapter.getCount() + " recent events", UiTheme.GREEN);
           retryDelay = 1000;
@@ -266,9 +298,8 @@ final class RuntimeLogsScreen {
     Toast.makeText(activity, "No displayed logs to copy or share", Toast.LENGTH_SHORT).show();
   }
 
-  private String targetLabel() {
-    return bridgeSource ? "Android bridge" : target == Target.TERMUX ? "Termux" : "Remote Linux";
-  }
+  private String targetLabel() { RuntimeDevice device = settings.activeDevice();
+    return bridgeSource ? "Android Companion" : target == Target.TERMUX ? "Local Termux" : device == null ? "Remote Linux" : device.name(); }
   private int dp(int value) { return UiTheme.dp(activity, value); }
   private void setStatus(String value, int color) { status.setText(value); status.setTextColor(color); }
   private void addAction(LinearLayout row, Button button) {
