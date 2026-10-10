@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.Intent;
 import org.openroadcode.androidbridge.BluetoothSppBridgeService;
 import org.openroadcode.androidbridge.SensorBridgeService;
+import org.openroadcode.androidbridge.SmsGatewayService;
+import org.openroadcode.androidbridge.SmsGatewaySettings;
 import org.openroadcode.androidbridge.SimulatedVehicleBridgeService;
 import org.openroadcode.androidbridge.config.ConfigRepository;
 import org.openroadcode.androidbridge.config.ServiceConfig;
@@ -25,6 +27,22 @@ public final class BridgeServiceManager {
         sensorState = sensorRequested() ? ServiceState.STARTING : ServiceState.STOPPED;
         vehicleState = vehicleRequested() ? ServiceState.STARTING : ServiceState.STOPPED;
     }
+    public boolean smsEnabled() { return SmsGatewaySettings.enabled(context); }
+    public void startSmsGateway() {
+        SmsGatewaySettings.token(context);
+        SmsGatewaySettings.setEnabled(context, true);
+        try {
+            context.startService(new Intent(context, SmsGatewayService.class).setAction(SmsGatewayService.START));
+        } catch (RuntimeException error) {
+            SmsGatewaySettings.setEnabled(context, false);
+            throw error;
+        }
+    }
+    public void stopSmsGateway() {
+        SmsGatewaySettings.setEnabled(context, false);
+        context.stopService(new Intent(context, SmsGatewayService.class));
+    }
+
     public ServiceConfig sensorConfig() { return configRepository.sensorConfig(); }
     public boolean sensorRequested() { return sensorConfig().enabled(); }
     public ServiceState sensorState() { return sensorState; }
