@@ -33,3 +33,7 @@ When asking a user to share terminal output, adapt commands to the user's host.
 ## Merge safety
 
 During an in-progress merge, do not suggest switching branches, resetting, or committing until conflicts have been resolved and verified. Preserve both sides' functionality, and run relevant tests before completing the merge.
+
+## Port allocation
+
+Before assigning network ports, read OpenRoadCode docs/ethernet_idd.md and search existing code in both repositories. Update the IDD and all affected clients with the implementation. Verify listener binding separately from the saved enabled preference.
