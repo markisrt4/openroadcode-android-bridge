@@ -11,7 +11,8 @@ import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** SMS permissions and explicit opt-in controls. Does not reveal credentials. */
 public final class SmsGatewayCard {
-  public static final int PERMISSION_REQUEST = 1082;
+  public static final int READ_PERMISSION_REQUEST = 1082;
+  public static final int SEND_PERMISSION_REQUEST = 1083;
   private final Activity activity;
   private final BridgeServiceManager manager;
   private final LinearLayout root;
@@ -33,6 +34,8 @@ public final class SmsGatewayCard {
     root.addView(status);
     root.addView(UiTheme.actionButton(activity, "Enable SMS gateway", UiTheme.SURFACE_RAISED,
         v -> enable()));
+    root.addView(UiTheme.actionButton(activity, "Request SMS sending permission", UiTheme.SURFACE_RAISED,
+        v -> activity.requestPermissions(new String[] {Manifest.permission.SEND_SMS}, SEND_PERMISSION_REQUEST)));
     root.addView(UiTheme.actionButton(activity, "Disable SMS gateway", UiTheme.SURFACE_RAISED,
         v -> {
           manager.stopSmsGateway();
@@ -46,7 +49,8 @@ public final class SmsGatewayCard {
   public void refresh() {
     boolean read = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
     boolean send = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
-    status.setText("Configured: " + (manager.smsEnabled() ? "enabled" : "disabled")
+    status.setText("Mode: " + (read ? (send ? "read and send" : "read-only") : "permissions required")
+        + "\\nConfigured: " + (manager.smsEnabled() ? "enabled" : "disabled")
         + "  •  Read permission: " + (read ? "granted" : "missing")
         + "  •  Send permission: " + (send ? "granted" : "missing")
         + "\nService availability and Termux credential provisioning not yet verified.");
@@ -54,10 +58,8 @@ public final class SmsGatewayCard {
 
   private void enable() {
     boolean read = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
-    boolean send = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
-    if (!read || !send) {
-      activity.requestPermissions(new String[] {Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS},
-          PERMISSION_REQUEST);
+    if (!read) {
+      activity.requestPermissions(new String[] {Manifest.permission.READ_SMS}, READ_PERMISSION_REQUEST);
       return;
     }
     try {
