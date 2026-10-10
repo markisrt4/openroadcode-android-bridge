@@ -441,11 +441,6 @@ public final class MainActivity extends Activity {
     visibleActivity = new WeakReference<>(this);
   }
 
-  @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    if (requestCode == SmsGatewayCard.PERMISSION_REQUEST && smsGatewayCard != null) smsGatewayCard.refresh();
-  }
-
   @Override protected void onResume() {
     super.onResume();
     dashboardActive = true;
@@ -685,6 +680,10 @@ public final class MainActivity extends Activity {
   @Override public void onRequestPermissionsResult(
       int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
+    if (requestCode == SmsGatewayCard.PERMISSION_REQUEST) {
+      if (smsGatewayCard != null) smsGatewayCard.refresh();
+      return;
+    }
     if (playbackAudioCard != null
         && playbackAudioCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (bluetoothCard != null
