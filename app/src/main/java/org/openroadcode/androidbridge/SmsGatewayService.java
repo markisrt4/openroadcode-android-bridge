@@ -106,7 +106,11 @@ public final class SmsGatewayService extends Service {
       }
       SmsRepository sms = new SmsRepository(this);
       JSONObject result = new JSONObject();
-      if (request[0].equals("GET") && path.equals("/sms/conversations"))
+      if (request[0].equals("GET") && path.equals("/sms/capabilities")) {
+        result.put("read_sms_granted", sms.canRead());
+        result.put("send_sms_granted", sms.canSend());
+        result.put("send_supported", sms.canSend());
+      } else if (request[0].equals("GET") && path.equals("/sms/conversations"))
         result.put("conversations", sms.conversations(limit));
       else if (request[0].equals("GET") && path.equals("/sms/messages"))
         result.put("messages", sms.messages(threadId, limit));
