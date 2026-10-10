@@ -682,7 +682,7 @@ public final class MainActivity extends Activity {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
     if (requestCode == SmsGatewayCard.READ_PERMISSION_REQUEST
         || requestCode == SmsGatewayCard.SEND_PERMISSION_REQUEST) {
-      if (smsGatewayCard != null) smsGatewayCard.refresh();
+      if (smsGatewayCard != null) smsGatewayCard.onPermissionResult(requestCode);
       return;
     }
     if (playbackAudioCard != null
