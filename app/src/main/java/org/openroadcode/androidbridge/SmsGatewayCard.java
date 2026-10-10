@@ -33,7 +33,7 @@ public final class SmsGatewayCard {
     root.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE, UiTheme.BORDER, 12));
     root.addView(UiTheme.text(activity, "SMS GATEWAY", 16, UiTheme.TEXT));
     root.addView(UiTheme.text(activity,
-        "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8772",
+        "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773",
         12, UiTheme.MUTED));
     status = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(status);
