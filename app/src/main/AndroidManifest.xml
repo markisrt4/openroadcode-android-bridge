@@ -47,6 +47,8 @@
             </intent-filter>
         </activity>
 
+        <service android:name=".SmsGatewayService" android:exported="false" />
+
         <service
             android:name=".SensorBridgeService"
             android:exported="false"
