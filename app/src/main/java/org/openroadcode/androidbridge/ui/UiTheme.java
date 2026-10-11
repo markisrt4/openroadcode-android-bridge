@@ -59,9 +59,11 @@ public final class UiTheme {
         Button button = new Button(context);
         button.setText(label);
         button.setTextColor(TEXT);
-        button.setTextSize(11);
+        boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(context);
+        button.setTextSize(advanced ? 11 : 14);
+        button.setMinHeight(dp(context, 48));
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        button.setLetterSpacing(.08f);
+        button.setLetterSpacing(advanced ? .08f : 0);
         button.setAllCaps(false);
         setButtonColor(context, button, color);
         button.setOnClickListener(listener);

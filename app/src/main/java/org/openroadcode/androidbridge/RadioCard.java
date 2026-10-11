@@ -59,7 +59,7 @@ final class RadioCard {
     status.setText(open ? "●  Receiver connected to this phone" : "○  " + state.message);
     status.setTextColor(open ? UiTheme.GREEN : UiTheme.MUTED);
     device.setText(state.device == null ? "Attach an RTL-SDR USB receiver to use the local source."
-        : state.deviceLabel());
+        : org.openroadcode.androidbridge.config.UiModeSettings.advanced(application) ? state.deviceLabel() : "USB receiver attached");
     android.content.SharedPreferences preferences = application.getSharedPreferences(
         RtlSdrUsbProxyService.DIAGNOSTIC_PREFERENCES, Context.MODE_PRIVATE);
     diagnostics.setText("USB proxy: 127.0.0.1:" + RtlSdrUsbProxyService.TCP_PORT

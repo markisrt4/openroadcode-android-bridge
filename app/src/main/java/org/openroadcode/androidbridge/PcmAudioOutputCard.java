@@ -44,9 +44,9 @@ final class PcmAudioOutputCard {
     traffic = UiTheme.text(activity, "Played 0 B", 12, UiTheme.MUTED);
     traffic.setTypeface(Typeface.MONOSPACE);
     traffic.setPadding(dp(2), dp(8), 0, dp(8));
-    root.addView(traffic);
+    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(traffic);
 
-    start = UiTheme.actionButton(activity, "START OUTPUT", UiTheme.BLUE, v -> start());
+    start = UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "START OUTPUT" : "Play ORC audio", UiTheme.BLUE, v -> start());
     stop = UiTheme.actionButton(activity, "STOP", UiTheme.SURFACE_RAISED, v -> stop());
     LinearLayout controls = new LinearLayout(activity);
     controls.setOrientation(LinearLayout.HORIZONTAL);
@@ -79,7 +79,7 @@ final class PcmAudioOutputCard {
     if (running && connected) {
       setStatus("Streaming PCM to Android", UiTheme.GREEN);
     } else if (running) {
-      setStatus("Listening on 127.0.0.1:" + PcmAudioOutputService.PORT, UiTheme.BLUE);
+      setStatus(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Listening on 127.0.0.1:" + PcmAudioOutputService.PORT : "Ready to play ORC audio", UiTheme.BLUE);
     } else if (!error.isEmpty()) {
       setStatus("Stopped • " + error, UiTheme.RED);
     } else {

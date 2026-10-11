@@ -123,7 +123,8 @@ final class BluetoothCard {
     heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     heading.setLetterSpacing(0);
     view.addView(heading);
-    TextView subtitle = text("Bluetooth OBD or a simulated vehicle", 12, GREEN);
+    TextView subtitle = text(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Bluetooth OBD or a simulated vehicle" : (serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE
+        ? "Using a demo vehicle. Change the source in Advanced mode." : "Connect the Bluetooth adapter paired with your car"), 12, GREEN);
     subtitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     subtitle.setPadding(0, dp(2), 0, dp(10));
     view.addView(subtitle);
@@ -143,7 +144,8 @@ final class BluetoothCard {
     providerLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     providerLabel.setLetterSpacing(.10f);
     providerLabel.setPadding(dp(2), dp(4), 0, dp(4));
-    view.addView(providerLabel);
+    boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity);
+    if (advanced) view.addView(providerLabel);
 
     providerSpinner = new Spinner(activity);
     providerSpinner.setBackground(rounded(SURFACE_RAISED, BORDER, 10));
@@ -163,7 +165,7 @@ final class BluetoothCard {
       }
       @Override public void onNothingSelected(AdapterView<?> parent) { }
     });
-    view.addView(providerSpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+    if (advanced) view.addView(providerSpinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
     TextView deviceLabel = text("PAIRED OBD DEVICE", 11, MUTED);
     deviceLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -183,16 +185,16 @@ final class BluetoothCard {
     });
     view.addView(deviceSpinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
-    refreshButton = actionButton("REFRESH", BLUE, ignored -> ensurePermissionAndLoad());
-    startButton = actionButton("START", BLUE, ignored -> startBridge());
-    stopButton = actionButton("STOP", SURFACE_RAISED, ignored -> stopBridge());
+    refreshButton = actionButton(advanced ? "REFRESH" : "Find devices", BLUE, ignored -> ensurePermissionAndLoad());
+    startButton = actionButton(advanced ? "START" : "Connect", BLUE, ignored -> startBridge());
+    stopButton = actionButton(advanced ? "STOP" : "Disconnect", SURFACE_RAISED, ignored -> stopBridge());
     view.addView(buttonRow(refreshButton, startButton, stopButton));
 
     TextView hint = text("TCP endpoint  127.0.0.1:" + BluetoothSppBridgeService.TCP_PORT,
         12, MUTED);
     hint.setTypeface(Typeface.MONOSPACE);
     hint.setPadding(dp(2), dp(10), 0, 0);
-    view.addView(hint);
+    if (advanced) view.addView(hint);
 
     updateProviderUi();
     updateButtons(requestedRunning, false);
@@ -381,7 +383,9 @@ final class BluetoothCard {
     boolean simulated = serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE;
     String idle = simulated ? "START SIM" : "START SPP";
     String pending = simulated ? "STARTING…" : "CONNECT…";
-    startButton.setText(running ? (connected ? "RUNNING" : pending) : idle);
+    startButton.setText(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)
+        ? (running ? (connected ? "RUNNING" : pending) : idle)
+        : (running ? (connected ? "Connected" : "Connecting…") : "Connect"));
     setButtonColor(startButton, running ? SURFACE_RAISED : BLUE);
     setButtonColor(stopButton, running ? RED : SURFACE_RAISED);
   }
@@ -408,6 +412,10 @@ final class BluetoothCard {
   }
 
   private void setStatus(String message, int color) {
+    if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) {
+      if (color == GREEN) message = "Car adapter connected";
+      else if (color == RED) message = "Could not connect. Check Bluetooth permission and the paired car adapter.";
+    }
     status.setText("●  " + message);
     status.setTextColor(color);
   }
@@ -416,7 +424,7 @@ final class BluetoothCard {
     Button button = new Button(activity);
     button.setText(label);
     button.setTextColor(TEXT);
-    button.setTextSize(11);
+    button.setTextSize(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? 11 : 13);
     button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     button.setLetterSpacing(.08f);
     button.setAllCaps(false);

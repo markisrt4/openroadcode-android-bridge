@@ -53,7 +53,7 @@ public final class SmsCredentialProvisioner {
         throw new IllegalStateException("SMS provisioning failed (HTTP " + status + ").");
       }
       try (InputStream input = connection.getInputStream()) {
-        byte[] result = input.readNBytes(512);
+        byte[] result = StreamBytes.readUpTo(input, 512);
         JSONObject response = new JSONObject(new String(result, StandardCharsets.UTF_8));
         if (!response.optBoolean("provisioned", false)) {
           throw new IllegalStateException("SMS provisioning was not confirmed.");

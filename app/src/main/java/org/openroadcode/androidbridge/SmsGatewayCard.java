@@ -32,25 +32,25 @@ public final class SmsGatewayCard {
     root.setPadding(UiTheme.dp(activity, 14), UiTheme.dp(activity, 14),
         UiTheme.dp(activity, 14), UiTheme.dp(activity, 14));
     root.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE, UiTheme.BORDER, 12));
-    root.addView(UiTheme.text(activity, "SMS GATEWAY", 16, UiTheme.TEXT));
+    root.addView(UiTheme.text(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS GATEWAY" : "Messages", 16, UiTheme.TEXT));
     root.addView(UiTheme.text(activity,
-        "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773",
+        org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773" : "Optional phone messages for ORC. One-time connection setup is in Advanced mode.",
         12, UiTheme.MUTED));
     status = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(status);
     permissionFeedback = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(permissionFeedback);
-    root.addView(UiTheme.actionButton(activity, "Enable SMS gateway", UiTheme.SURFACE_RAISED,
+    root.addView(UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Enable SMS gateway" : "Enable messages", UiTheme.SURFACE_RAISED,
         v -> enable()));
-    root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
+    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
         v -> requestContactsPermission()));
-    root.addView(UiTheme.actionButton(activity, "Request SMS sending permission", UiTheme.SURFACE_RAISED,
+    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Request SMS sending permission", UiTheme.SURFACE_RAISED,
         v -> requestSendPermission()));
-    root.addView(UiTheme.actionButton(activity, "Provision SMS to Termux", UiTheme.SURFACE_RAISED,
+    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Provision SMS to Termux", UiTheme.SURFACE_RAISED,
         v -> provisionToTermux()));
     root.addView(UiTheme.actionButton(activity, "Open Android app settings", UiTheme.SURFACE_RAISED,
         v -> openAppSettings()));
-    root.addView(UiTheme.actionButton(activity, "Disable SMS gateway", UiTheme.SURFACE_RAISED,
+    root.addView(UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Disable SMS gateway" : "Turn off messages", UiTheme.SURFACE_RAISED,
         v -> {
           manager.stopSmsGateway();
           refresh();
@@ -64,12 +64,18 @@ public final class SmsGatewayCard {
     boolean read = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
     boolean send = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
     boolean contacts = activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED;
+    if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) {
+      status.setText(!read ? "Messages need Android permission"
+          : manager.smsEnabled() ? "Messages are turned on" + (send ? "" : " · Read only") : "Messages turned off");
+      return;
+    }
     status.setText("Mode: " + (read ? (send ? "read and send" : "read-only") : "permissions required")
         + "\nConfigured: " + (manager.smsEnabled() ? "enabled" : "disabled")
         + "  •  Read permission: " + (read ? "granted" : "missing")
         + "  •  Send permission: " + (send ? "granted" : "missing")
         + "\nContacts permission: " + (contacts ? "granted" : "missing")
-        + "\nService availability and Termux credential provisioning not yet verified.");
+        + "\nListener: " + (SmsGatewayService.isListening() ? "connected" : "not running")
+        + ". Termux credential setup is separate.");
   }
 
   private void provisionToTermux() {

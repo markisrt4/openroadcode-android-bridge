@@ -6,6 +6,19 @@ The foreground services expose Android sensors, GNSS, Bluetooth SPP devices, and
 
 ## Companion home
 
+The app starts in **Simple mode**. Home has **Start ORC / Stop ORC**, connection
+setup and everyday feature buttons. The **Advanced** switch at the top of Home
+reveals runtime targets, source selection, simulations, raw sensor readings,
+network/stream details, Performance and Live Logs. The choice is saved across
+restarts. Switching modes changes presentation only; services, saved sources,
+paired devices and Android permissions retain their state.
+
+Simple mode keeps the main phone, vehicle, receiver, camera and audio actions.
+Existing simulated sources are identified as demos. SMS remains optional and
+requires explicit permissions; credential provisioning is a one-time Advanced
+setup step. **Stop ORC** stops the selected runtime's core stack; individual phone
+sharing controls remain separate.
+
 The launcher is named **ORC Companion**. Home is ordered Your Runtime, Manage,
 Features, then Monitor. Your Runtime shows connection and running-service status;
 Manage has the single Runtime entry and Configuration. Feature cards use distinct
@@ -32,10 +45,10 @@ sharing, stream settings, audio details, and log filters expand on demand.
 
 The master activity switch and text input are not implemented in this revision.
 
-The `review/companion-sdr-integration` branch combines the companion layout with
-the SDR branch as a **1.0.0-rc.1** candidate build. It has not been tagged or merged
-to main. See [SDR integration review](docs/reviews/companion-sdr-integration.md)
-for validation and the phone checklist.
+Main includes the companion/SDR integration, SMS/contacts, Android host actions
+and simulation controls. The current candidate is **1.0.0-rc.2** (code 35).
+See [Simple/Advanced integration review](docs/reviews/simple-advanced-integration.md)
+for branch coverage and validation.
 
 ## Architecture
 

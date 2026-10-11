@@ -33,7 +33,7 @@ public final class SensorCard {
         this.context = context;
         root = UiTheme.card(context);
 
-        TextView title = UiTheme.text(context, "Phone sensors", 16, UiTheme.TEXT);
+        TextView title = UiTheme.text(context, org.openroadcode.androidbridge.config.UiModeSettings.advanced(context) ? "Phone sensors" : "Phone location", 16, UiTheme.TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         root.addView(title);
         TextView subtitle = UiTheme.text(context, "Motion and GPS from this phone", 12, UiTheme.BLUE);
@@ -54,7 +54,8 @@ public final class SensorCard {
         sourceLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         sourceLabel.setLetterSpacing(.10f);
         sourceLabel.setPadding(dp(2), dp(3), 0, dp(4));
-        root.addView(sourceLabel);
+        boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(context);
+        if (advanced) root.addView(sourceLabel);
 
         ServiceProvider[] providers = {
             ServiceProvider.ANDROID_SENSORS,
@@ -100,7 +101,9 @@ public final class SensorCard {
         });
         LinearLayout.LayoutParams providerParams = new LinearLayout.LayoutParams(-1, dp(52));
         providerParams.setMargins(0, 0, 0, dp(8));
-        root.addView(providerSpinner, providerParams);
+        if (advanced) root.addView(providerSpinner, providerParams);
+        else if (initialProvider == ServiceProvider.SIMULATED_DRIVE)
+            root.addView(UiTheme.text(context, "Using a demo location. Change the source in Advanced mode.", 12, UiTheme.AMBER));
 
         String[] names = {"Accelerometer", "Linear acceleration", "Gyroscope", "Magnetometer",
                 "Position"};
@@ -126,7 +129,7 @@ public final class SensorCard {
             name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
             name.setSingleLine(true);
             labels.addView(name);
-            labels.addView(UiTheme.text(context, units[i], 11, UiTheme.MUTED));
+            labels.addView(UiTheme.text(context, advanced ? units[i] : "Current location", 11, UiTheme.MUTED));
             row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1.18f));
             values[i] = UiTheme.text(context, "—", 13, UiTheme.TEXT);
             values[i].setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -136,8 +139,8 @@ public final class SensorCard {
             else readings.addView(row);
         }
 
-        start = UiTheme.actionButton(context, "START BRIDGE", UiTheme.BLUE, v -> onStart.run());
-        stop = UiTheme.actionButton(context, "STOP", UiTheme.SURFACE_RAISED, v -> onStop.run());
+        start = UiTheme.actionButton(context, advanced ? "START BRIDGE" : "Share location", UiTheme.BLUE, v -> onStart.run());
+        stop = UiTheme.actionButton(context, advanced ? "STOP" : "Stop sharing", UiTheme.SURFACE_RAISED, v -> onStop.run());
         LinearLayout buttons = new LinearLayout(context);
         buttons.setGravity(Gravity.CENTER);
         buttons.setPadding(0, dp(8), 0, 0);
@@ -161,12 +164,16 @@ public final class SensorCard {
     }
 
     public void setStatus(String text, int color) {
+        if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(context)) text = text.replace("Bridge", "Location sharing").replace("bridge", "location sharing");
         status.setText(text);
         status.setTextColor(color);
     }
 
     public void setRunning(boolean running) {
-        start.setText(running ? "RUNNING" : "START BRIDGE");
+        boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(context);
+        start.setText(running ? (advanced ? "RUNNING" : "Sharing location") : (advanced ? "START BRIDGE" : "Share location"));
+        start.setEnabled(!running);
+        stop.setEnabled(running);
         UiTheme.setButtonColor(context, start, running ? UiTheme.SURFACE_RAISED : UiTheme.BLUE);
         UiTheme.setButtonColor(context, stop, running ? UiTheme.RED : UiTheme.SURFACE_RAISED);
     }
@@ -191,6 +198,10 @@ public final class SensorCard {
         }
         if (!r.optBoolean("ready")) {
             values[4].setText(r.optBoolean("available") ? "Waiting for fix" : "Provider unavailable");
+            return;
+        }
+        if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(context)) {
+            values[4].setText("Location ready");
             return;
         }
         double accuracy = r.optDouble("horizontal_accuracy_m", Double.NaN);

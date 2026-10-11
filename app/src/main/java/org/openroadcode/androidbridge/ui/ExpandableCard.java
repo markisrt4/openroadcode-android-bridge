@@ -66,6 +66,7 @@ public final class ExpandableCard {
         if (ripple.resourceId != 0) header.setForeground(context.getDrawable(ripple.resourceId));
         header.setOnClickListener(v -> setExpanded(!expanded));
         setExpanded(initiallyExpanded);
+        if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(context)) root.setVisibility(View.GONE);
     }
 
     public View view() {

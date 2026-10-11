@@ -35,14 +35,14 @@ public final class RemoteDeviceManagementCard {
     selectedDevice.setPadding(0, 0, 0, dp(10));
     root.addView(selectedDevice);
 
-    Button choose = button("CHOOSE PAIRED DEVICE", v -> chooseDevice());
+    Button choose = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "CHOOSE PAIRED DEVICE" : "Choose ORC device", v -> chooseDevice());
     root.addView(choose, fullButtonParams());
 
     LinearLayout actions = new LinearLayout(activity);
     actions.setOrientation(LinearLayout.HORIZONTAL);
-    Button add = button("+ ADD DEVICE", v -> addDevice());
-    Button edit = button("EDIT DEVICE", v -> editActiveDevice());
-    Button delete = button("DELETE", v -> deleteActiveDevice());
+    Button add = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "+ ADD DEVICE" : "Add device", v -> addDevice());
+    Button edit = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "EDIT DEVICE" : "Edit", v -> editActiveDevice());
+    Button delete = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "DELETE" : "Remove", v -> deleteActiveDevice());
     actions.addView(add, rowButtonParams(false));
     actions.addView(edit, rowButtonParams(true));
     actions.addView(delete, rowButtonParams(true));
@@ -55,32 +55,34 @@ public final class RemoteDeviceManagementCard {
 
   public void refresh() {
     RuntimeDevice active = settings.activeDevice();
-    selectedDevice.setText(active == null
-        ? "Selected device: none"
-        : "Selected device: " + active.name() + "\n" + active.baseUrl());
+    boolean local = settings.target() == RuntimeServiceManagerSettings.Target.TERMUX;
+    selectedDevice.setText(local ? "ORC runs on this phone" : active == null
+        ? "Choose where ORC runs" : "ORC on " + active.name()
+            + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)
+                ? "\n" + active.baseUrl() : ""));
   }
 
   private void chooseDevice() {
     List<RuntimeDevice> devices = settings.devices();
-    if (devices.isEmpty()) {
-      message("Paired OpenRoadCode devices", "No remote devices are paired yet.");
-      return;
-    }
     RuntimeDevice active = settings.activeDevice();
-    String[] labels = new String[devices.size()];
+    boolean local = settings.target() == RuntimeServiceManagerSettings.Target.TERMUX;
+    String[] labels = new String[devices.size() + 1];
+    labels[0] = (local ? "●  " : "") + "This phone";
     for (int i = 0; i < devices.size(); i++) {
       RuntimeDevice device = devices.get(i);
-      boolean selected = active != null && active.deviceId().equals(device.deviceId());
-      labels[i] = (selected ? "●  " : "") + device.name() + "\n" + device.baseUrl();
+      boolean selected = !local && active != null && active.deviceId().equals(device.deviceId());
+      labels[i + 1] = (selected ? "●  " : "") + device.name()
+          + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)
+              ? "\n" + device.baseUrl() : "");
     }
     new AlertDialog.Builder(activity)
-        .setTitle("Choose paired device")
+        .setTitle("Where should ORC run?")
         .setItems(labels, (dialog, which) -> {
-          settings.setActiveDevice(devices.get(which).deviceId());
+          if (which == 0) settings.setTarget(RuntimeServiceManagerSettings.Target.TERMUX);
+          else settings.setActiveDevice(devices.get(which - 1).deviceId());
           changed();
         })
-        .setNegativeButton("CLOSE", null)
-        .show();
+        .setNegativeButton("Close", null).show();
   }
 
   private void addDevice() {
@@ -93,7 +95,7 @@ public final class RemoteDeviceManagementCard {
 
     AlertDialog dialog = new AlertDialog.Builder(activity)
         .setTitle("Add OpenRoadCode device")
-        .setMessage("Enter the device name and service-manager endpoint. Your browser will open to approve pairing.")
+        .setMessage("Enter the device name and its ORC connection address. Your browser will open to approve the connection.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
         .setPositiveButton("PAIR IN BROWSER", null)
@@ -216,7 +218,7 @@ public final class RemoteDeviceManagementCard {
         .setTitle("Delete " + device.name() + "?")
         .setMessage("This removes the saved pairing from this Android app.")
         .setNegativeButton("CANCEL", null)
-        .setPositiveButton("DELETE", (dialog, which) -> {
+        .setPositiveButton(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "DELETE" : "Remove", (dialog, which) -> {
           settings.forgetDevice(device.deviceId());
           changed();
         })

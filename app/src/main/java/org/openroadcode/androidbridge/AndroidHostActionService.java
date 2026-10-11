@@ -79,37 +79,15 @@ public final class AndroidHostActionService extends Service {
     }
 
     private void serveClient(Socket client) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(
-                client.getInputStream(), StandardCharsets.UTF_8));
-        String requestLine = reader.readLine();
-        if (requestLine == null) return;
-
-        int contentLength = 0;
-        String line;
-        while ((line = reader.readLine()) != null && !line.isEmpty()) {
-            int colon = line.indexOf(':');
-            if (colon > 0 && "content-length".equalsIgnoreCase(line.substring(0, colon).trim())) {
-                try { contentLength = Integer.parseInt(line.substring(colon + 1).trim()); }
-                catch (NumberFormatException ignored) { contentLength = 0; }
-            }
-        }
-
-        if (contentLength < 0 || contentLength > MAX_BODY_LENGTH) {
-            respond(client, 400, "{\"error\":\"invalid content length\"}");
+        final HostControlRequest request;
+        try { request = HostControlRequest.read(client.getInputStream()); }
+        catch (IOException error) {
+            respond(client, 400, "{\"error\":\"invalid_request\"}");
             return;
         }
-        char[] bodyChars = new char[Math.max(0, contentLength)];
-        int offset = 0;
-        while (offset < bodyChars.length) {
-            int count = reader.read(bodyChars, offset, bodyChars.length - offset);
-            if (count < 0) break;
-            offset += count;
-        }
-        String body = new String(bodyChars, 0, offset);
-        if (offset != contentLength) {
-            respond(client, 400, "{\"error\":\"incomplete request body\"}");
-            return;
-        }
+        if (request == null) return;
+        String requestLine = request.requestLine;
+        String body = request.body;
 
         if ("GET /health HTTP/1.1".equals(requestLine)) {
             respond(client, 200, "{\"status\":\"ok\"}");

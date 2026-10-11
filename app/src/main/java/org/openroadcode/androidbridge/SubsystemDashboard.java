@@ -31,21 +31,24 @@ final class SubsystemDashboard {
 
   View view() {
     LinearLayout root = vertical();
-    heading(root, "MANAGE");
-    root.addView(link("Runtime", "Core stack and message broker", RUNTIME));
-    root.addView(link("Configuration", "Paired computing units", CONFIGURATION));
+    boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(context);
+    if (advanced) heading(root, "MANAGE");
+    if (advanced) root.addView(link("Runtime", "Core stack and message broker", RUNTIME));
+    root.addView(link(advanced ? "Configuration" : "Connection setup", advanced ? "Paired computing units" : "Choose where ORC runs", CONFIGURATION));
     heading(root, "FEATURES");
     root.addView(row(
-        tile("⌖", "Navigation", "GPS, sensors and service", UiTheme.BLUE, NAVIGATION),
-        tile("🚗", "Automotive", "OBD, Bluetooth and service", UiTheme.GREEN, AUTOMOTIVE)));
+        tile("⌖", "Navigation", advanced ? "GPS, sensors and service" : "Share your location", UiTheme.BLUE, NAVIGATION),
+        tile("🚗", advanced ? "Automotive" : "Vehicle", advanced ? "OBD, Bluetooth and service" : "Connect your car", UiTheme.GREEN, AUTOMOTIVE)));
     root.addView(row(
-        tile("◉", "Radio", "RTL-SDR and ADS-B", UiTheme.VIOLET, RADIO),
+        tile("◉", "Radio", advanced ? "RTL-SDR and ADS-B" : "Connect a receiver", UiTheme.VIOLET, RADIO),
         tile("▶", "Media", "Camera and audio", UiTheme.RED, MEDIA)));
     root.addView(row(tile("☀", "Environment", "Light and pressure", UiTheme.AMBER, ENVIRONMENTAL), new View(context)));
+    if (advanced) {
     heading(root, "MONITOR");
     root.addView(row(
         tile("▥", "Performance", "Workload and service health", UiTheme.BLUE, PERFORMANCE),
         tile("≡", "Live logs", "Events, filters and sharing", UiTheme.GREEN, DIAGNOSTICS)));
+    }
     return root;
   }
 

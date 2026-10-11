@@ -21,6 +21,8 @@ public final class SmsGatewayService extends Service {
   public static final String START = "org.openroadcode.sms.START";
   public static final String STOP = "org.openroadcode.sms.STOP";
   private static final int MAX_BODY = 16384;
+  private static final AtomicBoolean LISTENING = new AtomicBoolean();
+  public static boolean isListening() { return LISTENING.get(); }
   private final AtomicBoolean running = new AtomicBoolean();
   private final Object sendLock = new Object();
   private ServerSocket server;
@@ -43,6 +45,7 @@ public final class SmsGatewayService extends Service {
     try (ServerSocket listener = new ServerSocket()) {
       server = listener;
       listener.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT));
+      LISTENING.set(true);
       while (running.get()) {
         Socket client = listener.accept();
         new Thread(() -> handle(client), "orc-sms-request").start();
@@ -50,6 +53,7 @@ public final class SmsGatewayService extends Service {
     } catch (IOException error) {
       android.util.Log.e("ORCSms", "SMS gateway listener stopped", error);
     } finally {
+      LISTENING.set(false);
       running.set(false);
       stopSelf();
     }
@@ -97,7 +101,7 @@ public final class SmsGatewayService extends Service {
       if (length < 0 || length > MAX_BODY) {
         respond(out, 400, new JSONObject().put("error", "invalid body length")); return;
       }
-      byte[] body = in.readNBytes(length);
+      byte[] body = StreamBytes.readUpTo(in, length);
       if (body.length != length) { respond(out, 400, new JSONObject().put("error", "incomplete body")); return; }
       String[] target = request[1].split("\\?", 2);
       String path = target[0];
@@ -250,6 +254,7 @@ public final class SmsGatewayService extends Service {
   }
 
   @Override public void onDestroy() {
+    LISTENING.set(false);
     running.set(false);
     try { if (server != null) server.close(); } catch (IOException ignored) {}
     super.onDestroy();

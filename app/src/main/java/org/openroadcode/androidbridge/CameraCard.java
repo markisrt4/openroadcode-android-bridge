@@ -95,8 +95,8 @@ final class CameraCard {
     streamSettings.addView(endpoint);
     updateEndpoint();
 
-    startButton = UiTheme.actionButton(activity, "START CAMERA", UiTheme.RED, v -> startCamera());
-    stopButton = UiTheme.actionButton(activity, "STOP", UiTheme.SURFACE_RAISED, v -> stopCamera());
+    startButton = UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "START CAMERA" : "Share camera", UiTheme.RED, v -> startCamera());
+    stopButton = UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "STOP" : "Stop camera", UiTheme.SURFACE_RAISED, v -> stopCamera());
     view.addView(buttonRow(startButton, stopButton));
     view.removeView(preview);
     view.addView(preview, previewParams);
@@ -232,7 +232,9 @@ final class CameraCard {
   }
 
   private void updateButtons(boolean running, boolean streaming) {
-    startButton.setText(running ? (streaming ? "RUNNING" : "STARTING") : "START CAMERA");
+    startButton.setText(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)
+        ? (running ? (streaming ? "RUNNING" : "STARTING") : "START CAMERA")
+        : (running ? (streaming ? "Camera on" : "Starting…") : "Share camera"));
     startButton.setEnabled(!running);
     stopButton.setEnabled(running);
     UiTheme.setButtonColor(activity, startButton,

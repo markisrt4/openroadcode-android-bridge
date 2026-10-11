@@ -78,12 +78,12 @@ final class PlaybackAudioCard {
     levelValue = UiTheme.text(activity, "-60 dB", 12, UiTheme.SILVER);
     levelValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
     levelValue.setPadding(UiTheme.dp(activity, 10), 0, 0, 0);
-    meterRow.addView(levelValue,
+    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) meterRow.addView(levelValue,
         new LinearLayout.LayoutParams(UiTheme.dp(activity, 66), UiTheme.dp(activity, 36)));
     view.addView(meterRow);
 
-    start = UiTheme.actionButton(activity, "▶  START CAPTURE", UiTheme.BLUE, v -> start());
-    stop = UiTheme.actionButton(activity, "■  STOP", UiTheme.SURFACE_RAISED, v -> stop());
+    start = UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "▶  START CAPTURE" : "Share audio", UiTheme.BLUE, v -> start());
+    stop = UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "■  STOP" : "Stop sharing", UiTheme.SURFACE_RAISED, v -> stop());
     start.setTextSize(12);
     stop.setTextSize(12);
 

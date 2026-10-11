@@ -100,6 +100,7 @@ public final class MainActivity extends Activity {
       if (radioCard != null) radioCard.refresh();
       if (remoteAccessCard != null) updateRemoteAccessStatus();
       if (pcmAudioOutputCard != null) pcmAudioOutputCard.refresh();
+      if (smsGatewayCard != null) smsGatewayCard.refresh();
       dashboardHandler.postDelayed(this, DASHBOARD_PERIOD_MS);
     }
   };
@@ -246,12 +247,45 @@ public final class MainActivity extends Activity {
     currentScreen = "dashboard";
     resetContent();
     addBrandHeader(content);
-    companionStatusCard = new CompanionStatusCard(this);
-    content.addView(companionStatusCard.view(), cardParams());
+    addModeToggle();
+    if (advancedMode()) {
+      companionStatusCard = new CompanionStatusCard(this);
+      content.addView(companionStatusCard.view(), cardParams());
+    } else {
+      termuxServicesCard = new TermuxServicesCard(this);
+      content.addView(termuxServicesCard.view(), cardParams());
+    }
     content.addView(new SubsystemDashboard(this, this::showSubsystem).view());
-    if (dashboardActive) companionStatusCard.start();
+    if (dashboardActive) startVisibleCards();
     addFooter();
     scrollView.scrollTo(0, 0);
+  }
+
+  private boolean advancedMode() {
+    return org.openroadcode.androidbridge.config.UiModeSettings.advanced(this);
+  }
+
+  private void addModeToggle() {
+    LinearLayout row = UiTheme.card(this);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    LinearLayout labels = new LinearLayout(this);
+    labels.setOrientation(LinearLayout.VERTICAL);
+    labels.addView(text(advancedMode() ? "Advanced mode" : "Simple mode", 16, UiTheme.TEXT));
+    labels.addView(text(advancedMode() ? "All controls and diagnostics" : "Everyday controls, fewer settings", 12, MUTED));
+    row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+    android.widget.Switch toggle = new android.widget.Switch(this);
+    toggle.setText("Advanced");
+    toggle.setTextColor(UiTheme.TEXT);
+    toggle.setMinHeight(dp(48));
+    toggle.setChecked(advancedMode());
+    toggle.setContentDescription("Advanced mode. Show technical controls and diagnostics");
+    toggle.setOnCheckedChangeListener((button, checked) -> {
+      new org.openroadcode.androidbridge.config.UiModeSettings(this).setAdvanced(checked);
+      showDashboard();
+    });
+    row.addView(toggle);
+    content.addView(row, cardParams());
   }
 
   private void showSubsystem(String subsystem) {
@@ -278,7 +312,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showAutomotive() {
-    addSubsystemHeader("🚗", "Automotive", "Vehicle bridge and automotive runtime", GREEN);
+    addSubsystemHeader("🚗", advancedMode() ? "Automotive" : "Vehicle", "Vehicle bridge and automotive runtime", GREEN);
 
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-automotive");
     addServiceCard(content, "AUTOMOTIVE SERVICE", "Runtime service and input source", GREEN,
@@ -338,7 +372,7 @@ public final class MainActivity extends Activity {
   }
 
   private void showConfiguration() {
-    addSubsystemHeader("⚙", "Configuration",
+    addSubsystemHeader("⚙", advancedMode() ? "Configuration" : "Connection setup",
         "Pair, choose, and manage computing units", SILVER);
 
     RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
@@ -397,6 +431,7 @@ public final class MainActivity extends Activity {
   }
 
   private void addSimulation(String subsystem, int accent) {
+    if (!advancedMode()) return;
     SubsystemInjectorCard simulation = new SubsystemInjectorCard(this, subsystem, this::simulateScenario);
     String title = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem) ? "WEATHER SIM" : "SIMULATION";
     String subtitle = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)
@@ -433,7 +468,7 @@ public final class MainActivity extends Activity {
 
     TextView detail = text(subtitle, 11, MUTED);
     detail.setPadding(0, dp(2), 0, 0);
-    labels.addView(detail);
+    if (advancedMode()) labels.addView(detail);
 
     row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
     content.addView(row);
@@ -444,6 +479,7 @@ public final class MainActivity extends Activity {
     sensorCard = null;
     environmentalSensorCard = null;
     remoteAccessCard = null;
+    smsGatewayCard = null;
     cameraCard = null;
     playbackAudioCard = null;
     radioCard = null;
