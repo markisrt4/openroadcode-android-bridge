@@ -29,6 +29,8 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="iqsrc" />
         </intent>
+        <package android:name="com.panera.bread" />
+        <package android:name="com.mcdonalds.app" />
     </queries>
 
     <application
@@ -41,15 +43,30 @@
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="orcbridge" android:host="launch" />
+            </intent-filter>
         </activity>
 
         <service android:name=".SmsGatewayService" android:exported="false" />
         <receiver android:name=".SmsSendResultReceiver" android:exported="false" />
+
+        <service
+            android:name=".AndroidHostActionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local ORC host and SDR provider controls." />
+        </service>
 
         <service
             android:name=".SensorBridgeService"
@@ -94,13 +111,5 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
-        <service
-            android:name=".RtlTcpProviderControlService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Provides localhost-only control for launching the Android RTL-TCP SDR provider used by OpenRoadCode." />
-        </service>
     </application>
 </manifest>

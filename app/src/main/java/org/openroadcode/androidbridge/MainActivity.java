@@ -2,14 +2,18 @@ package org.openroadcode.androidbridge;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.net.Uri;
 import java.lang.ref.WeakReference;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -80,6 +84,12 @@ public final class MainActivity extends Activity {
   private boolean sensorStartFailed;
   private String sensorStartError = "";
   private String currentScreen = "dashboard";
+  private static final String EXTRA_HOST_ACTION_PACKAGE = "orc_host_action_package";
+  private static final String EXTRA_HOST_ACTION_URI = "orc_host_action_uri";
+  private static final String EXTRA_HOST_ACTION_X = "orc_host_action_x";
+  private static final String EXTRA_HOST_ACTION_Y = "orc_host_action_y";
+  private static final String EXTRA_HOST_ACTION_WIDTH = "orc_host_action_width";
+  private static final String EXTRA_HOST_ACTION_HEIGHT = "orc_host_action_height";
 
   private final Runnable dashboardRefresh = new Runnable() {
     @Override public void run() {
@@ -111,11 +121,13 @@ public final class MainActivity extends Activity {
   private SmsGatewayCard smsGatewayCard;
   private BridgeServiceManager serviceManager;
   private final BridgeServiceLog sensorDiagnostic = BridgeLog.service(BridgeServiceLog.Service.SENSORS);
+  private Intent pendingHostAction;
+  private boolean hostActivityResumed;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     serviceManager = new BridgeServiceManager(this);
-    startForegroundService(new Intent(this, RtlTcpProviderControlService.class));
+    startForegroundService(new Intent(this, AndroidHostActionService.class));
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
 
@@ -128,6 +140,105 @@ public final class MainActivity extends Activity {
     setContentView(scrollView);
 
     showDashboard();
+    handleHostActionIntent(getIntent());
+  }
+
+  @Override protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    handleHostActionIntent(intent);
+  }
+
+  private void handleHostActionIntent(Intent hostIntent) {
+    if (hostIntent == null) return;
+    Uri link = hostIntent.getData();
+    if (Intent.ACTION_VIEW.equals(hostIntent.getAction()) && link != null
+        && "orcbridge".equals(link.getScheme()) && "launch".equals(link.getHost())) {
+      if (!link.isHierarchical()) return;
+      String packageValue = link.getQueryParameter("package");
+      String uriValue = link.getQueryParameter("uri");
+      if (packageValue != null && !packageValue.isBlank()) {
+        hostIntent.putExtra(EXTRA_HOST_ACTION_PACKAGE, packageValue);
+      }
+      if (uriValue != null && isWebUri(uriValue)) {
+        hostIntent.putExtra(EXTRA_HOST_ACTION_URI, uriValue);
+      }
+      hostIntent.setData(null);
+    }
+    String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
+    String fallbackUri = hostIntent.getStringExtra(EXTRA_HOST_ACTION_URI);
+    if ((packageName == null || packageName.isBlank()) && fallbackUri == null) return;
+
+    // onCreate/onNewIntent can run before our task is in the foreground.
+    // Retain the request until Android has resumed and focused this activity.
+    pendingHostAction = new Intent(hostIntent);
+    hostIntent.removeExtra(EXTRA_HOST_ACTION_PACKAGE);
+    hostIntent.removeExtra(EXTRA_HOST_ACTION_URI);
+    getWindow().getDecorView().post(this::launchPendingHostAction);
+  }
+
+  @Override public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    if (hasFocus) launchPendingHostAction();
+  }
+
+  private void launchPendingHostAction() {
+    if (!hostActivityResumed || !hasWindowFocus() || pendingHostAction == null) return;
+    Intent hostIntent = pendingHostAction;
+    pendingHostAction = null;
+    String packageName = hostIntent.getStringExtra(EXTRA_HOST_ACTION_PACKAGE);
+    String fallbackUri = hostIntent.getStringExtra(EXTRA_HOST_ACTION_URI);
+
+    Intent target = packageName == null ? null
+        : getPackageManager().getLaunchIntentForPackage(packageName);
+    if (target == null) {
+      if (fallbackUri != null && isWebUri(fallbackUri)) {
+        target = new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri));
+      } else {
+        Log.w("ORC-HostActions", "No launch intent for " + packageName);
+        return;
+      }
+    }
+    target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+        | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+
+    ActivityOptions options = ActivityOptions.makeBasic();
+    if (hostIntent.hasExtra(EXTRA_HOST_ACTION_X)
+        && hostIntent.hasExtra(EXTRA_HOST_ACTION_Y)
+        && hostIntent.hasExtra(EXTRA_HOST_ACTION_WIDTH)
+        && hostIntent.hasExtra(EXTRA_HOST_ACTION_HEIGHT)) {
+      int x = hostIntent.getIntExtra(EXTRA_HOST_ACTION_X, 0);
+      int y = hostIntent.getIntExtra(EXTRA_HOST_ACTION_Y, 0);
+      int width = hostIntent.getIntExtra(EXTRA_HOST_ACTION_WIDTH, 0);
+      int height = hostIntent.getIntExtra(EXTRA_HOST_ACTION_HEIGHT, 0);
+      if (x >= 0 && y >= 0 && width > 0 && height > 0) {
+        target.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        options.setLaunchBounds(new Rect(x, y, x + width, y + height));
+      }
+    }
+    try {
+      Log.i("ORC-HostActions", "Launching " + packageName + " from focused bridge activity");
+      startActivity(target, options.toBundle());
+    } catch (RuntimeException exception) {
+      Log.e("ORC-HostActions", "Launch failed for " + packageName, exception);
+      if (packageName != null && fallbackUri != null && isWebUri(fallbackUri)) {
+        try {
+          startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)));
+          return;
+        } catch (RuntimeException fallbackException) {
+          Log.e("ORC-HostActions", "Website fallback failed", fallbackException);
+        }
+      }
+      android.widget.Toast.makeText(this, "Could not open " + packageName,
+          android.widget.Toast.LENGTH_LONG).show();
+    }
+  }
+
+  private static boolean isWebUri(String value) {
+    Uri uri = Uri.parse(value);
+    return ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
+        && uri.getHost() != null && !uri.getHost().isBlank();
   }
 
   private void showDashboard() {
@@ -443,6 +554,8 @@ public final class MainActivity extends Activity {
 
   @Override protected void onResume() {
     super.onResume();
+    hostActivityResumed = true;
+    getWindow().getDecorView().post(this::launchPendingHostAction);
     dashboardActive = true;
     startVisibleCards();
     dashboardHandler.removeCallbacks(dashboardRefresh);
@@ -450,6 +563,7 @@ public final class MainActivity extends Activity {
   }
 
   @Override protected void onPause() {
+    hostActivityResumed = false;
     dashboardActive = false;
     dashboardHandler.removeCallbacks(dashboardRefresh);
     stopVisibleCards();

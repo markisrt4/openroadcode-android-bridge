@@ -71,6 +71,45 @@ The sensor payload can contain acceleration, linear acceleration, angular veloci
 
 The Sensor Bridge source is selected in the app. `Android Sensors` uses the phone hardware and GNSS. `Simulated Drive` produces a moving synthetic position plus representative IMU values while preserving the same `/imu`, `/location`, `/health`, and `/stream/imu` interfaces.
 
+## Host actions
+
+For POI actions from foreground Termux, use the Bridge deep link. The native
+OpenRoadCode launcher invokes `termux-open-url` with the package and website
+fallback encoded in a single request. Bridge waits until its activity is
+resumed and focused, then opens the installed app or falls back to the website.
+This avoids `/system/bin/am`, which is rejected under Termux's UID on recent
+Android versions, and the background-service activity handoff.
+
+```bash
+cd ~/src/openroadcode-android-bridge
+git switch host-actions
+termux-open-url 'orcbridge://launch?package=com.panera.bread&uri=https%3A%2F%2Fwww.panerabread.com%2Fen-us%2Fstart-an-order.html'
+```
+
+Install an APK containing the deep-link handler before testing. Command success
+only acknowledges the request; verify that the destination becomes visible.
+
+The bridge exposes localhost-only Android host actions on port `8772` (ORC uses
+`8770` for music video and `8771` for the Spotify web player). These let
+OpenRoadCode request Android UI actions without depending on shell-level
+`am` access from Termux.
+
+```bash
+curl -X POST -d 'package=com.panera.bread' http://127.0.0.1:8772/launch/package
+curl -X POST --data-urlencode 'uri=https://www.panerabread.com/' http://127.0.0.1:8772/open/uri
+curl http://127.0.0.1:8772/health
+```
+
+The service binds only to `127.0.0.1`; it is not a remote-control interface.
+
+Package launches bring the Bridge task forward and wait until its activity is
+resumed and focused before asking Android to bring the destination task forward.
+The HTTP status `host_activity_requested` acknowledges that handoff request;
+it does not confirm that the destination is visible. Android can still restrict
+background activity starts. If the destination does not appear, bring Bridge
+to the foreground to process a pending request. Launch diagnostics use the
+`ORC-HostActions` logcat tag.
+
 ## Camera stream
 
 The camera service uses the rear Camera2 device and Android's hardware H.264 encoder. The initial v0.5.0 stream is:
@@ -252,3 +291,35 @@ endpoint's bandwidth and queues. **About these readings** contains measurement
 notes. Two-minute charts are available through **Show trends**, collapsed by
 default. Live values update in place so reading or opening details is not
 interrupted by rebuilding the list every second.
+
+## Network state for ORC
+
+While the Sensor Bridge service is running, `GET /network` on its existing port
+8766 reports Android's default-network state:
+
+```json
+{"available":true,"connected":true,"validated":true,"transport":"wifi","timestamp_ms":0}
+```
+
+`validated` requires both INTERNET and VALIDATED capabilities, so Wi-Fi without
+internet and captive portals report false. The timestamp is the current response
+time in milliseconds since the Unix epoch. `available:false` means monitoring
+could not be registered; consumers should use their internet-check fallback.
+The service registers `ConnectivityManager.registerDefaultNetworkCallback()` on
+startup and unregisters it on shutdown. The existing ACCESS_NETWORK_STATE
+permission requires no additional runtime prompt. Simulated sensor mode still
+reports the real phone network. ORC polls this local endpoint once per second;
+it does not generate a new internet request for each read.
+
+After installing an APK containing this endpoint, enable Sensor Bridge and test:
+
+```bash
+cd ~/src/openroadcode-android-bridge
+git switch host-actions
+curl --noproxy '*' --max-time 2 http://127.0.0.1:8766/network
+```
+
+Turn off both Wi-Fi and mobile data, repeat the request, and confirm connected
+and validated are false. Restore internet and wait for Android validation, then
+confirm validated returns true. ORC keeps manual OFFLINE priority and verifies
+internet recovery before reenabling online actions.
