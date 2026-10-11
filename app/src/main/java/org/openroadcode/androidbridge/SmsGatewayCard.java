@@ -17,6 +17,7 @@ import org.openroadcode.androidbridge.ui.UiTheme;
 public final class SmsGatewayCard {
   public static final int READ_PERMISSION_REQUEST = 1082;
   public static final int SEND_PERMISSION_REQUEST = 1083;
+  public static final int CONTACTS_PERMISSION_REQUEST = 1084;
   private final Activity activity;
   private final BridgeServiceManager manager;
   private final LinearLayout root;
@@ -41,6 +42,8 @@ public final class SmsGatewayCard {
     root.addView(permissionFeedback);
     root.addView(UiTheme.actionButton(activity, "Enable SMS gateway", UiTheme.SURFACE_RAISED,
         v -> enable()));
+    root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
+        v -> requestContactsPermission()));
     root.addView(UiTheme.actionButton(activity, "Request SMS sending permission", UiTheme.SURFACE_RAISED,
         v -> requestSendPermission()));
     root.addView(UiTheme.actionButton(activity, "Provision SMS to Termux", UiTheme.SURFACE_RAISED,
@@ -60,10 +63,12 @@ public final class SmsGatewayCard {
   public void refresh() {
     boolean read = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
     boolean send = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
+    boolean contacts = activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED;
     status.setText("Mode: " + (read ? (send ? "read and send" : "read-only") : "permissions required")
         + "\nConfigured: " + (manager.smsEnabled() ? "enabled" : "disabled")
         + "  •  Read permission: " + (read ? "granted" : "missing")
         + "  •  Send permission: " + (send ? "granted" : "missing")
+        + "\nContacts permission: " + (contacts ? "granted" : "missing")
         + "\nService availability and Termux credential provisioning not yet verified.");
   }
 
@@ -103,6 +108,15 @@ public final class SmsGatewayCard {
         .show();
   }
 
+  private void requestContactsPermission() {
+    if (activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+      permissionFeedback.setText("Contacts access already granted.");
+      refresh();
+      return;
+    }
+    activity.requestPermissions(new String[] {Manifest.permission.READ_CONTACTS}, CONTACTS_PERMISSION_REQUEST);
+  }
+
   private void requestSendPermission() {
     if (activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
       permissionFeedback.setText("SMS sending permission is already granted.");
@@ -118,7 +132,11 @@ public final class SmsGatewayCard {
 
   public void onPermissionResult(int requestCode) {
     refresh();
-    if (requestCode == SEND_PERMISSION_REQUEST) {
+    if (requestCode == CONTACTS_PERMISSION_REQUEST) {
+      permissionFeedback.setText(activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+          ? "Contacts access granted for read-only lookup."
+          : "Contacts access denied. Manual phone number entry still works.");
+    } else if (requestCode == SEND_PERMISSION_REQUEST) {
       boolean granted = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
       boolean rationale = activity.shouldShowRequestPermissionRationale(Manifest.permission.SEND_SMS);
       permissionFeedback.setText(granted
