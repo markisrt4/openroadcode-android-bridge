@@ -681,7 +681,8 @@ public final class MainActivity extends Activity {
       int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
     if (requestCode == SmsGatewayCard.READ_PERMISSION_REQUEST
-        || requestCode == SmsGatewayCard.SEND_PERMISSION_REQUEST) {
+        || requestCode == SmsGatewayCard.SEND_PERMISSION_REQUEST
+        || requestCode == SmsGatewayCard.CONTACTS_PERMISSION_REQUEST) {
       if (smsGatewayCard != null) smsGatewayCard.onPermissionResult(requestCode);
       return;
     }
