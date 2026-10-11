@@ -108,6 +108,7 @@ public final class MainActivity extends Activity {
   private SystemPerformanceCard systemPerformanceCard;
   private CompanionStatusCard companionStatusCard;
   private RuntimeLogsScreen runtimeLogsScreen;
+  private SmsGatewayCard smsGatewayCard;
   private BridgeServiceManager serviceManager;
   private final BridgeServiceLog sensorDiagnostic = BridgeLog.service(BridgeServiceLog.Service.SENSORS);
 
@@ -227,7 +228,11 @@ public final class MainActivity extends Activity {
     RemoteDeviceManagementCard remoteDevices = new RemoteDeviceManagementCard(this, null);
     addServiceCard(content, "REMOTE DEVICE MANAGEMENT",
         "Pairing • remote Linux connection", SILVER,
-        remoteDevices.view(), true, true);
+        remoteDevices.view(), true, false);
+
+    smsGatewayCard = new SmsGatewayCard(this, serviceManager);
+    addServiceCard(content, "SMS GATEWAY", "Permission-controlled local SMS access", BLUE,
+        smsGatewayCard.view(), true, true);
   }
 
   private void showSensorSharing() {
@@ -315,6 +320,7 @@ public final class MainActivity extends Activity {
     systemPerformanceCard = null;
     companionStatusCard = null;
     runtimeLogsScreen = null;
+    smsGatewayCard = null;
   }
 
   private void stopVisibleCards() {
@@ -674,6 +680,12 @@ public final class MainActivity extends Activity {
   @Override public void onRequestPermissionsResult(
       int requestCode, String[] permissions, int[] grants) {
     super.onRequestPermissionsResult(requestCode, permissions, grants);
+    if (requestCode == SmsGatewayCard.READ_PERMISSION_REQUEST
+        || requestCode == SmsGatewayCard.SEND_PERMISSION_REQUEST
+        || requestCode == SmsGatewayCard.CONTACTS_PERMISSION_REQUEST) {
+      if (smsGatewayCard != null) smsGatewayCard.onPermissionResult(requestCode);
+      return;
+    }
     if (playbackAudioCard != null
         && playbackAudioCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (bluetoothCard != null
