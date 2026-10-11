@@ -288,6 +288,7 @@ public final class MainActivity extends Activity {
         serviceManager.vehicleConfig().provider().displayName(), GREEN,
         bluetoothCard.view(), true, false);
 
+    addSimulation(SubsystemDashboard.AUTOMOTIVE, GREEN);
   }
 
   private void showNavigation() {
@@ -305,6 +306,7 @@ public final class MainActivity extends Activity {
         sensorConfig.provider().displayName(), BLUE, sensorCard.view(), true, false);
     showSensorSharing();
 
+    addSimulation(SubsystemDashboard.NAVIGATION, BLUE);
   }
 
   private void showEnvironmental() {
@@ -312,7 +314,9 @@ public final class MainActivity extends Activity {
 
     environmentalSensorCard = new EnvironmentalSensorCard(this);
     addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
-        environmentalSensorCard.view(), true, true);
+        environmentalSensorCard.view(), true, false);
+
+    addSimulation(SubsystemDashboard.ENVIRONMENTAL, GREEN);
   }
 
   private void showMedia() {
@@ -330,6 +334,7 @@ public final class MainActivity extends Activity {
     addServiceCard(content, "AUDIO OUTPUT",
         "ORC PCM → Android AudioTrack", BLUE, pcmAudioOutputCard.view(), true, false);
 
+    addSimulation(SubsystemDashboard.MEDIA, RED);
   }
 
   private void showConfiguration() {
@@ -389,6 +394,23 @@ public final class MainActivity extends Activity {
     addSubsystemHeader("≡", "Live logs", "Recent history and live runtime logs", SILVER);
     runtimeLogsScreen = new RuntimeLogsScreen(this);
     content.addView(runtimeLogsScreen.view(), sectionEndCardParams());
+  }
+
+  private void addSimulation(String subsystem, int accent) {
+    SubsystemInjectorCard simulation = new SubsystemInjectorCard(this, subsystem, this::simulateScenario);
+    String title = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem) ? "WEATHER SIM" : "SIMULATION";
+    String subtitle = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)
+        ? "Deterministic weather scenarios" : "Development simulation inputs";
+    addServiceCard(content, title, subtitle, accent, simulation.view(), true, true);
+  }
+
+  private void simulateScenario(String subsystem, String scenario) {
+    if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
+      InjectionState.setEnvironmentalRadarScenario(this, scenario);
+    }
+    android.widget.Toast.makeText(
+        this, subsystem.toUpperCase(java.util.Locale.ROOT) + " • " + scenario,
+        android.widget.Toast.LENGTH_SHORT).show();
   }
 
   private void addSubsystemHeader(String icon, String title, String subtitle, int accent) {
