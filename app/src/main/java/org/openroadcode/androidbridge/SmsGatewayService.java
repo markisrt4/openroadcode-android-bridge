@@ -2,6 +2,11 @@ package org.openroadcode.androidbridge;
 
 import android.app.Service;
 import android.content.Intent;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.provider.ContactsContract;
+import org.json.JSONArray;
 import android.os.IBinder;
 import java.io.*;
 import java.net.*;
@@ -112,6 +117,9 @@ public final class SmsGatewayService extends Service {
         result.put("read_sms_granted", sms.canRead());
         result.put("send_sms_granted", sms.canSend());
         result.put("send_supported", sms.canSend());
+      } else if (request[0].equals("GET") && path.equals("/sms/contacts")) {
+        result.put("contacts_read_granted", checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED);
+        result.put("contacts", readContacts(limit));
       } else if (request[0].equals("GET") && path.equals("/sms/send/status")) {
         String id = null;
         if (target.length > 1) {
@@ -178,6 +186,32 @@ public final class SmsGatewayService extends Service {
       // Connection dropped or the peer stopped reading.
       android.util.Log.w("ORCSms", "SMS connection closed");
     }
+  }
+
+  private JSONArray readContacts(int limit) throws org.json.JSONException {
+    JSONArray contacts = new JSONArray();
+    if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED)
+      return contacts;
+    int max = Math.max(1, Math.min(limit, 200));
+    String[] columns = {
+        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+        ContactsContract.CommonDataKinds.Phone.NUMBER
+    };
+    try (Cursor cursor = getContentResolver().query(
+        ContactsContract.CommonDataKinds.Phone.CONTENT_URI, columns,
+        null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " COLLATE NOCASE ASC")) {
+      if (cursor == null) return contacts;
+      int nameIndex = cursor.getColumnIndexOrThrow(columns[0]);
+      int numberIndex = cursor.getColumnIndexOrThrow(columns[1]);
+      while (cursor.moveToNext() && contacts.length() < max) {
+        String name = cursor.getString(nameIndex);
+        String number = cursor.getString(numberIndex);
+        if (number == null || number.isBlank()) continue;
+        contacts.put(new JSONObject().put("name", name == null ? "" : name)
+            .put("number", number));
+      }
+    }
+    return contacts;
   }
 
   private static void respondError(OutputStream out, int code, String message) throws IOException {
