@@ -35,7 +35,7 @@ public final class RemoteDeviceManagementCard {
     selectedDevice.setPadding(0, 0, 0, dp(10));
     root.addView(selectedDevice);
 
-    Button choose = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "CHOOSE PAIRED DEVICE" : "Choose ORC device", v -> chooseDevice());
+    Button choose = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "CHOOSE PAIRED DEVICE" : "Choose OpenRoadCode device", v -> chooseDevice());
     root.addView(choose, fullButtonParams());
 
     LinearLayout actions = new LinearLayout(activity);
@@ -56,8 +56,8 @@ public final class RemoteDeviceManagementCard {
   public void refresh() {
     RuntimeDevice active = settings.activeDevice();
     boolean local = settings.target() == RuntimeServiceManagerSettings.Target.TERMUX;
-    selectedDevice.setText(local ? "ORC runs on this phone" : active == null
-        ? "Choose where ORC runs" : "ORC on " + active.name()
+    selectedDevice.setText(local ? "OpenRoadCode runs on this phone" : active == null
+        ? "Choose where OpenRoadCode runs" : "OpenRoadCode on " + active.name()
             + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)
                 ? "\n" + active.baseUrl() : ""));
   }
@@ -76,7 +76,7 @@ public final class RemoteDeviceManagementCard {
               ? "\n" + device.baseUrl() : "");
     }
     new AlertDialog.Builder(activity)
-        .setTitle("Where should ORC run?")
+        .setTitle("Where should OpenRoadCode run?")
         .setItems(labels, (dialog, which) -> {
           if (which == 0) settings.setTarget(RuntimeServiceManagerSettings.Target.TERMUX);
           else settings.setActiveDevice(devices.get(which - 1).deviceId());

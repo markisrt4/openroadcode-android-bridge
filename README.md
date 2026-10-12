@@ -6,17 +6,32 @@ The foreground services expose Android sensors, GNSS, Bluetooth SPP devices, and
 
 ## Companion home
 
-The app starts in **Simple mode**. Home has **Start ORC / Stop ORC**, connection
+The app starts in **Simple mode**. Home has **Start OpenRoadCode / Stop OpenRoadCode**, connection
 setup and everyday feature buttons. The **Advanced** switch at the top of Home
 reveals runtime targets, source selection, simulations, raw sensor readings,
 network/stream details, Performance and Live Logs. The choice is saved across
 restarts. Switching modes changes presentation only; services, saved sources,
 paired devices and Android permissions retain their state.
 
+Simple-mode feature cards have **On/Off switches** for phone location sharing,
+the saved car connection, the USB radio receiver, audio playback, and light/pressure
+readings. Source badges identify **Phone sensors**, **Car adapter**, **USB receiver**,
+**Phone audio**, or **Demo data**. Change sources in Advanced mode; these switches
+preserve the saved choice. Tap the card itself to open its full screen. Switches
+show starting/stopping and permission waits, then follow observed activity. Radio
+Off is saved across app restarts.
+
+Environment has its own sensor activity, so it can run without GPS permission
+and either Environment or Navigation can stop without stopping the other. Both
+use the existing sensor HTTP endpoint; light/pressure fields stay available when
+Environment runs alone, with location/motion unavailable while Navigation is off.
+The Media switch turns on audio playback; turning it off also stops camera/audio
+sharing. Camera and capture permission controls remain on the Media screen.
+
 Simple mode keeps the main phone, vehicle, receiver, camera and audio actions.
 Existing simulated sources are identified as demos. SMS remains optional and
 requires explicit permissions; credential provisioning is a one-time Advanced
-setup step. **Stop ORC** stops the selected runtime's core stack; individual phone
+setup step. **Stop OpenRoadCode** stops the selected runtime's core stack; individual phone
 sharing controls remain separate.
 
 The launcher is named **ORC Companion**. Home is ordered Your Runtime, Manage,
@@ -46,9 +61,10 @@ sharing, stream settings, audio details, and log filters expand on demand.
 The master activity switch and text input are not implemented in this revision.
 
 Main includes the companion/SDR integration, SMS/contacts, Android host actions
-and simulation controls. The current candidate is **1.0.0-rc.2** (code 35).
+and simulation controls. The current candidate is **1.0.0-rc.3** (code 36).
 See [Simple/Advanced integration review](docs/reviews/simple-advanced-integration.md)
-for branch coverage and validation.
+for branch coverage, and [subsystem switch review](docs/reviews/simple-subsystem-switches.md)
+for RC3 behavior and validation.
 
 ## Architecture
 

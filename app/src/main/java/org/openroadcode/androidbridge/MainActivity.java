@@ -70,6 +70,9 @@ public final class MainActivity extends Activity {
   }
 
   private static final int LOCATION_PERMISSION_REQUEST = 1001;
+  private static final int HOME_BLUETOOTH_PERMISSION_REQUEST = 1090;
+  private SubsystemDashboard subsystemDashboard;
+  private final java.util.Map<String, SubsystemSwitchState> subsystemRequests = new java.util.HashMap<>();
   private static final long DASHBOARD_PERIOD_MS = 500;
   private static final String IMU_URL = "http://127.0.0.1:8766/imu";
   private static final String LOCATION_URL = "http://127.0.0.1:8766/location";
@@ -94,7 +97,9 @@ public final class MainActivity extends Activity {
   private final Runnable dashboardRefresh = new Runnable() {
     @Override public void run() {
       if (!dashboardActive) return;
-      if (sensorCard != null || environmentalSensorCard != null) refreshDashboard();
+      if (subsystemDashboard != null) subsystemDashboard.refresh();
+      if (environmentalSensorCard != null) environmentalSensorCard.displaySample(EnvironmentSensorService.sampleJson());
+      if (sensorCard != null) refreshDashboard();
       if (cameraCard != null) cameraCard.refresh();
       if (playbackAudioCard != null) playbackAudioCard.refresh();
       if (radioCard != null) radioCard.refresh();
@@ -255,7 +260,12 @@ public final class MainActivity extends Activity {
       termuxServicesCard = new TermuxServicesCard(this);
       content.addView(termuxServicesCard.view(), cardParams());
     }
-    content.addView(new SubsystemDashboard(this, this::showSubsystem).view());
+    subsystemDashboard = new SubsystemDashboard(this, this::showSubsystem, new SubsystemDashboard.Controls() {
+      @Override public SubsystemDashboard.FeatureState state(String route) { return subsystemState(route); }
+      @Override public void toggle(String route, boolean enabled) { toggleSubsystem(route, enabled); }
+    });
+    content.addView(subsystemDashboard.view());
+    subsystemDashboard.refresh();
     if (dashboardActive) startVisibleCards();
     addFooter();
     scrollView.scrollTo(0, 0);
@@ -263,6 +273,105 @@ public final class MainActivity extends Activity {
 
   private boolean advancedMode() {
     return org.openroadcode.androidbridge.config.UiModeSettings.advanced(this);
+  }
+
+  private SubsystemSwitchState request(String route) {
+    return subsystemRequests.computeIfAbsent(route, ignored -> new SubsystemSwitchState());
+  }
+
+  private SubsystemDashboard.FeatureState subsystemState(String route) {
+    boolean running = false;
+    String status = "Off", source = "Phone sensors";
+    switch (route) {
+      case SubsystemDashboard.NAVIGATION -> {
+        running = SensorBridgeService.isNavigationRunning();
+        source = serviceManager.sensorConfig().provider() == ServiceProvider.SIMULATED_DRIVE
+            ? "Demo data" : "Phone sensors";
+        status = running ? "Sharing location" : "Off";
+      }
+      case SubsystemDashboard.AUTOMOTIVE -> {
+        boolean simulated = serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE;
+        String state = simulated ? SimulatedVehicleBridgeService.observedStatus()
+            : BluetoothSppBridgeService.observedStatus();
+        running = "running".equals(state) || "connected".equals(state);
+        source = simulated ? "Demo data" : "Car adapter";
+        status = running ? "Connected" : "error".equals(state)
+            ? "Connection failed. Open Vehicle for help." : "Off";
+      }
+      case SubsystemDashboard.RADIO -> {
+        source = "USB receiver";
+        RtlSdrUsbManager.State state = ((OpenRoadCodeBridgeApplication) getApplication()).radioState();
+        running = RtlSdrUsbProxyService.isListening() && state != null && state.status == RtlSdrUsbManager.Status.OPEN;
+        if (state != null && state.status == RtlSdrUsbManager.Status.PERMISSION_PENDING) request(route).waitingForPermission();
+        if (state != null && state.status == RtlSdrUsbManager.Status.ERROR) request(route).fail(state.message);
+        status = running ? "Receiver connected" : state != null && state.status == RtlSdrUsbManager.Status.NOT_FOUND
+            ? "Attach a USB receiver" : "Off";
+      }
+      case SubsystemDashboard.MEDIA -> {
+        running = PcmAudioOutputService.isRunning();
+        source = "Phone audio";
+        status = running ? (PcmAudioOutputService.isClientConnected() ? "Playing audio" : "Ready to play audio") : "Off";
+      }
+      case SubsystemDashboard.ENVIRONMENTAL -> {
+        running = EnvironmentSensorService.isRunning();
+        if (!EnvironmentSensorService.lastError().isEmpty()) request(route).fail(EnvironmentSensorService.lastError());
+        source = serviceManager.sensorConfig().provider() == ServiceProvider.SIMULATED_DRIVE
+            ? "Demo data" : "Phone sensors";
+        status = running ? "Reading light and pressure" : "Off";
+      }
+    }
+    SubsystemSwitchState.Display display = request(route).observe(running, status,
+        android.os.SystemClock.elapsedRealtime());
+    return new SubsystemDashboard.FeatureState(display.checked(), display.status(), source);
+  }
+
+  private void toggleSubsystem(String route, boolean enabled) {
+    request(route).request(enabled, android.os.SystemClock.elapsedRealtime());
+    try {
+      switch (route) {
+        case SubsystemDashboard.NAVIGATION -> {
+          if (enabled) startBridge(); else stopBridge();
+        }
+        case SubsystemDashboard.AUTOMOTIVE -> {
+          if (!enabled) { serviceManager.disableVehicle(); break; }
+          boolean simulated = serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE;
+          if (!simulated && (serviceManager.vehicleDeviceAddress() == null || serviceManager.vehicleDeviceAddress().isBlank())) {
+            request(route).fail("Choose your car adapter in Vehicle first.");
+            break;
+          }
+          serviceManager.requestVehicleEnabled();
+          if (!simulated && android.os.Build.VERSION.SDK_INT >= 31
+              && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            request(route).waitingForPermission();
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, HOME_BLUETOOTH_PERMISSION_REQUEST);
+          } else serviceManager.startRequestedVehicle();
+        }
+        case SubsystemDashboard.RADIO -> {
+          OpenRoadCodeBridgeApplication application = (OpenRoadCodeBridgeApplication) getApplication();
+          if (enabled) {
+            RtlSdrUsbManager.State state = application.getRtlSdrUsbManager().refresh();
+            if (state.device == null) { request(route).fail("Attach a USB receiver first."); break; }
+            application.startRadioBridge();
+          } else application.stopRadioBridge();
+        }
+        case SubsystemDashboard.MEDIA -> {
+          if (enabled) startForegroundService(new Intent(this, PcmAudioOutputService.class).setAction(PcmAudioOutputService.START));
+          else {
+            stopService(new Intent(this, PcmAudioOutputService.class));
+            stopService(new Intent(this, PlaybackAudioService.class));
+            stopService(new Intent(this, CameraStreamService.class));
+          }
+        }
+        case SubsystemDashboard.ENVIRONMENTAL -> {
+          org.openroadcode.androidbridge.config.ConfigRepository configuration = new org.openroadcode.androidbridge.config.ConfigRepository(this);
+          configuration.setEnvironmentEnabled(enabled);
+          if (enabled) startForegroundService(new Intent(this, EnvironmentSensorService.class));
+          else stopService(new Intent(this, EnvironmentSensorService.class));
+        }
+      }
+    } catch (RuntimeException error) {
+      request(route).fail("Could not change this feature. Open it for help.");
+    }
   }
 
   private void addModeToggle() {
@@ -346,6 +455,13 @@ public final class MainActivity extends Activity {
   private void showEnvironmental() {
     addSubsystemHeader("☀", "Environment", "Ambient light and environmental telemetry", GREEN);
 
+    android.widget.Switch environment = new android.widget.Switch(this);
+    environment.setText("Light and pressure readings");
+    environment.setTextColor(UiTheme.TEXT);
+    environment.setMinHeight(dp(48));
+    environment.setChecked(EnvironmentSensorService.isRunning());
+    environment.setOnCheckedChangeListener((button, enabled) -> toggleSubsystem(SubsystemDashboard.ENVIRONMENTAL, enabled));
+    content.addView(environment, cardParams());
     environmentalSensorCard = new EnvironmentalSensorCard(this);
     addServiceCard(content, "ENVIRONMENT", "Android environmental sensors", GREEN,
         environmentalSensorCard.view(), true, false);
@@ -475,6 +591,7 @@ public final class MainActivity extends Activity {
   }
 
   private void resetContent() {
+    subsystemDashboard = null;
     content.removeAllViews();
     sensorCard = null;
     environmentalSensorCard = null;
@@ -518,6 +635,8 @@ public final class MainActivity extends Activity {
     if (serviceManager.sensorConfig().provider() == provider) return;
     serviceManager.suspendSensor();
     serviceManager.setSensorProvider(provider);
+    if (new org.openroadcode.androidbridge.config.ConfigRepository(this).environmentEnabled())
+      startForegroundService(new Intent(this, EnvironmentSensorService.class));
     sensorPermissionRequired = false;
     sensorStartFailed = false;
     if (sensorCard == null) return;
@@ -656,7 +775,7 @@ public final class MainActivity extends Activity {
   }
 
   private void refreshDashboard() {
-    if ((sensorCard == null && environmentalSensorCard == null) || sensorPollInFlight) return;
+    if (sensorCard == null || sensorPollInFlight) return;
     sensorPollInFlight = true;
     final long generation = serviceManager.sensorGeneration();
     final ServiceProvider provider = serviceManager.sensorConfig().provider();
@@ -671,11 +790,6 @@ public final class MainActivity extends Activity {
         sensorPollInFlight = false;
         if (!dashboardActive || (sensorCard == null && environmentalSensorCard == null)
             || generation != serviceManager.sensorGeneration()) return;
-        if (environmentalSensorCard != null) {
-          if (sample == null) environmentalSensorCard.clear();
-          else environmentalSensorCard.displaySample(sample);
-          if (sensorCard == null) return;
-        }
         if (!serviceManager.sensorRequested()) {
           sensorCard.setRunning(false);
           sensorCard.setStatus("●  Bridge stopped", MUTED);
@@ -735,23 +849,27 @@ public final class MainActivity extends Activity {
     return serviceManager.sensorConfig().provider() == ServiceProvider.ANDROID_SENSORS;
   }
 
-  private void reconcileSensor(boolean requestPermission) {
+  private void sensorStatus(boolean enabled, String message, int color) {
     if (sensorCard == null) return;
+    sensorCard.setRunning(enabled);
+    sensorCard.setStatus(message, color);
+    if (!enabled || color == RED) sensorCard.clear();
+  }
+
+  private void reconcileSensor(boolean requestPermission) {
     if (!serviceManager.sensorRequested()) {
-      sensorCard.setRunning(false);
-      sensorCard.setStatus("●  Bridge stopped", MUTED);
+      sensorStatus(false, "●  Bridge stopped", MUTED);
       return;
     }
-    sensorCard.setRunning(true);
     if (sensorNeedsLocationPermission())
       sensorDiagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
     if (sensorNeedsLocationPermission() && !hasLocationPermission()) {
       serviceManager.suspendSensor();
       sensorPermissionRequired = true;
-      sensorCard.clear();
-      sensorCard.setStatus("●  Location permission required", RED);
+      sensorStatus(true, "●  Location permission required", RED);
       if (requestPermission && !locationPermissionPending) {
         locationPermissionPending = true;
+        request(SubsystemDashboard.NAVIGATION).waitingForPermission();
         requestPermissions(new String[] {Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION_REQUEST);
       }
@@ -759,19 +877,19 @@ public final class MainActivity extends Activity {
     }
     sensorPermissionRequired = false;
     if (sensorStartFailed && !requestPermission) {
-      sensorCard.setStatus("●  " + sensorStartError, RED);
+      sensorStatus(true, "●  " + sensorStartError, RED);
       return;
     }
     sensorStartFailed = false;
     try {
       serviceManager.startRequestedSensor();
-      if (serviceManager.sensorState() != BridgeServiceManager.ServiceState.RUNNING)
-        sensorCard.setStatus("●  Bridge starting…", BLUE);
-    } catch (RuntimeException e) {
-      sensorDiagnostic.failure(BridgeServiceLog.Event.FAILED, e);
+      sensorStatus(true, "●  Bridge starting…", BLUE);
+    } catch (RuntimeException error) {
+      sensorDiagnostic.failure(BridgeServiceLog.Event.FAILED, error);
       sensorStartFailed = true;
-      sensorStartError = "Unable to start sensor bridge: " + e.getClass().getSimpleName();
-      sensorCard.setStatus("●  " + sensorStartError, RED);
+      sensorStartError = "Unable to start sensor bridge: " + error.getClass().getSimpleName();
+      request(SubsystemDashboard.NAVIGATION).fail("Could not start location sharing.");
+      sensorStatus(false, "●  " + sensorStartError, RED);
     }
   }
 
@@ -864,20 +982,35 @@ public final class MainActivity extends Activity {
         && bluetoothCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (cameraCard != null
         && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
+    if (requestCode == HOME_BLUETOOTH_PERMISSION_REQUEST) {
+      if (!serviceManager.vehicleRequested()) return;
+      request(SubsystemDashboard.AUTOMOTIVE).resume(android.os.SystemClock.elapsedRealtime());
+      if (android.os.Build.VERSION.SDK_INT < 31
+          || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+        try { serviceManager.startRequestedVehicle(); }
+        catch (RuntimeException error) {
+          request(SubsystemDashboard.AUTOMOTIVE).fail("Could not connect the car adapter.");
+        }
+      } else {
+        serviceManager.disableVehicle();
+        request(SubsystemDashboard.AUTOMOTIVE).fail("Bluetooth permission was denied.");
+      }
+      return;
+    }
     if (requestCode == LOCATION_PERMISSION_REQUEST) {
       sensorDiagnostic.available(BridgeServiceLog.Condition.LOCATION_PERMISSION, hasLocationPermission());
       locationPermissionPending = false;
-      if (!serviceManager.sensorRequested() || sensorCard == null) return;
+      if (!serviceManager.sensorRequested()) return;
+      request(SubsystemDashboard.NAVIGATION).resume(android.os.SystemClock.elapsedRealtime());
       if (hasLocationPermission() || !sensorNeedsLocationPermission()) {
         sensorPermissionRequired = false;
         sensorStartFailed = false;
         reconcileSensor(false);
       } else {
-        serviceManager.suspendSensor();
+        serviceManager.disableSensor();
         sensorPermissionRequired = true;
-        sensorCard.setRunning(true);
-        sensorCard.setStatus("●  Location permission required", RED);
-        sensorCard.clear();
+        request(SubsystemDashboard.NAVIGATION).fail("Location permission was denied.");
+        sensorStatus(false, "●  Location permission required", RED);
       }
     }
   }

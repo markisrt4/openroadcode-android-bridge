@@ -37,6 +37,12 @@ public final class SimulatedVehicleBridgeService extends Service {
     private static final String CHANNEL_ID = "openroadcode-vehicle-sim";
     private static final int NOTIFICATION_ID = 35001;
 
+    private static volatile SimulatedVehicleBridgeService activeInstance;
+    private volatile String observedStatus = STATUS_STOPPED;
+    public static String observedStatus() {
+        SimulatedVehicleBridgeService active = activeInstance;
+        return active == null ? STATUS_STOPPED : active.observedStatus;
+    }
     private volatile boolean running;
     private Thread worker;
     private ServerSocket serverSocket;
@@ -47,6 +53,7 @@ public final class SimulatedVehicleBridgeService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
                 CHANNEL_ID, "OpenRoadCode Vehicle Simulator", NotificationManager.IMPORTANCE_LOW));
@@ -194,6 +201,7 @@ public final class SimulatedVehicleBridgeService extends Service {
     }
 
     private void reportStatus(String state, String message) {
+        observedStatus = state;
         Intent intent = new Intent(ACTION_STATUS);
         intent.setPackage(getPackageName());
         intent.putExtra(EXTRA_STATUS, state);
@@ -214,6 +222,7 @@ public final class SimulatedVehicleBridgeService extends Service {
         }
         worker = null;
         reportStatus(STATUS_STOPPED, "Simulated vehicle stopped");
+        if (activeInstance == this) activeInstance = null;
         super.onDestroy();
     }
 

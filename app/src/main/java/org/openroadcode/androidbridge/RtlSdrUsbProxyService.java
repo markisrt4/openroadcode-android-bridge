@@ -70,6 +70,12 @@ public final class RtlSdrUsbProxyService extends Service {
     static final String PREF_LAST_SERVICE_STATUS = "last_service_status";
     static final String PREF_CONTROL_STATUS = "control_status";
 
+    private static volatile RtlSdrUsbProxyService activeInstance;
+    private volatile boolean listening;
+    public static boolean isListening() {
+        RtlSdrUsbProxyService active = activeInstance;
+        return active != null && active.listening;
+    }
     private volatile boolean running;
     private Thread worker;
     private ServerSocket serverSocket;
@@ -87,6 +93,7 @@ public final class RtlSdrUsbProxyService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         persistServiceStatus("RTL-SDR proxy service created");
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
@@ -110,6 +117,7 @@ public final class RtlSdrUsbProxyService extends Service {
             if (connection == null) throw new IOException("RTL-SDR USB device is not open");
 
             serverSocket = new ServerSocket(TCP_PORT, 1, InetAddress.getByName("127.0.0.1"));
+            listening = true;
             String ready = "RTL-SDR USB proxy ready • 127.0.0.1:" + TCP_PORT;
             Log.i(TAG, ready);
             persistServiceStatus(ready);
@@ -142,6 +150,7 @@ public final class RtlSdrUsbProxyService extends Service {
             }
         } finally {
             persistServiceStatus("RTL-SDR proxy server loop ended • running=" + running);
+            listening = false;
             closeSockets();
             running = false;
             stopSelf();
@@ -733,8 +742,10 @@ public final class RtlSdrUsbProxyService extends Service {
     public void onDestroy() {
         persistServiceStatus("RTL-SDR proxy service destroyed • running=" + running);
         running = false;
+        listening = false;
         closeSockets();
         ((OpenRoadCodeBridgeApplication) getApplication()).onRadioProxyStopped();
+        if (activeInstance == this) activeInstance = null;
         super.onDestroy();
     }
 

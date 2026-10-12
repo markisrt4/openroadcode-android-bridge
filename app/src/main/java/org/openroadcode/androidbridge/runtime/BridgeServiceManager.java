@@ -81,7 +81,9 @@ public final class BridgeServiceManager {
     public void suspendSensor() {
         sensorGeneration++;
         sensorStartIssued = false;
-        context.stopService(new Intent(context, SensorBridgeService.class));
+        if (configRepository.environmentEnabled())
+            context.startForegroundService(new Intent(context, SensorBridgeService.class));
+        else context.stopService(new Intent(context, SensorBridgeService.class));
         sensorState = ServiceState.STOPPED;
     }
     public void disableSensor() {

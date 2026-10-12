@@ -102,7 +102,7 @@ public final class TermuxServicesCard {
     }
 
     managerStatus = statusPill(
-        advanced ? "Checking service manager…" : "Connecting to ORC…",
+        advanced ? "Checking service manager…" : "Connecting to OpenRoadCode…",
         UiTheme.MUTED);
     LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
     statusParams.setMargins(0, dp(1), 0, dp(11));
@@ -127,17 +127,25 @@ public final class TermuxServicesCard {
     }
 
     if (showCoreControls) {
-      addSectionLabel(advanced ? "CORE STACK" : "ORC");
+      addSectionLabel(advanced ? "CORE STACK" : "OpenRoadCode");
       LinearLayout coreRow = new LinearLayout(activity);
       coreRow.setOrientation(LinearLayout.HORIZONTAL);
-      startCoreButton = actionButton(advanced ? "START CORE" : "Start ORC", UiTheme.BLUE,
+      startCoreButton = actionButton(advanced ? "START CORE" : "Start OpenRoadCode", UiTheme.BLUE,
           v -> runAction(RuntimeServiceManagerClient::startCoreStack));
-      stopCoreButton = actionButton(advanced ? "STOP CORE" : "Stop ORC", UiTheme.RED,
+      stopCoreButton = actionButton(advanced ? "STOP CORE" : "Stop OpenRoadCode", UiTheme.RED,
           v -> runAction(RuntimeServiceManagerClient::stopCoreStack));
       startCoreButton.setEnabled(false);
       stopCoreButton.setEnabled(false);
-      coreRow.addView(startCoreButton, pairedButtonParams(false));
-      coreRow.addView(stopCoreButton, pairedButtonParams(true));
+      if (advanced) {
+        coreRow.addView(startCoreButton, pairedButtonParams(false));
+        coreRow.addView(stopCoreButton, pairedButtonParams(true));
+      } else {
+        coreRow.setOrientation(LinearLayout.VERTICAL);
+        coreRow.addView(startCoreButton, new LinearLayout.LayoutParams(-1, dp(52)));
+        LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(-1, dp(52));
+        stopParams.setMargins(0, dp(8), 0, 0);
+        coreRow.addView(stopCoreButton, stopParams);
+      }
       root.addView(coreRow);
     }
 
@@ -196,9 +204,9 @@ public final class TermuxServicesCard {
       RuntimeDevice device = settings.activeDevice();
       targetSummary.setText(device == null
           ? "Choose a device in Connection setup"
-          : "ORC on " + device.name());
+          : "OpenRoadCode on " + device.name());
     } else {
-      targetSummary.setText(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Target: Local Termux" : "ORC on this phone");
+      targetSummary.setText(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Target: Local Termux" : "OpenRoadCode on this phone");
     }
     if (showTargetControls) {
       UiTheme.setButtonColor(activity, termuxButton,
@@ -375,14 +383,14 @@ public final class TermuxServicesCard {
       } catch (Exception e) {
         activity.runOnUiThread(() -> {
           if (!polling.complete(generation) || !target.equals(targetKey())) return;
-          renderUnavailable(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? e.getMessage() : "Check Connection setup and make sure ORC is running.");
+          renderUnavailable(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? e.getMessage() : "Check Connection setup and make sure OpenRoadCode is running.");
         });
       }
     }, "orc-service-status").start();
   }
 
   private void render(JSONObject result, String targetLabel) {
-    managerStatus.setText("●  " + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? targetLabel + " connected" : "ORC connected"));
+    managerStatus.setText("●  " + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? targetLabel + " connected" : "OpenRoadCode connected"));
     managerStatus.setTextColor(UiTheme.GREEN);
     JSONArray services = result.optJSONArray("services");
     if (services == null) {
@@ -524,7 +532,7 @@ public final class TermuxServicesCard {
     String target = settings.target() == Target.REMOTE_PI
         ? (active == null ? "Remote" : active.name())
         : "Termux";
-    managerStatus.setText("●  " + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? target + " unavailable" : "ORC is not connected")
+    managerStatus.setText("●  " + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? target + " unavailable" : "OpenRoadCode is not connected")
         + (message == null || message.isBlank() ? "" : ": " + message));
     managerStatus.setTextColor(UiTheme.RED);
     for (TextView state : serviceStates.values()) {
@@ -556,7 +564,7 @@ public final class TermuxServicesCard {
       } catch (Exception e) {
         activity.runOnUiThread(() -> {
           if (!active || !target.equals(targetKey())) return;
-          String message = org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? e.getMessage() : "Could not complete this action. Check your ORC connection and try again.";
+          String message = org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? e.getMessage() : "Could not complete this action. Check your OpenRoadCode connection and try again.";
           managerStatus.setText("●  "
               + (message == null ? "Service request failed" : message));
           managerStatus.setTextColor(UiTheme.RED);

@@ -52,7 +52,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     private Thread simulatedThread;
     private long startedElapsedRealtimeMs;
     private boolean remoteAccessEnabled;
-    private ServiceProvider provider = ServiceProvider.ANDROID_SENSORS;
+    private volatile ServiceProvider provider = ServiceProvider.ANDROID_SENSORS;
 
     private final AtomicReference<Sample> sample = new AtomicReference<>(new Sample());
     private final AtomicReference<Location> location = new AtomicReference<>();
@@ -75,6 +75,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     @Override
     public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         diagnostic.start();
         try { initializeBridge(); }
         catch (RuntimeException error) {
@@ -85,6 +86,17 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     private final BridgeServiceLog diagnostic = BridgeLog.service(BridgeServiceLog.Service.SENSORS);
     private volatile boolean destroyed;
+    private volatile boolean navigationActive;
+    public static boolean isNavigationRunning() {
+        SensorBridgeService active = activeInstance;
+        return active != null && active.listening && active.navigationActive;
+    }
+    private static volatile SensorBridgeService activeInstance;
+    private volatile boolean listening;
+    public static boolean isListening() {
+        SensorBridgeService active = activeInstance;
+        return active != null && active.listening;
+    }
 
     private void initializeBridge() {
         remoteAccessEnabled = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
@@ -92,22 +104,10 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         provider = new ConfigRepository(this).sensorConfig().provider();
         startedElapsedRealtimeMs = SystemClock.elapsedRealtime();
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, buildNotification());
+        promoteForeground();
         networkStateMonitor = new NetworkStateMonitor(this);
 
-        if (provider == ServiceProvider.SIMULATED_DRIVE) {
-            diagnostic.record(BridgeServiceLog.Event.SIMULATION_SELECTED);
-            startSimulatedDrive();
-        } else {
-            sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-            registerSensor(Sensor.TYPE_ACCELEROMETER, SensorManager.SENSOR_DELAY_GAME);
-            registerSensor(Sensor.TYPE_LINEAR_ACCELERATION, SensorManager.SENSOR_DELAY_GAME);
-            registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
-            registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
-            registerSensor(Sensor.TYPE_PRESSURE, SensorManager.SENSOR_DELAY_NORMAL);
-            registerSensor(Sensor.TYPE_LIGHT, SensorManager.SENSOR_DELAY_NORMAL);
-            startLocationUpdates();
-        }
+        configureNavigation();
 
         serverThread = new Thread(this::runServer, "orc-sensor-http");
         serverThread.start();
@@ -229,11 +229,68 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         simulatedThread.start();
     }
 
-    @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (provider == ServiceProvider.ANDROID_SENSORS
-                && (locationManager == null || (hasLocationPermission() && location.get() == null))) {
+    private SensorActivityPlan activityPlan() {
+        ConfigRepository configuration = new ConfigRepository(this);
+        boolean physical = configuration.sensorConfig().provider() == ServiceProvider.ANDROID_SENSORS;
+        boolean permission = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        return SensorActivityPlan.of(configuration.sensorConfig().enabled(), configuration.environmentEnabled(), physical, permission);
+    }
+
+    private void promoteForeground() {
+        int type = activityPlan().location() ? android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION : 0;
+        if (android.os.Build.VERSION.SDK_INT >= 34)
+            type |= android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+        if (android.os.Build.VERSION.SDK_INT >= 29)
+            startForeground(NOTIFICATION_ID, buildNotification(), type);
+        else startForeground(NOTIFICATION_ID, buildNotification());
+    }
+
+    private void stopNavigation() {
+        navigationActive = false;
+        if (sensorManager != null) sensorManager.unregisterListener(this);
+        if (locationManager != null) {
+            try {
+                locationManager.removeUpdates(this);
+                locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
+            } catch (SecurityException ignored) { }
+        }
+        if (simulatedThread != null) {
+            simulatedThread.interrupt();
+            try { simulatedThread.join(250); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            simulatedThread = null;
+        }
+        location.set(null);
+        sample.set(new Sample());
+        locationProviderAvailable = false;
+        locationCount = 0;
+    }
+
+    private void configureNavigation() {
+        boolean requested = activityPlan().navigation();
+        ServiceProvider selected = new ConfigRepository(this).sensorConfig().provider();
+        if (navigationActive && requested && selected == provider) return;
+        stopNavigation();
+        provider = selected;
+        if (!requested) return;
+        navigationActive = true;
+        if (provider == ServiceProvider.SIMULATED_DRIVE) {
+            diagnostic.record(BridgeServiceLog.Event.SIMULATION_SELECTED);
+            startSimulatedDrive();
+        } else {
+            sensorManager = getSystemService(SensorManager.class);
+            registerSensor(Sensor.TYPE_ACCELEROMETER, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_LINEAR_ACCELERATION, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_GYROSCOPE, SensorManager.SENSOR_DELAY_GAME);
+            registerSensor(Sensor.TYPE_MAGNETIC_FIELD, SensorManager.SENSOR_DELAY_GAME);
             startLocationUpdates();
         }
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (!activityPlan().serve()) { stopSelf(); return START_NOT_STICKY; }
+        configureNavigation();
+        promoteForeground();
         return START_STICKY;
     }
 
@@ -243,22 +300,18 @@ public final class SensorBridgeService extends Service implements SensorEventLis
     @Override
     public void onDestroy() {
         destroyed = true;
+        listening = false;
         if (networkStateMonitor != null) networkStateMonitor.close();
-        if (sensorManager != null) sensorManager.unregisterListener(this);
-        if (locationManager != null) {
-            try {
-                locationManager.removeUpdates(this);
-                locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
-            } catch (SecurityException ignored) { }
-        }
-        if (simulatedThread != null) simulatedThread.interrupt();
+        stopNavigation();
         if (serverSocket != null) try { serverSocket.close(); } catch (IOException ignored) { }
         diagnostic.record(BridgeServiceLog.Event.STOPPED);
+        if (activeInstance == this) activeInstance = null;
         super.onDestroy();
     }
 
     @Override
     public void onLocationChanged(Location value) {
+        if (!navigationActive || provider != ServiceProvider.ANDROID_SENSORS) return;
         diagnostic.available(BridgeServiceLog.Condition.LOCATION_FIX, true);
         location.set(new Location(value));
         locationCount++;
@@ -280,6 +333,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+        if (!navigationActive) return;
         Sample next = sample.get().copy();
         switch (event.sensor.getType()) {
             case Sensor.TYPE_ACCELEROMETER:
@@ -316,6 +370,7 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String bindAddress = remoteAccessEnabled ? "0.0.0.0" : "127.0.0.1";
         try {
             serverSocket = new ServerSocket(PORT, 8, InetAddress.getByName(bindAddress));
+            listening = true;
             diagnostic.ready();
             while (!serverSocket.isClosed()) {
                 try {
@@ -330,6 +385,8 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             }
         } catch (IOException e) {
             if (!destroyed) diagnostic.failure(BridgeServiceLog.Event.SERVER_FAILED, e);
+        } finally {
+            listening = false;
         }
     }
 
@@ -390,18 +447,19 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("linear_acceleration_mps2", vector(current.lax, current.lay, current.laz));
             root.put("angular_velocity_rad_s", vector(current.gx, current.gy, current.gz));
             root.put("magnetic_field_uT", vector(current.mx, current.my, current.mz));
-            root.put("pressure_hpa", current.pressureHpa);
-            root.put("ambient_light_lux", current.ambientLightLux);
+            JSONObject environment = EnvironmentSensorService.sampleJson();
+            root.put("pressure_hpa", environment.optDouble("pressure_hpa"));
+            root.put("ambient_light_lux", environment.optDouble("ambient_light_lux"));
             root.put("accelerometer_timestamp_ns", current.accelTimestampNs);
             root.put("linear_acceleration_timestamp_ns", current.linearAccelTimestampNs);
             root.put("gyroscope_timestamp_ns", current.gyroTimestampNs);
             root.put("magnetometer_timestamp_ns", current.magTimestampNs);
-            root.put("pressure_timestamp_ns", current.pressureTimestampNs);
-            root.put("ambient_light_timestamp_ns", current.lightTimestampNs);
+            root.put("pressure_timestamp_ns", environment.optLong("pressure_timestamp_ns"));
+            root.put("ambient_light_timestamp_ns", environment.optLong("ambient_light_timestamp_ns"));
             root.put("linear_acceleration_available", current.hasLinearAccel);
             root.put("magnetometer_available", current.hasMag);
-            root.put("pressure_available", current.hasPressure);
-            root.put("ambient_light_available", current.hasLight);
+            root.put("pressure_available", environment.optBoolean("pressure_available"));
+            root.put("ambient_light_available", environment.optBoolean("ambient_light_available"));
             return root.toString();
         } catch (JSONException e) {
             return "{\"error\":\"failed to encode sensor sample\"}";
@@ -467,14 +525,15 @@ public final class SensorBridgeService extends Service implements SensorEventLis
             root.put("linear_acceleration_samples", current.linearAccelCount);
             root.put("gyroscope_samples", current.gyroCount);
             root.put("magnetometer_samples", current.magCount);
-            root.put("pressure_samples", current.pressureCount);
-            root.put("ambient_light_samples", current.lightCount);
+            JSONObject environment = EnvironmentSensorService.sampleJson();
+            root.put("pressure_samples", environment.optLong("pressure_samples"));
+            root.put("ambient_light_samples", environment.optLong("ambient_light_samples"));
             root.put("accelerometer_rate_hz", current.accelCount / uptimeSeconds);
             root.put("linear_acceleration_rate_hz", current.linearAccelCount / uptimeSeconds);
             root.put("gyroscope_rate_hz", current.gyroCount / uptimeSeconds);
             root.put("magnetometer_rate_hz", current.magCount / uptimeSeconds);
-            root.put("pressure_rate_hz", current.pressureCount / uptimeSeconds);
-            root.put("ambient_light_rate_hz", current.lightCount / uptimeSeconds);
+            root.put("pressure_rate_hz", environment.optDouble("pressure_rate_hz"));
+            root.put("ambient_light_rate_hz", environment.optDouble("ambient_light_rate_hz"));
             root.put("location_permission_granted", hasLocationPermission());
             root.put("location_provider_available", locationProviderAvailable);
             root.put("location_ready", currentLocation != null);

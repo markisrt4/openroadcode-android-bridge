@@ -17,6 +17,9 @@ public final class ConfigRepository {
         preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
     }
 
+    public boolean environmentEnabled() { return preferences.getBoolean("environment.enabled", false); }
+    public void setEnvironmentEnabled(boolean enabled) { preferences.edit().putBoolean("environment.enabled", enabled).apply(); }
+
     public ServiceConfig sensorConfig() {
         return load(SENSOR_ENABLED, SENSOR_PROVIDER, false, ServiceProvider.ANDROID_SENSORS);
     }

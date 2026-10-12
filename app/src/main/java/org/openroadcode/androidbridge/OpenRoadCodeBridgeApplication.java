@@ -16,6 +16,7 @@ public final class OpenRoadCodeBridgeApplication extends Application {
     public void onCreate() {
         super.onCreate();
         BridgeLog.initialize(this);
+        radioEnabled = getSharedPreferences("radio_bridge", MODE_PRIVATE).getBoolean("enabled", true);
         rtlSdrUsbManager = new RtlSdrUsbManager(this, state -> {
             radioState = state;
             String device = state.device == null ? "none" : state.deviceLabel();
@@ -31,7 +32,7 @@ public final class OpenRoadCodeBridgeApplication extends Application {
         });
 
         RtlSdrUsbManager.State state = rtlSdrUsbManager.refresh();
-        if (state.status == RtlSdrUsbManager.Status.DETECTED) {
+        if (radioEnabled && state.status == RtlSdrUsbManager.Status.DETECTED) {
             rtlSdrUsbManager.open();
         } else if (state.status == RtlSdrUsbManager.Status.OPEN && !proxyStarted) {
             startRtlSdrProxy();
@@ -42,11 +43,13 @@ public final class OpenRoadCodeBridgeApplication extends Application {
 
     public void startRadioBridge() {
         radioEnabled = true;
+        getSharedPreferences("radio_bridge", MODE_PRIVATE).edit().putBoolean("enabled", true).apply();
         rtlSdrUsbManager.open();
     }
 
     public void stopRadioBridge() {
         radioEnabled = false;
+        getSharedPreferences("radio_bridge", MODE_PRIVATE).edit().putBoolean("enabled", false).apply();
         stopService(new Intent(this, RtlSdrUsbProxyService.class));
         proxyStarted = false;
         rtlSdrUsbManager.disconnect();

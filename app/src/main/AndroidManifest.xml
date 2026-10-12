@@ -69,6 +69,12 @@
                 android:value="Local ORC host and SDR provider controls." />
         </service>
 
+        <service android:name=".EnvironmentSensorService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Provides phone light and pressure readings to OpenRoadCode independently of location sharing." />
+        </service>
+
         <service
             android:name=".SensorBridgeService"
             android:exported="false"

@@ -56,6 +56,12 @@ public final class BluetoothSppBridgeService extends Service {
     private final AtomicReference<IOException> bluetoothReaderFailure = new AtomicReference<>();
     private final Object clientLock = new Object();
     private final Object lifecycleLock = new Object();
+    private static volatile BluetoothSppBridgeService activeInstance;
+    private volatile String observedStatus = STATUS_STOPPED;
+    public static String observedStatus() {
+        BluetoothSppBridgeService active = activeInstance;
+        return active == null ? STATUS_STOPPED : active.observedStatus;
+    }
     private volatile boolean running;
     private volatile boolean errorReported;
     private Thread worker;
@@ -68,6 +74,7 @@ public final class BluetoothSppBridgeService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
                 CHANNEL_ID, "OpenRoadCode Bluetooth", NotificationManager.IMPORTANCE_LOW));
@@ -368,6 +375,7 @@ public final class BluetoothSppBridgeService extends Service {
     }
 
     private void reportStatus(String state, String message) {
+        observedStatus = state;
         Intent intent = new Intent(ACTION_STATUS);
         intent.setPackage(getPackageName());
         intent.putExtra(EXTRA_STATUS, state);
@@ -416,6 +424,7 @@ public final class BluetoothSppBridgeService extends Service {
         if (!errorReported) {
             reportStatus(STATUS_STOPPED, "Bluetooth bridge stopped");
         }
+        if (activeInstance == this) activeInstance = null;
         super.onDestroy();
         diagnostic.record(BridgeServiceLog.Event.STOPPED);
     }

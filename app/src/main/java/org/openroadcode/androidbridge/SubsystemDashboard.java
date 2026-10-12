@@ -12,6 +12,16 @@ import org.openroadcode.androidbridge.ui.FeatureIconView;
 /** Home navigation grouped around monitoring, phone hardware, and runtime controls. */
 final class SubsystemDashboard {
   interface Listener { void onSubsystemSelected(String subsystem); }
+  interface Controls {
+    FeatureState state(String subsystem);
+    void toggle(String subsystem, boolean enabled);
+  }
+  record FeatureState(boolean on, String status, String source) {}
+  private final Controls controls;
+  private final java.util.Map<String, android.widget.Switch> switches = new java.util.HashMap<>();
+  private final java.util.Map<String, TextView> statuses = new java.util.HashMap<>();
+  private final java.util.Map<String, TextView> sources = new java.util.HashMap<>();
+  private boolean binding;
   static final String AUTOMOTIVE = "automotive";
   static final String NAVIGATION = "navigation";
   static final String MEDIA = "media";
@@ -24,9 +34,10 @@ final class SubsystemDashboard {
   private final Context context;
   private final Listener listener;
 
-  SubsystemDashboard(Context context, Listener listener) {
+  SubsystemDashboard(Context context, Listener listener, Controls controls) {
     this.context = context;
     this.listener = listener;
+    this.controls = controls;
   }
 
   View view() {
@@ -34,14 +45,14 @@ final class SubsystemDashboard {
     boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(context);
     if (advanced) heading(root, "MANAGE");
     if (advanced) root.addView(link("Runtime", "Core stack and message broker", RUNTIME));
-    root.addView(link(advanced ? "Configuration" : "Connection setup", advanced ? "Paired computing units" : "Choose where ORC runs", CONFIGURATION));
+    root.addView(link(advanced ? "Configuration" : "Connection setup", advanced ? "Paired computing units" : "Choose where OpenRoadCode runs", CONFIGURATION));
     heading(root, "FEATURES");
     root.addView(row(
-        tile("⌖", "Navigation", advanced ? "GPS, sensors and service" : "Share your location", UiTheme.BLUE, NAVIGATION),
-        tile("🚗", advanced ? "Automotive" : "Vehicle", advanced ? "OBD, Bluetooth and service" : "Connect your car", UiTheme.GREEN, AUTOMOTIVE)));
+        tile("⌖", "Navigation", advanced ? "GPS, sensors and service" : "Phone location sharing", UiTheme.BLUE, NAVIGATION),
+        tile("🚗", advanced ? "Automotive" : "Vehicle", advanced ? "OBD, Bluetooth and service" : "Car connection", UiTheme.GREEN, AUTOMOTIVE)));
     root.addView(row(
-        tile("◉", "Radio", advanced ? "RTL-SDR and ADS-B" : "Connect a receiver", UiTheme.VIOLET, RADIO),
-        tile("▶", "Media", "Camera and audio", UiTheme.RED, MEDIA)));
+        tile("◉", "Radio", advanced ? "RTL-SDR and ADS-B" : "USB receiver", UiTheme.VIOLET, RADIO),
+        tile("▶", "Media", advanced ? "Camera and audio" : "Audio playback", UiTheme.RED, MEDIA)));
     root.addView(row(tile("☀", "Environment", "Light and pressure", UiTheme.AMBER, ENVIRONMENTAL), new View(context)));
     if (advanced) {
     heading(root, "MONITOR");
@@ -50,6 +61,24 @@ final class SubsystemDashboard {
         tile("≡", "Live logs", "Events, filters and sharing", UiTheme.GREEN, DIAGNOSTICS)));
     }
     return root;
+  }
+
+  void refresh() {
+    if (controls == null) return;
+    binding = true;
+    try {
+      for (String route : switches.keySet()) {
+        FeatureState state = controls.state(route);
+        android.widget.Switch toggle = switches.get(route);
+        toggle.setChecked(state.on());
+        toggle.setText(state.on() ? "On" : "Off");
+        toggle.setContentDescription(route + ", " + state.source() + ", " + state.status()
+            + ". " + (state.on() ? "Turn off" : "Turn on"));
+        sources.get(route).setText(state.source());
+        sources.get(route).setTextColor("Demo data".equals(state.source()) ? UiTheme.AMBER : UiTheme.BLUE);
+        statuses.get(route).setText(state.status());
+      }
+    } finally { binding = false; }
   }
 
   private void heading(LinearLayout root, String title) {
@@ -94,6 +123,30 @@ final class SubsystemDashboard {
     name.setPadding(0, dp(12), 0, dp(5));
     card.addView(name);
     card.addView(UiTheme.text(context, detail, 11, UiTheme.MUTED));
+    if (feature && controls != null && !org.openroadcode.androidbridge.config.UiModeSettings.advanced(context)) {
+      TextView source = UiTheme.text(context, "", 11, UiTheme.BLUE);
+      source.setPadding(dp(8), dp(4), dp(8), dp(4));
+      source.setBackground(UiTheme.rounded(context, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 8));
+      LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(-2, -2);
+      sourceParams.setMargins(0, dp(8), 0, dp(4));
+      source.setLayoutParams(sourceParams);
+      card.addView(source);
+      sources.put(route, source);
+      android.widget.Switch toggle = new android.widget.Switch(context);
+      toggle.setText("Off");
+      toggle.setTextColor(UiTheme.TEXT);
+      toggle.setMinHeight(dp(48));
+      toggle.setOnCheckedChangeListener((button, enabled) -> {
+        if (binding) return;
+        controls.toggle(route, enabled);
+        refresh();
+      });
+      card.addView(toggle, new LinearLayout.LayoutParams(-1, dp(48)));
+      switches.put(route, toggle);
+      TextView state = UiTheme.text(context, "", 11, UiTheme.MUTED);
+      card.addView(state);
+      statuses.put(route, state);
+    }
     navigate(card, title + ". " + detail, route);
     return card;
   }
