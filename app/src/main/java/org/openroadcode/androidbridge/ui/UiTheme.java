@@ -16,6 +16,7 @@ public final class UiTheme {
     public static final int DISABLED = Color.rgb(34, 43, 49);
     public static final int BORDER = Color.rgb(36, 64, 79);
     public static final int TEXT = Color.rgb(243, 247, 249);
+    public static final int DISABLED_TEXT = Color.rgb(96, 108, 118);
     public static final int MUTED = Color.rgb(147, 164, 174);
     public static final int SILVER = Color.rgb(184, 194, 200);
     public static final int BLUE = Color.rgb(22, 139, 209);
@@ -57,7 +58,7 @@ public final class UiTheme {
     public static android.content.res.ColorStateList buttonTextColors() {
         return new android.content.res.ColorStateList(
                 new int[][] {new int[] {-android.R.attr.state_enabled}, new int[0]},
-                new int[] {MUTED, TEXT});
+                new int[] {DISABLED_TEXT, TEXT});
     }
 
     public static Button actionButton(

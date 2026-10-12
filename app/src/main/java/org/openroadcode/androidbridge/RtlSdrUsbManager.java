@@ -46,6 +46,18 @@ public final class RtlSdrUsbManager implements AutoCloseable {
             this.fileDescriptor = fileDescriptor;
         }
 
+        public String friendlyName() {
+            if (device == null) return "USB receiver";
+            try {
+                String manufacturer = device.getManufacturerName();
+                String product = device.getProductName();
+                String name = ((manufacturer == null ? "" : manufacturer + " ")
+                        + (product == null ? "" : product)).trim();
+                if (!name.isEmpty()) return name;
+            } catch (SecurityException ignored) { }
+            return "USB receiver";
+        }
+
         public String deviceLabel() {
             if (device == null) return "No RTL-SDR detected";
             String manufacturer = null;
@@ -127,6 +139,11 @@ public final class RtlSdrUsbManager implements AutoCloseable {
             this.context.registerReceiver(permissionReceiver, filter);
         }
         receiverRegistered = true;
+    }
+
+    public boolean isAttached(UsbDevice device) {
+        return usbManager != null && device != null
+                && usbManager.getDeviceList().containsKey(device.getDeviceName());
     }
 
     public State refresh() {

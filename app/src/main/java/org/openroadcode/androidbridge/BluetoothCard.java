@@ -415,7 +415,13 @@ final class BluetoothCard {
 
   private void setStatus(String message, int color) {
     if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) {
-      if (color == GREEN) message = "Car adapter connected";
+      if (color == GREEN) {
+        String name = BluetoothSppBridgeService.connectedDeviceName();
+        if (!name.isBlank()) message = "Connected to " + name;
+        else if (serviceManager.vehicleConfig().provider() == ServiceProvider.SIMULATED_VEHICLE
+            && SimulatedVehicleBridgeService.STATUS_RUNNING.equals(SimulatedVehicleBridgeService.observedStatus()))
+          message = "Demo vehicle connected";
+      }
       else if (color == RED) message = "Could not connect. Check Bluetooth permission and the paired car adapter.";
     }
     status.setText("●  " + message);

@@ -64,7 +64,12 @@ sharing, stream settings, audio details, and log filters expand on demand.
 The master activity switch and text input are not implemented in this revision.
 
 Main includes the companion/SDR integration, SMS/contacts, Android host actions
-and simulation controls. The current candidate is **1.0.0-rc.4** (code 37).
+and simulation controls. The current candidate is **1.0.0-rc.5** (code 38).
+
+Unavailable action labels use a darker grey. Simple mode shows the confirmed
+connected computing-unit name (or this phone's device name), plus the connected
+car adapter and USB receiver names where available. Disconnected features retain
+their Off/unavailable messages rather than showing a stale connected name.
 See [Simple/Advanced integration review](docs/reviews/simple-advanced-integration.md)
 for branch coverage, and [subsystem switch review](docs/reviews/simple-subsystem-switches.md)
 for RC3 behavior and validation.

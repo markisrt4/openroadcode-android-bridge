@@ -58,6 +58,11 @@ public final class BluetoothSppBridgeService extends Service {
     private final Object lifecycleLock = new Object();
     private static volatile BluetoothSppBridgeService activeInstance;
     private volatile String observedStatus = STATUS_STOPPED;
+    private volatile String connectedName = "";
+    public static String connectedDeviceName() {
+        BluetoothSppBridgeService active = activeInstance;
+        return active != null && STATUS_CONNECTED.equals(active.observedStatus) ? active.connectedName : "";
+    }
     public static String observedStatus() {
         BluetoothSppBridgeService active = activeInstance;
         return active == null ? STATUS_STOPPED : active.observedStatus;
@@ -137,6 +142,7 @@ public final class BluetoothSppBridgeService extends Service {
             serverSocket = bindTcpServerWithRetry();
             startBluetoothReader(bluetoothSocket);
 
+            connectedName = deviceName;
             String connectedMessage = "Connected to " + deviceName + " • TCP 127.0.0.1:" + TCP_PORT;
             reportStatus(STATUS_CONNECTED, connectedMessage);
             updateNotification(connectedMessage);

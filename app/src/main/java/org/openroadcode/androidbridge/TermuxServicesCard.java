@@ -389,8 +389,17 @@ public final class TermuxServicesCard {
     }, "orc-service-status").start();
   }
 
+  private String connectedDeviceName(String targetLabel) {
+    if (settings.target() == Target.REMOTE_PI) return targetLabel;
+    String phoneName = null;
+    try { phoneName = android.provider.Settings.Global.getString(activity.getContentResolver(), "device_name"); }
+    catch (SecurityException ignored) { }
+    if (phoneName == null || phoneName.isBlank()) phoneName = android.os.Build.MODEL;
+    return phoneName == null || phoneName.isBlank() ? "this phone" : phoneName;
+  }
+
   private void render(JSONObject result, String targetLabel) {
-    managerStatus.setText("●  " + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? targetLabel + " connected" : "OpenRoadCode connected"));
+    managerStatus.setText("●  " + (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? targetLabel + " connected" : "Connected to " + connectedDeviceName(targetLabel)));
     managerStatus.setTextColor(UiTheme.GREEN);
     JSONArray services = result.optJSONArray("services");
     if (services == null) {

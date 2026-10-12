@@ -297,16 +297,19 @@ public final class MainActivity extends Activity {
             : BluetoothSppBridgeService.observedStatus();
         running = "running".equals(state) || "connected".equals(state);
         source = simulated ? "Demo data" : "Car adapter";
-        status = running ? "Connected" : "error".equals(state)
+        String connectedName = simulated ? "Demo vehicle" : BluetoothSppBridgeService.connectedDeviceName();
+        status = running ? (connectedName.isBlank() ? "Connected" : "Connected to " + connectedName) : "error".equals(state)
             ? "Connection failed. Open Vehicle for help." : "Off";
       }
       case SubsystemDashboard.RADIO -> {
         source = "USB receiver";
         RtlSdrUsbManager.State state = ((OpenRoadCodeBridgeApplication) getApplication()).radioState();
-        running = RtlSdrUsbProxyService.isListening() && state != null && state.status == RtlSdrUsbManager.Status.OPEN;
-        if (state != null && state.status == RtlSdrUsbManager.Status.PERMISSION_PENDING) request(route).waitingForPermission();
+        boolean attached = state != null && ((OpenRoadCodeBridgeApplication) getApplication()).getRtlSdrUsbManager().isAttached(state.device);
+        running = RtlSdrUsbProxyService.isListening() && attached && state.status == RtlSdrUsbManager.Status.OPEN;
+        if (!attached) request(route).fail("Attach a USB receiver");
+        else if (state.status == RtlSdrUsbManager.Status.PERMISSION_PENDING) request(route).waitingForPermission();
         if (state != null && state.status == RtlSdrUsbManager.Status.ERROR) request(route).fail(state.message);
-        status = running ? "Receiver connected" : state != null && state.status == RtlSdrUsbManager.Status.NOT_FOUND
+        status = running ? "Connected to " + state.friendlyName() : !attached
             ? "Attach a USB receiver" : "Off";
       }
       case SubsystemDashboard.MEDIA -> {
