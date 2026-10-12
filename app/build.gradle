@@ -22,7 +22,7 @@ if (!gitSha) {
     }
 }
 def shortGitSha = gitSha ? gitSha.take(7) : 'unknown'
-def baseVersion = '1.0.0-rc.6'
+def baseVersion = '1.0.0'
 def isTagBuild = System.getenv('GITHUB_REF_TYPE') == 'tag'
 
 // Private release credentials are supplied by the protected CI environment.
@@ -43,7 +43,7 @@ android {
         applicationId 'org.openroadcode.androidbridge'
         minSdk 26
         targetSdk 34
-        versionCode 39
+        versionCode 40
         versionName isTagBuild ? baseVersion : "${baseVersion}+${shortGitSha}"
         buildConfigField 'String', 'GIT_SHA', '"' + shortGitSha + '"'
         buildConfigField 'String', 'BASE_VERSION', '"' + baseVersion + '"'

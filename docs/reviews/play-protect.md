@@ -112,3 +112,11 @@ Official references checked on 2026-10-12:
 - https://developers.google.com/android/play-protect/warning-dev-guidance
 - https://support.google.com/googleplay/android-developer/contact/protectappeals
 - https://developer.android.com/studio/publish/app-signing
+
+## 1.0.0 distribution decision
+
+At the user's explicit request, 1.0.0 is an official GitHub release of the
+current development-signed/debug build to preserve RC update compatibility.
+Tag publication is now enabled for that explicitly labelled artifact, not a
+claim of private-key production signing. The private release workflow is manual
+only pending key provisioning. The Play Protect issue remains unresolved.

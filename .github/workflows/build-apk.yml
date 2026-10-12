@@ -100,3 +100,23 @@ jobs:
           name: openroadcode-apk-review-evidence
           path: apk-evidence/
           if-no-files-found: error
+
+      - name: Publish tagged companion release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          NAME="orc-companion-${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/$NAME"
+          cp -r apk-evidence dist/evidence
+          (cd dist && sha256sum "$NAME" > SHA256SUMS)
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/$NAME" dist/SHA256SUMS \
+            --verify-tag --title "ORC Companion $VERSION" \
+            --notes-file "docs/releases/$VERSION.md" --latest
+          (cd dist && zip -qr apk-review-evidence.zip evidence)
+          gh release upload "$GITHUB_REF_NAME" dist/apk-review-evidence.zip

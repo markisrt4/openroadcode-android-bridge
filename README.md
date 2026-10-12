@@ -64,7 +64,7 @@ sharing, stream settings, audio details, and log filters expand on demand.
 The master activity switch and text input are not implemented in this revision.
 
 Main includes the companion/SDR integration, SMS/contacts, Android host actions
-and simulation controls. The current candidate is **1.0.0-rc.6** (code 39).
+and simulation controls. The current release is **1.0.0** (code 40).
 
 Unavailable action labels use a darker grey. Simple mode shows the confirmed
 connected computing-unit name (or this phone's device name), plus the connected
@@ -279,7 +279,7 @@ The debug APK is produced under:
 app/build/outputs/apk/debug/
 ```
 
-Pushes to `main`, pull requests, and manual workflow runs build and validate the APK. Version tags run the separate private signing workflow; debug APKs are no longer published as releases. See [release signing and Play Protect review](docs/reviews/play-protect.md) for provisioning, update migration, and appeal evidence.
+Pushes to `main`, pull requests, and manual workflow runs build and validate the APK. Version tags publish the current development-signed APK and its review evidence as GitHub release assets. The separately dispatched private signing workflow remains available for a future signing migration. See [release signing and Play Protect review](docs/reviews/play-protect.md) for provisioning, update migration, and appeal evidence.
 
 ## OpenRoadCode integration
 
