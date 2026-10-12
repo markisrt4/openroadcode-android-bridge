@@ -30,12 +30,14 @@ public final class RemoteDeviceManagementCard {
     this.onChanged = onChanged;
     settings = new RuntimeServiceManagerSettings(activity);
     root = UiTheme.card(activity);
+    root.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE, UiTheme.BLUE, 14));
 
-    selectedDevice = UiTheme.text(activity, "", 12, UiTheme.MUTED);
+    selectedDevice = UiTheme.text(activity, "", 12, UiTheme.BLUE);
     selectedDevice.setPadding(0, 0, 0, dp(10));
     root.addView(selectedDevice);
 
     Button choose = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "CHOOSE PAIRED DEVICE" : "Choose OpenRoadCode device", v -> chooseDevice());
+    UiTheme.setButtonColor(activity, choose, UiTheme.BLUE);
     root.addView(choose, fullButtonParams());
 
     LinearLayout actions = new LinearLayout(activity);
@@ -43,6 +45,8 @@ public final class RemoteDeviceManagementCard {
     Button add = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "+ ADD DEVICE" : "Add device", v -> addDevice());
     Button edit = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "EDIT DEVICE" : "Edit", v -> editActiveDevice());
     Button delete = button(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "DELETE" : "Remove", v -> deleteActiveDevice());
+    add.setTextColor(UiTheme.GREEN);
+    delete.setTextColor(UiTheme.RED);
     actions.addView(add, rowButtonParams(false));
     actions.addView(edit, rowButtonParams(true));
     actions.addView(delete, rowButtonParams(true));
@@ -261,13 +265,13 @@ public final class RemoteDeviceManagementCard {
   }
 
   private LinearLayout.LayoutParams fullButtonParams() {
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(44));
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     params.setMargins(0, 0, 0, dp(8));
     return params;
   }
 
   private LinearLayout.LayoutParams rowButtonParams(boolean withLeftMargin) {
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
     if (withLeftMargin) params.setMargins(dp(5), 0, 0, 0);
     return params;
   }

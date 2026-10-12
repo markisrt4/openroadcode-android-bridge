@@ -64,7 +64,7 @@ sharing, stream settings, audio details, and log filters expand on demand.
 The master activity switch and text input are not implemented in this revision.
 
 Main includes the companion/SDR integration, SMS/contacts, Android host actions
-and simulation controls. The current candidate is **1.0.0-rc.5** (code 38).
+and simulation controls. The current candidate is **1.0.0-rc.6** (code 39).
 
 Unavailable action labels use a darker grey. Simple mode shows the confirmed
 connected computing-unit name (or this phone's device name), plus the connected

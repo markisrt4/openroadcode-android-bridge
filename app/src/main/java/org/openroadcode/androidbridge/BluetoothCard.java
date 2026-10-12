@@ -188,7 +188,8 @@ final class BluetoothCard {
     refreshButton = actionButton(advanced ? "REFRESH" : "Find devices", BLUE, ignored -> ensurePermissionAndLoad());
     startButton = actionButton(advanced ? "START" : "Connect", BLUE, ignored -> startBridge());
     stopButton = actionButton(advanced ? "STOP" : "Disconnect", SURFACE_RAISED, ignored -> stopBridge());
-    view.addView(buttonRow(refreshButton, startButton, stopButton));
+    view.addView(buttonRow(refreshButton));
+    view.addView(buttonRow(startButton, stopButton));
 
     TextView hint = text("TCP endpoint  127.0.0.1:" + BluetoothSppBridgeService.TCP_PORT,
         12, MUTED);
@@ -434,7 +435,9 @@ final class BluetoothCard {
     button.setTextColor(org.openroadcode.androidbridge.ui.UiTheme.buttonTextColors());
     button.setTextSize(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? 11 : 13);
     button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    button.setLetterSpacing(.08f);
+    button.setLetterSpacing(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? .08f : 0);
+    button.setMinHeight(dp(48));
+    button.setPadding(dp(8), dp(10), dp(8), dp(10));
     button.setAllCaps(false);
     setButtonColor(button, color);
     button.setOnClickListener(listener);
@@ -447,7 +450,7 @@ final class BluetoothCard {
     row.setGravity(Gravity.CENTER);
     row.setPadding(0, dp(8), 0, 0);
     for (Button button : buttons) {
-      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1);
+      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
       params.setMargins(dp(3), 0, dp(3), 0);
       row.addView(button, params);
     }
