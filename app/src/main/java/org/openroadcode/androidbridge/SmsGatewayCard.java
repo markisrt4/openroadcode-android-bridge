@@ -42,7 +42,7 @@ public final class SmsGatewayCard {
     root.addView(permissionFeedback);
     root.addView(UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Enable SMS gateway" : "Enable messages", UiTheme.BLUE,
         v -> enable()));
-    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
+    root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
         v -> requestContactsPermission()));
     if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Request SMS sending permission", UiTheme.SURFACE_RAISED,
         v -> requestSendPermission()));
