@@ -103,7 +103,10 @@ final class CameraCard {
     view.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
         "Stream settings & details", "Network interface, endpoint and frame statistics",
         UiTheme.SILVER, streamSettings, false).view());
-    updateButtons(false, false);
+    String currentState = CameraStreamService.observedState();
+    requestedRunning = "starting".equals(currentState) || "streaming".equals(currentState);
+    updateButtons(requestedRunning, "streaming".equals(currentState));
+    if (requestedRunning) setStatus("streaming".equals(currentState) ? "Camera sharing on" : "Camera starting…", UiTheme.BLUE);
   }
 
   View view() { return view; }
