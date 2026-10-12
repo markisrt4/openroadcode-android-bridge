@@ -386,6 +386,8 @@ final class BluetoothCard {
     startButton.setText(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)
         ? (running ? (connected ? "RUNNING" : pending) : idle)
         : (running ? (connected ? "Connected" : "Connecting…") : "Connect"));
+    startButton.setEnabled(!running);
+    stopButton.setEnabled(running);
     setButtonColor(startButton, running ? SURFACE_RAISED : BLUE);
     setButtonColor(stopButton, running ? RED : SURFACE_RAISED);
   }
@@ -423,7 +425,7 @@ final class BluetoothCard {
   private Button actionButton(String label, int color, View.OnClickListener listener) {
     Button button = new Button(activity);
     button.setText(label);
-    button.setTextColor(TEXT);
+    button.setTextColor(org.openroadcode.androidbridge.ui.UiTheme.buttonTextColors());
     button.setTextSize(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? 11 : 13);
     button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     button.setLetterSpacing(.08f);

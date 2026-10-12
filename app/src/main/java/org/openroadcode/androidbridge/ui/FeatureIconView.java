@@ -49,9 +49,17 @@ public final class FeatureIconView extends View {
         canvas.drawArc(2, 2, 30, 30, 125, 110, false, paint);
       }
       case "media" -> {
-        canvas.drawRoundRect(3, 5, 29, 27, 4, 4, paint);
-        canvas.drawLine(13, 11, 22, 16, paint); canvas.drawLine(22, 16, 13, 21, paint);
-        canvas.drawLine(13, 21, 13, 11, paint);
+        canvas.drawLine(8, 12, 8, 26, paint);
+        canvas.drawLine(8, 12, 24, 8, paint);
+        canvas.drawLine(24, 8, 24, 22, paint);
+        canvas.drawOval(3, 22, 8, 28, paint);
+        canvas.drawOval(19, 18, 24, 24, paint);
+      }
+      case "video" -> {
+        canvas.drawRoundRect(3, 8, 22, 25, 3, 3, paint);
+        canvas.drawLine(22, 13, 29, 9, paint);
+        canvas.drawLine(29, 9, 29, 24, paint);
+        canvas.drawLine(29, 24, 22, 20, paint);
       }
       case "environmental" -> {
         canvas.drawCircle(16, 16, 6, paint);

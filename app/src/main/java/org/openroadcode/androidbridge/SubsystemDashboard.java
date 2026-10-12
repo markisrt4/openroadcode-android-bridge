@@ -25,6 +25,7 @@ final class SubsystemDashboard {
   static final String AUTOMOTIVE = "automotive";
   static final String NAVIGATION = "navigation";
   static final String MEDIA = "media";
+  static final String VIDEO = "video";
   static final String RADIO = "radio";
   static final String ENVIRONMENTAL = "environmental";
   static final String RUNTIME = "runtime";
@@ -52,8 +53,10 @@ final class SubsystemDashboard {
         tile("🚗", advanced ? "Automotive" : "Vehicle", advanced ? "OBD, Bluetooth and service" : "Car connection", UiTheme.GREEN, AUTOMOTIVE)));
     root.addView(row(
         tile("◉", "Radio", advanced ? "RTL-SDR and ADS-B" : "USB receiver", UiTheme.VIOLET, RADIO),
-        tile("▶", "Media", advanced ? "Camera and audio" : "Audio playback", UiTheme.RED, MEDIA)));
-    root.addView(row(tile("☀", "Environment", "Light and pressure", UiTheme.AMBER, ENVIRONMENTAL), new View(context)));
+        tile("▶", "Media", advanced ? "Audio capture and playback" : "Audio playback", UiTheme.RED, MEDIA)));
+    root.addView(row(
+        tile("▣", "Video", "Camera sharing", UiTheme.RED, VIDEO),
+        tile("☀", "Environment", "Light and pressure", UiTheme.AMBER, ENVIRONMENTAL)));
     if (advanced) {
     heading(root, "MONITOR");
     root.addView(row(

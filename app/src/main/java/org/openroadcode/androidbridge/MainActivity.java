@@ -71,6 +71,8 @@ public final class MainActivity extends Activity {
 
   private static final int LOCATION_PERMISSION_REQUEST = 1001;
   private static final int HOME_BLUETOOTH_PERMISSION_REQUEST = 1090;
+  private static final int HOME_VIDEO_PERMISSION_REQUEST = 1091;
+  private boolean homeVideoRequested;
   private SubsystemDashboard subsystemDashboard;
   private final java.util.Map<String, SubsystemSwitchState> subsystemRequests = new java.util.HashMap<>();
   private static final long DASHBOARD_PERIOD_MS = 500;
@@ -312,6 +314,12 @@ public final class MainActivity extends Activity {
         source = "Phone audio";
         status = running ? (PcmAudioOutputService.isClientConnected() ? "Playing audio" : "Ready to play audio") : "Off";
       }
+      case SubsystemDashboard.VIDEO -> {
+        String state = CameraStreamService.observedState();
+        running = "streaming".equals(state);
+        source = "Phone camera";
+        status = running ? "Camera sharing on" : "error".equals(state) ? "Camera could not start. Open Video for help." : "Off";
+      }
       case SubsystemDashboard.ENVIRONMENTAL -> {
         running = EnvironmentSensorService.isRunning();
         if (!EnvironmentSensorService.lastError().isEmpty()) request(route).fail(EnvironmentSensorService.lastError());
@@ -359,8 +367,15 @@ public final class MainActivity extends Activity {
           else {
             stopService(new Intent(this, PcmAudioOutputService.class));
             stopService(new Intent(this, PlaybackAudioService.class));
-            stopService(new Intent(this, CameraStreamService.class));
           }
+        }
+        case SubsystemDashboard.VIDEO -> {
+          homeVideoRequested = enabled;
+          if (!enabled) stopService(new Intent(this, CameraStreamService.class));
+          else if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            request(route).waitingForPermission();
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, HOME_VIDEO_PERMISSION_REQUEST);
+          } else startForegroundService(new Intent(this, CameraStreamService.class));
         }
         case SubsystemDashboard.ENVIRONMENTAL -> {
           org.openroadcode.androidbridge.config.ConfigRepository configuration = new org.openroadcode.androidbridge.config.ConfigRepository(this);
@@ -370,6 +385,7 @@ public final class MainActivity extends Activity {
         }
       }
     } catch (RuntimeException error) {
+      if (SubsystemDashboard.VIDEO.equals(route)) homeVideoRequested = false;
       request(route).fail("Could not change this feature. Open it for help.");
     }
   }
@@ -406,6 +422,7 @@ public final class MainActivity extends Activity {
       case SubsystemDashboard.AUTOMOTIVE -> showAutomotive();
       case SubsystemDashboard.NAVIGATION -> showNavigation();
       case SubsystemDashboard.MEDIA -> showMedia();
+      case SubsystemDashboard.VIDEO -> showVideo();
       case SubsystemDashboard.RADIO -> showRadio();
       case SubsystemDashboard.ENVIRONMENTAL -> showEnvironmental();
       case SubsystemDashboard.RUNTIME -> showRuntime();
@@ -469,12 +486,14 @@ public final class MainActivity extends Activity {
     addSimulation(SubsystemDashboard.ENVIRONMENTAL, GREEN);
   }
 
-  private void showMedia() {
-    addSubsystemHeader("◉", "Media", "Camera, playback capture and audio output", RED);
-
+  private void showVideo() {
+    addSubsystemHeader("▣", "Video", "Camera sharing from this phone", RED);
     cameraCard = new CameraCard(this);
-    addServiceCard(content, "CAMERA",
-        "Video capture and stream", RED, cameraCard.view(), true, false);
+    addServiceCard(content, "CAMERA", "Video capture and stream", RED, cameraCard.view(), true, false);
+  }
+
+  private void showMedia() {
+    addSubsystemHeader("◉", "Media", "Audio capture and playback", BLUE);
 
     playbackAudioCard = new PlaybackAudioCard(this);
     addServiceCard(content, "PLAYBACK AUDIO CAPTURE",
@@ -982,6 +1001,21 @@ public final class MainActivity extends Activity {
         && bluetoothCard.onRequestPermissionsResult(requestCode, grants)) return;
     if (cameraCard != null
         && cameraCard.onRequestPermissionsResult(requestCode, grants)) return;
+    if (requestCode == HOME_VIDEO_PERMISSION_REQUEST) {
+      if (!homeVideoRequested) return;
+      request(SubsystemDashboard.VIDEO).resume(android.os.SystemClock.elapsedRealtime());
+      if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+        try { startForegroundService(new Intent(this, CameraStreamService.class)); }
+        catch (RuntimeException error) {
+          homeVideoRequested = false;
+          request(SubsystemDashboard.VIDEO).fail("Could not start camera sharing.");
+        }
+      } else {
+        homeVideoRequested = false;
+        request(SubsystemDashboard.VIDEO).fail("Camera permission was denied.");
+      }
+      return;
+    }
     if (requestCode == HOME_BLUETOOTH_PERMISSION_REQUEST) {
       if (!serviceManager.vehicleRequested()) return;
       request(SubsystemDashboard.AUTOMOTIVE).resume(android.os.SystemClock.elapsedRealtime());

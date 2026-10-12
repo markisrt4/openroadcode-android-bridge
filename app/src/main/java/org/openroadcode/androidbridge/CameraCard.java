@@ -103,6 +103,7 @@ final class CameraCard {
     view.addView(new org.openroadcode.androidbridge.ui.ExpandableCard(activity,
         "Stream settings & details", "Network interface, endpoint and frame statistics",
         UiTheme.SILVER, streamSettings, false).view());
+    updateButtons(false, false);
   }
 
   View view() { return view; }

@@ -85,6 +85,9 @@ public final class CameraStreamService extends Service {
     private OutputStream videoOutput;
     private MpegTsMuxer videoMuxer;
     private volatile String state = "stopped";
+    public static String observedState() {
+        synchronized (PREVIEW_LOCK) { return activeInstance == null ? "stopped" : activeInstance.state; }
+    }
     private volatile String errorMessage = "";
     private volatile String cameraId = "";
     private volatile long encodedFrames;

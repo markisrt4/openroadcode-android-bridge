@@ -54,11 +54,17 @@ public final class UiTheme {
         return text;
     }
 
+    public static android.content.res.ColorStateList buttonTextColors() {
+        return new android.content.res.ColorStateList(
+                new int[][] {new int[] {-android.R.attr.state_enabled}, new int[0]},
+                new int[] {MUTED, TEXT});
+    }
+
     public static Button actionButton(
             Context context, String label, int color, View.OnClickListener listener) {
         Button button = new Button(context);
         button.setText(label);
-        button.setTextColor(TEXT);
+        button.setTextColor(buttonTextColors());
         boolean advanced = org.openroadcode.androidbridge.config.UiModeSettings.advanced(context);
         button.setTextSize(advanced ? 11 : 14);
         button.setMinHeight(dp(context, 48));

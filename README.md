@@ -14,9 +14,9 @@ restarts. Switching modes changes presentation only; services, saved sources,
 paired devices and Android permissions retain their state.
 
 Simple-mode feature cards have **On/Off switches** for phone location sharing,
-the saved car connection, the USB radio receiver, audio playback, and light/pressure
+the saved car connection, the USB radio receiver, audio playback, camera sharing, and light/pressure
 readings. Source badges identify **Phone sensors**, **Car adapter**, **USB receiver**,
-**Phone audio**, or **Demo data**. Change sources in Advanced mode; these switches
+**Phone audio**, **Phone camera**, or **Demo data**. Change sources in Advanced mode; these switches
 preserve the saved choice. Tap the card itself to open its full screen. Switches
 show starting/stopping and permission waits, then follow observed activity. Radio
 Off is saved across app restarts.
@@ -25,8 +25,10 @@ Environment has its own sensor activity, so it can run without GPS permission
 and either Environment or Navigation can stop without stopping the other. Both
 use the existing sensor HTTP endpoint; light/pressure fields stay available when
 Environment runs alone, with location/motion unavailable while Navigation is off.
-The Media switch turns on audio playback; turning it off also stops camera/audio
-sharing. Camera and capture permission controls remain on the Media screen.
+The Media switch turns on audio playback; turning it off also stops audio capture.
+Video has a separate card, switch and camera screen. Its permission prompt honors
+cancellation, and stopping Media does not stop Video. Camera controls are on Video;
+playback capture controls remain on Media. Unavailable Start/Stop labels are grey.
 
 Simple mode keeps the main phone, vehicle, receiver, camera and audio actions.
 Existing simulated sources are identified as demos. SMS remains optional and
@@ -42,7 +44,8 @@ accent colors and group the controls with their data:
 - Navigation: navigation service start/stop, input source, GPS/motion, sensor sharing.
 - Automotive: automotive service start/stop, input source, Bluetooth/OBD.
 - Radio: local RTL-SDR USB connect/disconnect, expandable receiver diagnostics, and the selected runtime's ADS-B service.
-- Media: camera, playback capture, and PCM audio output through Android speakers/Bluetooth.
+- Media: playback capture and PCM audio output through Android speakers/Bluetooth.
+- Video: camera capture, preview and sharing.
 - Environment: ambient light and pressure.
 
 Runtime owns computing-unit selection, the message broker, and whole-core-stack
@@ -61,7 +64,7 @@ sharing, stream settings, audio details, and log filters expand on demand.
 The master activity switch and text input are not implemented in this revision.
 
 Main includes the companion/SDR integration, SMS/contacts, Android host actions
-and simulation controls. The current candidate is **1.0.0-rc.3** (code 36).
+and simulation controls. The current candidate is **1.0.0-rc.4** (code 37).
 See [Simple/Advanced integration review](docs/reviews/simple-advanced-integration.md)
 for branch coverage, and [subsystem switch review](docs/reviews/simple-subsystem-switches.md)
 for RC3 behavior and validation.

@@ -175,8 +175,6 @@ final class PlaybackAudioCard {
     UiTheme.setButtonColor(activity, start, start.isEnabled() ? UiTheme.BLUE : UiTheme.DISABLED);
     UiTheme.setButtonColor(activity, stop,
         running ? UiTheme.RED : stop.isEnabled() ? UiTheme.SURFACE_RAISED : UiTheme.DISABLED);
-    start.setTextColor(start.isEnabled() ? UiTheme.TEXT : UiTheme.MUTED);
-    stop.setTextColor(stop.isEnabled() ? UiTheme.TEXT : UiTheme.MUTED);
   }
 
   private void updateLevel(double db) {
