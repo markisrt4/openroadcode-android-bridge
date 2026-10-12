@@ -1,0 +1,75 @@
+name: Build signed release APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: android-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build with private signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ORC_RELEASE_KEYSTORE_BASE64 }}
+          ORC_RELEASE_STORE_PASSWORD: ${{ secrets.ORC_RELEASE_STORE_PASSWORD }}
+          ORC_RELEASE_KEY_ALIAS: ${{ secrets.ORC_RELEASE_KEY_ALIAS }}
+          ORC_RELEASE_KEY_PASSWORD: ${{ secrets.ORC_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_BASE64:?Release keystore secret is required}"
+          : "${ORC_RELEASE_STORE_PASSWORD:?Store password is required}"
+          : "${ORC_RELEASE_KEY_ALIAS:?Key alias is required}"
+          : "${ORC_RELEASE_KEY_PASSWORD:?Key password is required}"
+          export ORC_RELEASE_KEYSTORE="$RUNNER_TEMP/orc-release.jks"
+          trap 'rm -f "$ORC_RELEASE_KEYSTORE"' EXIT
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$ORC_RELEASE_KEYSTORE"
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+            BASE_VERSION="$(sed -nE "s/^[[:space:]]*def baseVersion = '([^']+)'.*/\1/p" app/build.gradle)"
+            test "$GITHUB_REF_NAME" = "v$BASE_VERSION"
+          fi
+          gradle --no-daemon testReleaseUnitTest assembleRelease
+      - name: Verify release identity and collect review evidence
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: ${{ vars.ORC_RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          : "${EXPECTED_CERT_SHA256:?Release certificate fingerprint is required}"
+          TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          export PATH="$TOOLS:$PATH"
+          APK="app/build/outputs/apk/release/app-release.apk"
+          bash development/release/apk_evidence.sh "$APK" dist/evidence
+          BADGING="$(aapt dump badging "$APK")"
+          grep -q "package: name='org.openroadcode.androidbridge'" <<< "$BADGING"
+          if grep -q 'application-debuggable' <<< "$BADGING"; then
+            echo 'Refusing debuggable release APK' >&2
+            exit 1
+          fi
+          ACTUAL="$(sed -nE 's/^Signer #1 certificate SHA-256 digest: (.*)/\1/p' dist/evidence/signature.txt)"
+          test "${ACTUAL,,}" = "${EXPECTED_CERT_SHA256,,}"
+          if [[ "${ACTUAL,,}" == 6a52dae7856a73c9de822b263c23694888e3654b04a8cf8c44d00e461144a509 ]]; then
+            echo 'Refusing public development certificate for release' >&2
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" dist/orc-companion-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orc-companion-private-release
+          path: dist/
+          if-no-files-found: error

@@ -279,7 +279,7 @@ The debug APK is produced under:
 app/build/outputs/apk/debug/
 ```
 
-Pushes to `main`, pull requests, and manual workflow runs build and validate the APK. Version tags also create a GitHub release after verifying that the tag matches the Gradle version.
+Pushes to `main`, pull requests, and manual workflow runs build and validate the APK. Version tags run the separate private signing workflow; debug APKs are no longer published as releases. See [release signing and Play Protect review](docs/reviews/play-protect.md) for provisioning, update migration, and appeal evidence.
 
 ## OpenRoadCode integration
 

@@ -25,6 +25,16 @@ def shortGitSha = gitSha ? gitSha.take(7) : 'unknown'
 def baseVersion = '1.0.0-rc.6'
 def isTagBuild = System.getenv('GITHUB_REF_TYPE') == 'tag'
 
+// Private release credentials are supplied by the protected CI environment.
+def releaseValues = ['ORC_RELEASE_KEYSTORE', 'ORC_RELEASE_STORE_PASSWORD',
+                     'ORC_RELEASE_KEY_ALIAS', 'ORC_RELEASE_KEY_PASSWORD']
+        .collectEntries { [(it): System.getenv(it)] }
+def hasReleaseSigning = releaseValues.values().every { it != null && !it.isBlank() }
+if (releaseValues.values().any { it != null && !it.isBlank() } && !hasReleaseSigning) {
+    throw new GradleException('Incomplete ORC release signing configuration')
+}
+
+
 android {
     namespace 'org.openroadcode.androidbridge'
     compileSdk 34
@@ -40,6 +50,14 @@ android {
     }
 
     signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseValues.ORC_RELEASE_KEYSTORE)
+                storePassword releaseValues.ORC_RELEASE_STORE_PASSWORD
+                keyAlias releaseValues.ORC_RELEASE_KEY_ALIAS
+                keyPassword releaseValues.ORC_RELEASE_KEY_PASSWORD
+            }
+        }
         debug {
             storeFile developmentKey
             storePassword 'android'
@@ -49,6 +67,10 @@ android {
     }
 
     buildTypes {
+        release {
+            debuggable false
+            if (hasReleaseSigning) signingConfig signingConfigs.release
+        }
         debug {
             signingConfig signingConfigs.debug
         }
