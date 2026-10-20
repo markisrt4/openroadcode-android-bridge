@@ -580,6 +580,8 @@ public final class MainActivity extends Activity {
   private void simulateScenario(String subsystem, String scenario) {
     if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
       InjectionState.setEnvironmentalRadarScenario(this, scenario);
+    } else if (SubsystemDashboard.AUTOMOTIVE.equals(subsystem)) {
+      InjectionState.setAutomotiveFaultScenario(this, scenario);
     }
     android.widget.Toast.makeText(
         this, subsystem.toUpperCase(java.util.Locale.ROOT) + " • " + scenario,
