@@ -37,6 +37,9 @@ final class SubsystemInjectorCard {
     root.addView(note);
 
     LinearLayout actions = new LinearLayout(context);
+    if (SubsystemDashboard.AUTOMOTIVE.equals(subsystem)) {
+      actions.setOrientation(LinearLayout.VERTICAL);
+    }
     actions.setGravity(Gravity.CENTER_VERTICAL);
     for (String scenario : scenarios()) {
       Button button = UiTheme.actionButton(context, scenario, UiTheme.SURFACE_RAISED,
@@ -45,7 +48,9 @@ final class SubsystemInjectorCard {
             updateSelection(actions, scenario);
           });
       button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
+      LinearLayout.LayoutParams params = SubsystemDashboard.AUTOMOTIVE.equals(subsystem)
+          ? new LinearLayout.LayoutParams(-1, dp(44))
+          : new LinearLayout.LayoutParams(0, dp(44), 1);
       params.setMargins(dp(2), 0, dp(2), 0);
       button.setTag(scenario);
       actions.addView(button, params);
@@ -59,12 +64,18 @@ final class SubsystemInjectorCard {
     if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
       return "Weather simulation • select a deterministic radar scenario";
     }
+    if (SubsystemDashboard.AUTOMOTIVE.equals(subsystem)) {
+      return "SIMULATED ECU ONLY • fault injection does not affect real vehicles";
+    }
     return "Development simulation • simulated values replace live input";
   }
 
   private String currentScenario() {
     if (SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)) {
       return InjectionState.environmentalRadarScenario(context);
+    }
+    if (SubsystemDashboard.AUTOMOTIVE.equals(subsystem)) {
+      return InjectionState.automotiveFaultScenario(context);
     }
     return "";
   }
@@ -81,7 +92,7 @@ final class SubsystemInjectorCard {
   private String[] scenarios() {
     return switch (subsystem) {
       case SubsystemDashboard.AUTOMOTIVE ->
-          new String[] {"IDLE", "CRUISE", "BOOST"};
+          new String[] {"OFF", "P0300", "P0171", "P0420", "P0455", "PENDING", "PERMANENT", "NOT_READY"};
       case SubsystemDashboard.NAVIGATION ->
           new String[] {"STOPPED", "DRIVE", "TURN"};
       case SubsystemDashboard.ENVIRONMENTAL ->
