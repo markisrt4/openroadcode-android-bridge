@@ -81,7 +81,17 @@ public final class RtlSdrUsbProxyService extends Service {
     private ServerSocket serverSocket;
     private final Set<Socket> activeClients = ConcurrentHashMap.newKeySet();
     private final Object usbLock = new Object();
-    private final Map<Integer, Integer> interfaceClaimCounts = new HashMap<>();
+    private final RtlSdrInterfaceClaims interfaceClaims = new RtlSdrInterfaceClaims();
+
+    private static final class InterfaceClaim {
+        final UsbDeviceConnection connection;
+        final UsbInterface usbInterface;
+
+        InterfaceClaim(UsbDeviceConnection connection, UsbInterface usbInterface) {
+            this.connection = connection;
+            this.usbInterface = usbInterface;
+        }
+    }
     private volatile String lastStreamStatus = "No RTL-SDR stream has ended yet";
     private final java.util.concurrent.atomic.AtomicLong controlRequests = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong controlFirstAttemptSuccesses = new java.util.concurrent.atomic.AtomicLong();
@@ -175,7 +185,7 @@ public final class RtlSdrUsbProxyService extends Service {
         socket.setTcpNoDelay(true);
         DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), 64 * 1024));
         DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), 64 * 1024));
-        Map<Integer, UsbInterface> claimed = new HashMap<>();
+        Map<Integer, InterfaceClaim> claimed = new HashMap<>();
 
         try {
             while (running) {
@@ -212,8 +222,8 @@ public final class RtlSdrUsbProxyService extends Service {
                         handleBulkTransfer(in, out, connection, device);
                         break;
                     case OP_STREAM_BULK_IN:
-                        handleBulkInStream(in, out, connection, device);
-                        break;
+                        handleBulkInStream(socket, in, out, connection, device);
+                        return; // A stream socket never becomes a command socket again.
                     case OP_STREAM_STOP:
                         writeError(out, "RTL-SDR stream is not active");
                         break;
@@ -233,32 +243,26 @@ public final class RtlSdrUsbProxyService extends Service {
                 }
             }
         } finally {
-            for (UsbInterface usbInterface : claimed.values()) {
+            for (InterfaceClaim claim : claimed.values()) {
                 try {
-                    UsbDeviceConnection connection = connectionOrNull(manager);
-                    if (connection != null) releaseSharedInterface(connection, usbInterface);
+                    releaseSharedInterface(claim.connection, claim.usbInterface);
                 } catch (Exception ignored) { }
             }
         }
     }
 
     private void handleReset(DataOutputStream out, RtlSdrUsbManager manager,
-                             Map<Integer, UsbInterface> claimed) throws IOException {
-        UsbDeviceConnection connection = manager.getConnection();
-        if (connection != null) {
-            for (UsbInterface usbInterface : claimed.values()) {
-                try { connection.releaseInterface(usbInterface); } catch (Exception ignored) { }
-            }
-        }
+                             Map<Integer, InterfaceClaim> claimed) throws IOException {
         claimed.clear();
 
-        // Android's public UsbDeviceConnection API has no resetDevice().
-        // Reopen the device instead, which gives the proxy a fresh connection
-        // without relying on hidden/private Android USB APIs.
-        manager.disconnect();
-        synchronized (usbLock) { interfaceClaimCounts.clear(); }
-        manager.refresh();
-        manager.open();
+        // Android exposes no public resetDevice(). Retire the old connection's
+        // accounting before reopening; other clients may still hold old claims.
+        synchronized (usbLock) {
+            interfaceClaims.clear();
+            manager.disconnect();
+            manager.refresh();
+            manager.open();
+        }
         UsbDeviceConnection reopened;
         try {
             reopened = waitForConnection(manager);
@@ -296,7 +300,7 @@ public final class RtlSdrUsbProxyService extends Service {
 
     private void handleClaim(DataInputStream in, DataOutputStream out,
                              UsbDeviceConnection connection, UsbDevice device,
-                             Map<Integer, UsbInterface> claimed) throws IOException {
+                             Map<Integer, InterfaceClaim> claimed) throws IOException {
         int interfaceId = in.readInt();
         boolean force = in.readBoolean();
         UsbInterface iface = findInterface(device, interfaceId);
@@ -306,7 +310,18 @@ public final class RtlSdrUsbProxyService extends Service {
         }
         boolean ok;
         synchronized (usbLock) {
-            int count = interfaceClaimCounts.getOrDefault(interfaceId, 0);
+            // A connection captured before reopen must not claim on the retired handle.
+            if (connection != getUsbManager().getConnection()) {
+                writeError(out, "RTL-SDR USB connection changed; retry claim");
+                return;
+            }
+            interfaceClaims.useConnection(connection);
+            InterfaceClaim previous = claimed.get(interfaceId);
+            if (previous != null && previous.connection == connection) {
+                writeResult(out, RESULT_OK, null);
+                return;
+            }
+            int count = interfaceClaims.count(interfaceId);
             // Android's UsbDeviceConnection owns the claim, not the TCP client.
             // Multiple ORCU clients share that single Android-side claim. Re-claiming
             // the same interface for the stream socket can disturb endpoint state on
@@ -319,8 +334,8 @@ public final class RtlSdrUsbProxyService extends Service {
                     + " androidResult=" + ok
                     + " fd=" + connection.getFileDescriptor());
             if (ok) {
-                interfaceClaimCounts.put(interfaceId, count + 1);
-                claimed.put(interfaceId, iface);
+                interfaceClaims.acquire(interfaceId);
+                claimed.put(interfaceId, new InterfaceClaim(connection, iface));
             }
         }
         writeResult(out, ok ? RESULT_OK : RESULT_ERROR, null);
@@ -328,26 +343,22 @@ public final class RtlSdrUsbProxyService extends Service {
 
     private void handleRelease(DataInputStream in, DataOutputStream out,
                                UsbDeviceConnection connection,
-                               Map<Integer, UsbInterface> claimed) throws IOException {
+                               Map<Integer, InterfaceClaim> claimed) throws IOException {
         int interfaceId = in.readInt();
-        UsbInterface iface = claimed.remove(interfaceId);
-        if (iface == null) {
+        InterfaceClaim claim = claimed.remove(interfaceId);
+        if (claim == null) {
             writeError(out, "USB interface " + interfaceId + " is not claimed");
             return;
         }
-        boolean ok = releaseSharedInterface(connection, iface);
+        boolean ok = releaseSharedInterface(claim.connection, claim.usbInterface);
         writeResult(out, ok ? RESULT_OK : RESULT_ERROR, null);
     }
 
     private boolean releaseSharedInterface(UsbDeviceConnection connection, UsbInterface iface) {
         synchronized (usbLock) {
-            int interfaceId = iface.getId();
-            int count = interfaceClaimCounts.getOrDefault(interfaceId, 0);
-            if (count <= 1) {
-                interfaceClaimCounts.remove(interfaceId);
+            // Stale clients cannot decrement or release the replacement's claim.
+            if (interfaceClaims.release(connection, iface.getId()))
                 return connection.releaseInterface(iface);
-            }
-            interfaceClaimCounts.put(interfaceId, count - 1);
             return true;
         }
     }
@@ -472,7 +483,7 @@ public final class RtlSdrUsbProxyService extends Service {
         writeResult(out, transferred, response);
     }
 
-    private void handleBulkInStream(DataInputStream in, DataOutputStream out,
+    private void handleBulkInStream(Socket socket, DataInputStream in, DataOutputStream out,
                                     UsbDeviceConnection connection, UsbDevice device) throws IOException {
         int endpointAddress = in.readInt();
         int requestedLength = checkedLength(in.readInt());
@@ -626,6 +637,7 @@ public final class RtlSdrUsbProxyService extends Service {
             updateNotification(terminationSummary);
             streaming.set(false);
 
+            try { socket.shutdownInput(); } catch (IOException ignored) { }
             try { control.join(1000L); } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
@@ -639,9 +651,8 @@ public final class RtlSdrUsbProxyService extends Service {
             // Keep PREF_LAST_STREAM_STATUS pointed at the actual termination cause.
             // The zero-length frame below is only the ORCU stream terminator; persisting
             // that transport detail here used to overwrite the useful failure reason.
-            out.writeInt(0);
-            out.flush();
-
+            // Publish termination only after reopen. Linux begins hardware
+            // recovery when it receives this frame, so it must see the new handle.
             if (recoverUsbConnection && running) {
                 RtlSdrUsbManager manager = getUsbManager();
                 Log.w(TAG, "Reopening RTL-SDR USB connection after terminal bulk-stream failure");
@@ -649,7 +660,7 @@ public final class RtlSdrUsbProxyService extends Service {
                     // The failed UsbDeviceConnection may no longer accept bulk IN.
                     // Clear shared-claim accounting before replacing it so the next
                     // ORCU session performs a real Android interface claim.
-                    interfaceClaimCounts.clear();
+                    interfaceClaims.clear();
                     manager.disconnect();
                     manager.refresh();
                     manager.open();
@@ -667,6 +678,9 @@ public final class RtlSdrUsbProxyService extends Service {
                 persistServiceStatus(recoveryStatus);
                 updateNotification(recoveryStatus);
             }
+            // A failed socket write must not prevent USB reopen above.
+            out.writeInt(0);
+            out.flush();
         }
     }
 
@@ -714,10 +728,6 @@ public final class RtlSdrUsbProxyService extends Service {
 
     private RtlSdrUsbManager getUsbManager() {
         return ((OpenRoadCodeBridgeApplication) getApplication()).getRtlSdrUsbManager();
-    }
-
-    private static UsbDeviceConnection connectionOrNull(RtlSdrUsbManager manager) {
-        return manager.getConnection();
     }
 
     private Notification notification(String text) {
