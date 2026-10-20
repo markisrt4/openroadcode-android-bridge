@@ -162,7 +162,12 @@ public final class SimulatedVehicleBridgeService extends Service {
         int loadPct = clamp(28 + throttlePct / 2, 0, 100);
         int mapKpa = clamp(42 + throttlePct, 20, 115);
 
+        String fault = InjectionState.automotiveFaultScenario(this);
         switch (command) {
+            case "0101": return AutomotiveFaultResponses.monitorStatus(fault);
+            case "03": return AutomotiveFaultResponses.codes(fault, "43");
+            case "07": return AutomotiveFaultResponses.codes(fault, "47");
+            case "0A": return AutomotiveFaultResponses.codes(fault, "4A");
             case "0100": return "41 00 BE 3F A8 13";
             case "0104": return String.format(Locale.US, "41 04 %02X", percentByte(loadPct));
             case "0105": return "41 05 7D"; // 85 C
