@@ -50,3 +50,19 @@ original main baseline. No release tag is created by this change.
 
 Physical phone/USB/audio/SMS permission behavior and final visual appearance
 remain device-dependent and have not been verified from this cloud environment.
+
+## SMS start and status follow-up
+
+Simple mode's Messages card now names its visible **Enable messages** action in
+permission/start feedback and distinguishes a saved enable preference from a
+running listener. A granted read-permission request continues the user's pending
+Enable action without requiring a second tap; denial and Turn off clear that
+pending action. This is the same gateway/start path in both modes. First-time
+Termux credential provisioning remains in Advanced mode and is separate from
+selecting a remote ORC runtime.
+
+`SmsGatewayPresentationTest` checks mode-aware action text and enabled-but-not-
+listening status. APK CI builds/tests the exact feature commit. Device checks
+remain necessary: start in Simple mode with permission initially denied, grant
+from Enable messages, confirm listener startup without a second tap, deny and
+retry, stop, and toggle modes. Starting/stopping message access sends no SMS.

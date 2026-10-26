@@ -23,6 +23,7 @@ public final class SmsGatewayCard {
   private final LinearLayout root;
   private final TextView status;
   private final TextView permissionFeedback;
+  private boolean enableAfterReadPermission;
 
   public SmsGatewayCard(Activity activity, BridgeServiceManager manager) {
     this.activity = activity;
@@ -34,13 +35,13 @@ public final class SmsGatewayCard {
     root.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE, UiTheme.GREEN, 12));
     root.addView(UiTheme.text(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS GATEWAY" : "Messages", 16, UiTheme.GREEN));
     root.addView(UiTheme.text(activity,
-        org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773" : "Optional phone messages for ORC. One-time connection setup is in Advanced mode.",
+        org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773" : "Tap Enable messages to start phone message access here. For first-time Termux credential setup, use Advanced mode. Selecting a remote ORC device above does not connect its messaging app.",
         12, UiTheme.MUTED));
     status = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(status);
     permissionFeedback = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(permissionFeedback);
-    root.addView(UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Enable SMS gateway" : "Enable messages", UiTheme.BLUE,
+    root.addView(UiTheme.actionButton(activity, SmsGatewayPresentation.enableLabel(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)), UiTheme.BLUE,
         v -> enable()));
     root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
         v -> requestContactsPermission()));
@@ -52,6 +53,7 @@ public final class SmsGatewayCard {
         v -> openAppSettings()));
     root.addView(UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Disable SMS gateway" : "Turn off messages", UiTheme.SURFACE_RAISED,
         v -> {
+          enableAfterReadPermission = false;
           manager.stopSmsGateway();
           refresh();
         }));
@@ -64,10 +66,10 @@ public final class SmsGatewayCard {
     boolean read = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
     boolean send = activity.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED;
     boolean contacts = activity.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED;
-    status.setTextColor(read && manager.smsEnabled() ? UiTheme.GREEN : UiTheme.MUTED);
+    status.setTextColor(read && manager.smsEnabled() && SmsGatewayService.isListening() ? UiTheme.GREEN : UiTheme.MUTED);
     if (!org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) {
-      status.setText(!read ? "Messages need Android permission"
-          : manager.smsEnabled() ? "Messages are turned on" + (send ? "" : " · Read only") : "Messages turned off");
+      status.setText(SmsGatewayPresentation.simpleStatus(
+          manager.smsEnabled(), read, send, SmsGatewayService.isListening()));
       return;
     }
     status.setText("Mode: " + (read ? (send ? "read and send" : "read-only") : "permissions required")
@@ -81,7 +83,8 @@ public final class SmsGatewayCard {
 
   private void provisionToTermux() {
     if (!manager.smsEnabled()) {
-      permissionFeedback.setText("Enable SMS gateway first.");
+      permissionFeedback.setText("Tap " + SmsGatewayPresentation.enableLabel(
+          org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) + " first.");
       return;
     }
     final android.widget.EditText tokenInput = new android.widget.EditText(activity);
@@ -153,9 +156,14 @@ public final class SmsGatewayCard {
               : "SMS sending remains denied. If Android did not show a prompt, open Android app settings to check SMS access. Read-only messaging still works.");
     } else if (requestCode == READ_PERMISSION_REQUEST) {
       boolean granted = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
-      permissionFeedback.setText(granted
-          ? "SMS reading permission granted. Tap Enable SMS gateway to start."
-          : "Android did not grant SMS reading. Check app settings.");
+      boolean startRequested = enableAfterReadPermission;
+      enableAfterReadPermission = false;
+      if (granted && startRequested) {
+        enable();
+      } else {
+        permissionFeedback.setText(SmsGatewayPresentation.readPermissionFeedback(
+            org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity), granted));
+      }
     }
   }
 
@@ -168,13 +176,15 @@ public final class SmsGatewayCard {
   private void enable() {
     boolean read = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
     if (!read) {
+      enableAfterReadPermission = true;
       activity.requestPermissions(new String[] {Manifest.permission.READ_SMS}, READ_PERMISSION_REQUEST);
       return;
     }
     try {
       manager.startSmsGateway();
+      permissionFeedback.setText("Message access requested. No SMS was sent.");
     } catch (RuntimeException error) {
-      android.widget.Toast.makeText(activity, "Unable to start SMS gateway", android.widget.Toast.LENGTH_LONG).show();
+      permissionFeedback.setText("Unable to start message access. Try enabling it again.");
     }
     refresh();
   }
