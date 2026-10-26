@@ -27,7 +27,7 @@ public final class SmsGatewayCard {
   private boolean connectAfterReadPermission;
   private volatile boolean closed;
   private java.util.concurrent.Future<?> connectionTask;
-  private java.util.concurrent.atomic.AtomicBoolean activeConnection;
+  private volatile java.util.concurrent.atomic.AtomicBoolean activeConnection;
   private final java.util.concurrent.ExecutorService connectionWorker =
       java.util.concurrent.Executors.newSingleThreadExecutor();
   private android.app.AlertDialog connectionDialog;
@@ -122,7 +122,7 @@ public final class SmsGatewayCard {
         session = SmsConnectionSetup.begin();
         final SmsConnectionSetup.Session activeSession = session;
         activity.runOnUiThread(() -> {
-          if (closed || cancelled.get()) return;
+          if (closed || cancelled.get() || activeConnection != cancelled) return;
           try {
             activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(activeSession.approvalUrl)));
           } catch (RuntimeException error) {
@@ -140,14 +140,14 @@ public final class SmsGatewayCard {
           Thread.sleep(1000);
         }
         if (!approved || closed || cancelled.get() || Thread.currentThread().isInterrupted()) {
-          if (!closed && !cancelled.get()) activity.runOnUiThread(() -> {
-            if (!closed && !cancelled.get()) finishConnection("Setup expired. Tap Connect messaging to retry.");
+          if (!closed && !cancelled.get() && activeConnection == cancelled) activity.runOnUiThread(() -> {
+            if (!closed && !cancelled.get() && activeConnection == cancelled) finishConnection("Setup expired. Tap Connect messaging to retry.");
           });
           return;
         }
         SmsConnectionSetup.complete(session, SmsGatewaySettings.token(activity));
         activity.runOnUiThread(() -> {
-          if (closed || cancelled.get()) return;
+          if (closed || cancelled.get() || activeConnection != cancelled) return;
           // Verify the actual proxy with its private client credential via the
           // backend's verified completion, rather than treating saved enable as success.
           finishConnection("Messaging connected and verified with Termux on this phone. No SMS was sent. "
@@ -161,7 +161,7 @@ public final class SmsGatewayCard {
           // Only transport-generated fixed messages are safe to present.
           String message = error instanceof SmsConnectionSetup.SetupFailure ? error.getMessage()
               : "Cannot reach messaging setup. Update/restart OpenRoadCode in Termux on this phone, then try again.";
-          activity.runOnUiThread(() -> { if (!closed && !cancelled.get()) finishConnection(message); });
+          activity.runOnUiThread(() -> { if (!closed && !cancelled.get() && activeConnection == cancelled) finishConnection(message); });
         }
       } finally {
         if (session != null) SmsConnectionSetup.cancel(session);
