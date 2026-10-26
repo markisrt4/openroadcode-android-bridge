@@ -66,3 +66,30 @@ listening status. APK CI builds/tests the exact feature commit. Device checks
 remain necessary: start in Simple mode with permission initially denied, grant
 from Enable messages, confirm listener startup without a second tap, deny and
 retry, stop, and toggle modes. Starting/stopping message access sends no SMS.
+
+## Guided messaging connection
+
+**Connect messaging** is now available in both Simple and Advanced modes. It
+requests read permission if needed, enables the local gateway, opens a local
+browser approval page, and verifies/saves the Android credential after approval.
+The user returns to Companion to see connection success or a fixed repair action.
+No provisioning token is displayed, copied, or entered. The former manual
+provisioning action is explicitly labelled legacy and remains in Advanced mode.
+
+Sessions expire after three minutes and close on denial/cancellation. Leaving
+Connection setup or destroying the activity closes its worker and ignores stale
+callbacks. Opening the browser intentionally keeps setup pending; backgrounding
+is not equivalent to cancelling the browser approval. A completion already
+accepted by Termux cannot be rolled back by subsequently closing the card.
+
+`SmsConnectionSetupTest` checks fixed-loopback approval URLs and secret-free
+session representations. HTTP state, persistence, replay and authorization are
+covered in OpenRoadCode's focused `test_service_manager_sms_connect.py` tests.
+APK CI covers compilation and debug/release unit tests. Device validation must
+still cover browser launch/return, cancel, denial, expiry, missing/old Termux
+manager, mode switching, and activity recreation. Setup sends no SMS.
+
+Update/restart the phone's OpenRoadCode `feature/sms-messaging-gateway` checkout
+before using the new button, and install this feature branch's exact APK using
+`development/termux/install_latest_apk.sh`. A Linux runtime manager is not the
+provisioning target; desktop SMS still uses its separate authenticated tunnel.

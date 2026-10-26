@@ -613,6 +613,7 @@ public final class MainActivity extends Activity {
   }
 
   private void resetContent() {
+    if (smsGatewayCard != null) smsGatewayCard.close();
     subsystemDashboard = null;
     content.removeAllViews();
     sensorCard = null;
@@ -773,6 +774,11 @@ public final class MainActivity extends Activity {
     MainActivity visible = visibleActivity.get();
     if (visible == this) visibleActivity.clear();
     super.onStop();
+  }
+
+  @Override protected void onDestroy() {
+    if (smsGatewayCard != null) smsGatewayCard.close();
+    super.onDestroy();
   }
 
   @Override public void onBackPressed() {

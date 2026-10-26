@@ -24,6 +24,13 @@ public final class SmsGatewayCard {
   private final TextView status;
   private final TextView permissionFeedback;
   private boolean enableAfterReadPermission;
+  private boolean connectAfterReadPermission;
+  private volatile boolean closed;
+  private java.util.concurrent.Future<?> connectionTask;
+  private java.util.concurrent.atomic.AtomicBoolean activeConnection;
+  private final java.util.concurrent.ExecutorService connectionWorker =
+      java.util.concurrent.Executors.newSingleThreadExecutor();
+  private android.app.AlertDialog connectionDialog;
 
   public SmsGatewayCard(Activity activity, BridgeServiceManager manager) {
     this.activity = activity;
@@ -35,24 +42,28 @@ public final class SmsGatewayCard {
     root.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE, UiTheme.GREEN, 12));
     root.addView(UiTheme.text(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS GATEWAY" : "Messages", 16, UiTheme.GREEN));
     root.addView(UiTheme.text(activity,
-        org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773" : "Tap Enable messages to start phone message access here. For first-time Termux credential setup, use Advanced mode. Selecting a remote ORC device above does not connect its messaging app.",
+        org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "SMS only. Explicit permission and opt-in required. Local endpoint: 127.0.0.1:8773" : "Tap Connect messaging to set up or repair access through Termux on this phone. You will approve in your browser. No secret tokens to copy. Remote computers still need a secure messaging connection.",
         12, UiTheme.MUTED));
     status = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(status);
     permissionFeedback = UiTheme.text(activity, "", 12, UiTheme.MUTED);
     root.addView(permissionFeedback);
+    root.addView(UiTheme.actionButton(activity, "Connect messaging", UiTheme.BLUE,
+        v -> connectMessaging()));
     root.addView(UiTheme.actionButton(activity, SmsGatewayPresentation.enableLabel(org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)), UiTheme.BLUE,
         v -> enable()));
     root.addView(UiTheme.actionButton(activity, "Allow contacts lookup", UiTheme.SURFACE_RAISED,
         v -> requestContactsPermission()));
     if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Request SMS sending permission", UiTheme.SURFACE_RAISED,
         v -> requestSendPermission()));
-    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Provision SMS to Termux", UiTheme.SURFACE_RAISED,
+    if (org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity)) root.addView(UiTheme.actionButton(activity, "Manual SMS provisioning (legacy)", UiTheme.SURFACE_RAISED,
         v -> provisionToTermux()));
     root.addView(UiTheme.actionButton(activity, "Open Android app settings", UiTheme.SURFACE_RAISED,
         v -> openAppSettings()));
     root.addView(UiTheme.actionButton(activity, org.openroadcode.androidbridge.config.UiModeSettings.advanced(activity) ? "Disable SMS gateway" : "Turn off messages", UiTheme.SURFACE_RAISED,
         v -> {
+          cancelConnection();
+          connectAfterReadPermission = false;
           enableAfterReadPermission = false;
           manager.stopSmsGateway();
           refresh();
@@ -79,6 +90,104 @@ public final class SmsGatewayCard {
         + "\nContacts permission: " + (contacts ? "granted" : "missing")
         + "\nListener: " + (SmsGatewayService.isListening() ? "connected" : "not running")
         + ". Termux credential setup is separate.");
+  }
+
+  private void connectMessaging() {
+    if (closed || (connectionTask != null && !connectionTask.isDone())) return;
+    if (activity.checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+      connectAfterReadPermission = true;
+      activity.requestPermissions(new String[] {Manifest.permission.READ_SMS}, READ_PERMISSION_REQUEST);
+      return;
+    }
+    try {
+      manager.startSmsGateway();
+    } catch (RuntimeException error) {
+      permissionFeedback.setText("Could not enable phone message access. Try Connect messaging again.");
+      return;
+    }
+    permissionFeedback.setText("Opening local messaging approval…");
+    final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+    activeConnection = cancelled;
+    connectionDialog = new android.app.AlertDialog.Builder(activity)
+        .setTitle("Connect messaging")
+        .setMessage("Approve messaging in your browser, then return here. Setup sends no SMS. "
+            + "If the browser does not open, cancel and update/restart OpenRoadCode in Termux.")
+        .setNegativeButton("Cancel", (dialog, which) -> { cancelled.set(true); cancelConnection(); })
+        .setOnCancelListener(dialog -> { cancelled.set(true); cancelConnection(); })
+        .create();
+    connectionDialog.show();
+    connectionTask = connectionWorker.submit(() -> {
+      SmsConnectionSetup.Session session = null;
+      try {
+        session = SmsConnectionSetup.begin();
+        final SmsConnectionSetup.Session activeSession = session;
+        activity.runOnUiThread(() -> {
+          if (closed || cancelled.get()) return;
+          try {
+            activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(activeSession.approvalUrl)));
+          } catch (RuntimeException error) {
+            cancelled.set(true);
+            finishConnection("No browser available. Install or enable a browser and try again.");
+          }
+        });
+        long deadline = android.os.SystemClock.elapsedRealtime() + 180_000;
+        boolean approved = false;
+        while (!closed && !cancelled.get() && !Thread.currentThread().isInterrupted()
+            && android.os.SystemClock.elapsedRealtime() < deadline) {
+          String state = SmsConnectionSetup.status(session);
+          if ("approved".equals(state)) { approved = true; break; }
+          if (!"pending".equals(state)) throw new SmsConnectionSetup.SetupFailure("Setup cancelled or closed. Tap Connect messaging to retry.");
+          Thread.sleep(1000);
+        }
+        if (!approved || closed || cancelled.get() || Thread.currentThread().isInterrupted()) {
+          if (!closed && !cancelled.get()) activity.runOnUiThread(() -> {
+            if (!closed && !cancelled.get()) finishConnection("Setup expired. Tap Connect messaging to retry.");
+          });
+          return;
+        }
+        SmsConnectionSetup.complete(session, SmsGatewaySettings.token(activity));
+        activity.runOnUiThread(() -> {
+          if (closed || cancelled.get()) return;
+          // Verify the actual proxy with its private client credential via the
+          // backend's verified completion, rather than treating saved enable as success.
+          finishConnection("Messaging connected and verified with Termux on this phone. No SMS was sent. "
+              + "A remote desktop still uses its separate SMS credential and secure connection.");
+          refresh();
+        });
+      } catch (InterruptedException error) {
+        Thread.currentThread().interrupt();
+      } catch (Exception error) {
+        if (!closed && !cancelled.get()) {
+          // Only transport-generated fixed messages are safe to present.
+          String message = error instanceof SmsConnectionSetup.SetupFailure ? error.getMessage()
+              : "Cannot reach messaging setup. Update/restart OpenRoadCode in Termux on this phone, then try again.";
+          activity.runOnUiThread(() -> { if (!closed && !cancelled.get()) finishConnection(message); });
+        }
+      } finally {
+        if (session != null) SmsConnectionSetup.cancel(session);
+      }
+    });
+  }
+
+  private void finishConnection(String feedback) {
+    activity.runOnUiThread(() -> {
+      if (closed) return;
+      permissionFeedback.setText(feedback);
+      if (connectionDialog != null) { connectionDialog.dismiss(); connectionDialog = null; }
+    });
+  }
+
+  private void cancelConnection() {
+    if (activeConnection != null) activeConnection.set(true);
+    if (connectionTask != null) connectionTask.cancel(true);
+    if (!closed) finishConnection("Messaging setup cancelled. No SMS was sent.");
+  }
+
+  public void close() {
+    closed = true;
+    cancelConnection();
+    if (connectionDialog != null) { connectionDialog.dismiss(); connectionDialog = null; }
+    connectionWorker.shutdownNow();
   }
 
   private void provisionToTermux() {
@@ -156,9 +265,13 @@ public final class SmsGatewayCard {
               : "SMS sending remains denied. If Android did not show a prompt, open Android app settings to check SMS access. Read-only messaging still works.");
     } else if (requestCode == READ_PERMISSION_REQUEST) {
       boolean granted = activity.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
+      boolean connectRequested = connectAfterReadPermission;
+      connectAfterReadPermission = false;
       boolean startRequested = enableAfterReadPermission;
       enableAfterReadPermission = false;
-      if (granted && startRequested) {
+      if (granted && connectRequested) {
+        connectMessaging();
+      } else if (granted && startRequested) {
         enable();
       } else {
         permissionFeedback.setText(SmsGatewayPresentation.readPermissionFeedback(
