@@ -58,7 +58,7 @@
             </intent-filter>
         </activity>
 
-        <service android:name=".SmsGatewayService" android:exported="false" />
+        <service android:name=".MediaSessionBridge" android:label="ORC media controls" android:exported="false" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>\n        </service>\n\n        <service android:name=".SmsGatewayService" android:exported="false" />
         <receiver android:name=".SmsSendResultReceiver" android:exported="false" />
 
         <service
