@@ -89,7 +89,7 @@ public final class AndroidHostActionService extends Service {
         String requestLine = request.requestLine;
         String body = request.body;
 
-        if ("GET /health HTTP/1.1".equals(requestLine)) {
+        if ("GET /media/spotify/status HTTP/1.1".equals(requestLine)) {\n            respond(client, 200, MediaSessionBridge.spotifyStatus(this).toString());\n            return;\n        }\n        if ("GET /health HTTP/1.1".equals(requestLine)) {
             respond(client, 200, "{\"status\":\"ok\"}");
             return;
         }
