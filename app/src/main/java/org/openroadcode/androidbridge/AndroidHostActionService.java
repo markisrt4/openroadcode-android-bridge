@@ -89,6 +89,17 @@ public final class AndroidHostActionService extends Service {
         String requestLine = request.requestLine;
         String body = request.body;
 
+        if ("POST /media/spotify/control HTTP/1.1".equals(requestLine)) {
+            String command = formValues(body).get("command");
+            if (command == null || !("play".equals(command) || "pause".equals(command)
+                    || "next".equals(command) || "previous".equals(command))) {
+                respond(client, 400, "{\"error\":\"unsupported_command\"}");
+                return;
+            }
+            String result = MediaSessionBridge.spotifyCommand(this, command).toString();
+            respond(client, result.contains("\"error\"") ? 409 : 200, result);
+            return;
+        }
         if ("GET /media/spotify/status HTTP/1.1".equals(requestLine)) {
             respond(client, 200, MediaSessionBridge.spotifyStatus(this).toString());
             return;
