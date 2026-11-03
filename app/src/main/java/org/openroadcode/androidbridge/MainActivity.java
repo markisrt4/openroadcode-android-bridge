@@ -584,7 +584,9 @@ public final class MainActivity extends Activity {
       InjectionState.setAutomotiveFaultScenario(this, scenario);
     }
     android.widget.Toast.makeText(
-        this, subsystem.toUpperCase(java.util.Locale.ROOT) + " • " + scenario,
+        this, SubsystemDashboard.AUTOMOTIVE.equals(subsystem)
+            ? "Simulation selected: " + SubsystemInjectorCard.automotiveScenarioLabel(scenario)
+            : subsystem.toUpperCase(java.util.Locale.ROOT) + " • " + scenario,
         android.widget.Toast.LENGTH_SHORT).show();
   }
 
