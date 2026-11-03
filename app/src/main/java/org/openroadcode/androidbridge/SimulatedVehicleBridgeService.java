@@ -48,6 +48,8 @@ public final class SimulatedVehicleBridgeService extends Service {
     private ServerSocket serverSocket;
     private Socket activeClient;
     private boolean echo = true;
+    private boolean headers;
+    private boolean spaces = true;
     private final long startedAtMs = System.currentTimeMillis();
 
     @Override
@@ -111,6 +113,9 @@ public final class SimulatedVehicleBridgeService extends Service {
     private void serveClient(Socket client) throws IOException {
         InputStream input = client.getInputStream();
         OutputStream output = client.getOutputStream();
+        echo = true;
+        headers = false;
+        spaces = true;
         StringBuilder command = new StringBuilder();
         output.write('>');
         output.flush();
@@ -133,6 +138,9 @@ public final class SimulatedVehicleBridgeService extends Service {
     private void writeResponse(OutputStream output, String rawCommand) throws IOException {
         String normalized = rawCommand.toUpperCase(Locale.US).replace(" ", "").trim();
         String response = responseFor(normalized);
+        if (!normalized.startsWith("AT") && !"NO DATA".equals(response) && !response.isEmpty()) {
+            response = AutomotiveFaultResponses.frame(response, headers, spaces);
+        }
         StringBuilder wire = new StringBuilder();
         if (echo) wire.append(rawCommand).append('\r');
         wire.append(response).append("\r>");
@@ -144,11 +152,17 @@ public final class SimulatedVehicleBridgeService extends Service {
         if (command.isEmpty()) return "";
         if ("ATZ".equals(command)) {
             echo = true;
+            headers = false;
+            spaces = true;
             return "ELM327 v1.5";
         }
         if ("ATI".equals(command)) return "ELM327 v1.5";
         if ("ATE0".equals(command)) { echo = false; return "OK"; }
         if ("ATE1".equals(command)) { echo = true; return "OK"; }
+        if ("ATH1".equals(command)) { headers = true; return "OK"; }
+        if ("ATH0".equals(command)) { headers = false; return "OK"; }
+        if ("ATS1".equals(command)) { spaces = true; return "OK"; }
+        if ("ATS0".equals(command)) { spaces = false; return "OK"; }
         if (command.startsWith("ATL") || command.startsWith("ATS") || command.startsWith("ATH")
                 || command.startsWith("ATSP") || command.startsWith("ATAT")
                 || command.startsWith("ATST") || command.startsWith("ATCAF")) return "OK";
