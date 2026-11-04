@@ -37,3 +37,12 @@ During an in-progress merge, do not suggest switching branches, resetting, or co
 ## Port allocation
 
 Before assigning network ports, read OpenRoadCode docs/ethernet_idd.md and search existing code in both repositories. Update the IDD and all affected clients with the implementation. Verify listener binding separately from the saved enabled preference.
+
+## Codex execution and CI cost policy
+
+- Do **not** run tests, lint, type checks, builds, quality gates, benchmarks, or validation scripts in the Codex cloud VM by default. This includes indirect invocations via Make, Gradle, npm, shell scripts, pre-commit hooks, or other wrappers.
+- Write and update meaningful tests alongside code changes, but delegate their execution to GitHub Actions. For device-dependent verification, give the user exact commands for their Linux, Raspberry Pi, or Android/Termux environment.
+- Read GitHub Actions logs, statuses, and downloadable reports to diagnose failures. Make targeted fixes and push them for CI to rerun. Do not rerun tests in the agent VM simply because CI fails.
+- Do not execute tests locally even when an existing repository instruction says to run focused checks. This section overrides such instructions for Codex cloud sessions. Static review of source and diffs without running validation tools is allowed.
+- Only run a check in the Codex VM if the user **explicitly authorizes that specific execution**. General requests such as 'fix it', 'verify', or 'make sure it works' are not authorization to consume Codex cloud execution for tests.
+- Clearly report which checks CI actually ran, which checks are pending, and which require physical hardware. Never imply unexecuted tests passed.
