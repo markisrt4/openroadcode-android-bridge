@@ -571,9 +571,12 @@ public final class MainActivity extends Activity {
   private void addSimulation(String subsystem, int accent) {
     if (!advancedMode()) return;
     SubsystemInjectorCard simulation = new SubsystemInjectorCard(this, subsystem, this::simulateScenario);
-    String title = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem) ? "WEATHER SIM" : "SIMULATION";
+    String title = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem) ? "WEATHER SIM"
+        : SubsystemDashboard.AUTOMOTIVE.equals(subsystem) ? "VEHICLE TEST LAB" : "SIMULATION";
     String subtitle = SubsystemDashboard.ENVIRONMENTAL.equals(subsystem)
-        ? "Deterministic weather scenarios" : "Development simulation inputs";
+        ? "Deterministic weather scenarios"
+        : SubsystemDashboard.AUTOMOTIVE.equals(subsystem) ? "Explore simulated faults and expected results"
+        : "Development simulation inputs";
     addServiceCard(content, title, subtitle, accent, simulation.view(), true, true);
   }
 
