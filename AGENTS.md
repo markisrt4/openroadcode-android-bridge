@@ -46,3 +46,6 @@ Before assigning network ports, read OpenRoadCode docs/ethernet_idd.md and searc
 - Do not execute tests locally even when an existing repository instruction says to run focused checks. This section overrides such instructions for Codex cloud sessions. Static review of source and diffs without running validation tools is allowed.
 - Only run a check in the Codex VM if the user **explicitly authorizes that specific execution**. General requests such as 'fix it', 'verify', or 'make sure it works' are not authorization to consume Codex cloud execution for tests.
 - Clearly report which checks CI actually ran, which checks are pending, and which require physical hardware. Never imply unexecuted tests passed.
+- Do not install dependencies in the Codex VM solely to run checks, tests, builds, or other validation. Dependency installation needed for actual implementation must be justified separately.
+- Prefer concise CI failure summaries, JUnit XML artifacts, and the failing job's relevant log excerpt over reading entire workflow logs repeatedly.
+- Request or inspect the GitHub Actions result for the exact commit before declaring verification complete. Use the workflow's manually dispatched full gate before merge where configured; do not claim the full gate ran just because fast CI passed.
