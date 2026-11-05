@@ -35,7 +35,7 @@ jobs:
 
       - name: Upload Gradle unit-test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-unit-test-reports
           path: |
@@ -92,7 +92,7 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openroadcode-android-bridge-debug
           path: app/build/outputs/apk/debug/app-debug.apk
@@ -105,7 +105,7 @@ jobs:
           TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           export PATH="$TOOLS:$PATH"
           bash development/release/apk_evidence.sh app/build/outputs/apk/debug/app-debug.apk apk-evidence
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openroadcode-apk-review-evidence
           path: apk-evidence/
