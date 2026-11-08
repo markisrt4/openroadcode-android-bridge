@@ -1,5 +1,14 @@
 # Agent instructions
 
+## Mandatory Android app versioning
+
+- For every pull request that changes Android application code, resources, manifest, or packaged behavior, increment `versionCode` in `app/build.gradle` above the target branch's value. Android requires monotonically increasing version codes for APK upgrades.
+- For every user-visible feature, bug fix, or behavior change, also update `baseVersion` in `app/build.gradle` using semantic versioning: PATCH for fixes, MINOR for backward-compatible features, MAJOR for breaking changes. Do not rely on the Git SHA suffix as a replacement for the base version.
+- Documentation-only, CI-only, or agent-instruction-only pull requests may retain the version values. If a PR contains both app changes and documentation changes, the bump is mandatory.
+- Before opening or updating a PR, compare both values against the intended base branch. Multiple commits in one PR need one appropriate bump; do not increment on every commit. Reconcile concurrent PRs so each merged version remains higher than the current base.
+- Do not reset or decrease either version, reuse a published versionCode for a different release, or change the debug/release versioning convention without explicitly updating release tooling.
+- The GitHub Actions version gate is authoritative. If it fails, update the Gradle version values and push; do not bypass the gate or merge with a failed check.
+
 ## Android APK build and local development workflow
 
 - **Do not instruct the user to run `./gradlew`, `gradlew assembleDebug`, or `gradlew testDebugUnitTest` on the Termux host.** Android APK compilation and automated tests run in **GitHub Actions** using the **Build Android APK** workflow.
@@ -34,9 +43,15 @@ When asking a user to share terminal output, adapt commands to the user's host.
 
 During an in-progress merge, do not suggest switching branches, resetting, or committing until conflicts have been resolved and verified. Preserve both sides' functionality, and run relevant tests before completing the merge.
 
-## Port allocation
+## Port allocation and dedicated service ownership
 
-Before assigning network ports, read OpenRoadCode docs/ethernet_idd.md and search existing code in both repositories. Update the IDD and all affected clients with the implementation. Verify listener binding separately from the saved enabled preference.
+- Before introducing or changing a listener, inspect both repositories and the project-wide `OpenRoadCode/docs/ethernet_idd.md` registry. Record Companion-owned defaults in `config/ports.json` and update the project-wide IDD in the corresponding OpenRoadCode change.
+- Every independent service must have a distinct registered TCP port; never opportunistically reuse an existing listener (including the 8000-8999 range). Prefer an unallocated port above 10000 when suitable, but validate collisions rather than assuming a high port is free.
+- Use `127.0.0.1` by default; do not expose diagnostics on the LAN. Document any intentional remote access separately.
+- Keep each listener independent of unrelated subsystem enablement. The network diagnostics listener uses `127.0.0.1:18766` and must remain available while the Companion host service runs, regardless of sensor/navigation state. The sensor bridge retains port `8766`.
+- Update listener constants, clients, CLI wrappers, docs, and the registry together. CI runs `development/release/check_ports.py` to reject duplicate registrations and mismatched defaults. Do not bypass this check.
+- Verify an actual bound listener with its `/health` endpoint; a saved enabled preference or visible diagnostics UI is not proof that the socket is listening.
+
 
 ## Codex execution and CI cost policy
 

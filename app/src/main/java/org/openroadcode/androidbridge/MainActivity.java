@@ -269,6 +269,7 @@ public final class MainActivity extends Activity {
     content.addView(subsystemDashboard.view());
     subsystemDashboard.refresh();
     if (dashboardActive) startVisibleCards();
+    content.addView(new NetworkDiagnosticsCard(this).view(), cardParams());
     addFooter();
     scrollView.scrollTo(0, 0);
   }

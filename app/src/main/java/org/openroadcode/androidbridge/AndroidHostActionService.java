@@ -34,6 +34,7 @@ public final class AndroidHostActionService extends Service {
     private static final int MAX_BODY_LENGTH = 8192;
 
     private volatile boolean running;
+    private NetworkDiagnosticsHttpServer networkDiagnostics;
     private ServerSocket serverSocket;
     private Thread serverThread;
 
@@ -47,6 +48,8 @@ public final class AndroidHostActionService extends Service {
                 .setContentTitle("ORC Companion")
                 .setContentText("Local ORC connection available").setOngoing(true).build());
         running = true;
+        networkDiagnostics = new NetworkDiagnosticsHttpServer(this);
+        networkDiagnostics.start();
         serverThread = new Thread(this::runServer, "orc-host-actions");
         serverThread.start();
     }
@@ -256,6 +259,7 @@ public final class AndroidHostActionService extends Service {
 
     @Override public void onDestroy() {
         running = false;
+        if (networkDiagnostics != null) networkDiagnostics.stop();
         try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
         if (serverThread != null) serverThread.interrupt();
         super.onDestroy();

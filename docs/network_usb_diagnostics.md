@@ -1,0 +1,52 @@
+# Network & USB diagnostics
+
+The Companion provides a read-only Android-native network and USB inventory in the expandable **Network & USB Diagnostics** dashboard card.
+
+## Local API
+
+The independent loopback listener is owned by `NetworkDiagnosticsHttpServer`, started and stopped with the always-on `AndroidHostActionService` lifecycle. It is **not** dependent on navigation, GPS, or the sensor bridge.
+
+- `http://127.0.0.1:18766/health`
+- `http://127.0.0.1:18766/network/diagnostics`
+
+The legacy sensor bridge retains `8766`. The host-actions service retains `8772`. Network diagnostics binds only to `127.0.0.1`, not the device LAN address.
+
+The source of truth for Companion-owned listener registrations is `config/ports.json`. The project-wide port IDD lives in `OpenRoadCode/docs/ethernet_idd.md` and must be kept synchronized when the OpenRoadCode repository is updated.
+
+## Termux
+
+From the Android Bridge checkout:
+
+```sh
+bash development/termux/install_network_info.sh
+orc-network-info
+orc-network-info --json
+orc-usb-info
+orc-usb-info --verbose
+orc-usb-info --json
+curl -fsS http://127.0.0.1:18766/health
+```
+
+The installer copies standalone Python executables into `$PREFIX/bin/orc-network-info` and `$PREFIX/bin/orc-usb-info`. Both commands work from any directory, even if the source checkout is later moved. Re-run the installer after updating either CLI source.
+
+If the CLI reports connection refused, open the Companion app and verify its host service is running. If `/health` succeeds but `/network/diagnostics` fails, check the diagnostics service logs rather than restarting navigation.
+
+The report now also includes `system_managed_networks` (Ethernet transport indicators with USB backing explicitly unconfirmed) and best-effort `usb_sysfs` device metadata. Android may deny access to `/sys/bus/usb/devices`; `unavailable_or_restricted` and `no_readable_device_metadata` do not establish that no hardware is attached. The `--verbose` CLI output shows any exposed driver metadata.
+
+## Validation
+
+The GitHub Actions Android workflow runs `development/release/check_ports.py` before Gradle builds. Verify the exact branch commit's build and install its matching APK before device testing.
+
+
+## Extended USB diagnostics
+
+The Companion reports Android USB host interfaces (class/subclass/protocol/endpoint count), and best-effort sysfs metadata (USB speed in Mb/s, bMaxPower as reported by the kernel, optional driver). Network Ethernet evidence is labeled `possible_usb_backed` and does not prove USB backing; USB host and readable sysfs records are marked confirmed evidence. Reports contain `timestamp_ms`.
+
+```sh
+orc-usb-info --verbose
+orc-usb-info --watch --interval 2
+orc-usb-info --export usb-diagnostics.json
+orc-usb-info --json
+```
+
+Watch mode polls and prints only when inventory changes; it does not require a privileged USB broadcast receiver. Export includes the complete report, which may contain local IP addresses and hardware identifiers: review before sharing. Android UI snapshots run on a background executor. CLI regression tests run on GitHub Actions Ubuntu using `python3 -m unittest discover -s development/tests -p 'test_orc_*.py' -v`.
