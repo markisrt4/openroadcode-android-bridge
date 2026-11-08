@@ -43,9 +43,15 @@ When asking a user to share terminal output, adapt commands to the user's host.
 
 During an in-progress merge, do not suggest switching branches, resetting, or committing until conflicts have been resolved and verified. Preserve both sides' functionality, and run relevant tests before completing the merge.
 
-## Port allocation
+## Port allocation and dedicated service ownership
 
-Before assigning network ports, read OpenRoadCode docs/ethernet_idd.md and search existing code in both repositories. Update the IDD and all affected clients with the implementation. Verify listener binding separately from the saved enabled preference.
+- Before introducing or changing a listener, inspect both repositories and the project-wide `OpenRoadCode/docs/ethernet_idd.md` registry. Record Companion-owned defaults in `config/ports.json` and update the project-wide IDD in the corresponding OpenRoadCode change.
+- Every independent service must have a distinct registered TCP port; never opportunistically reuse an existing listener (including the 8000-8999 range). Prefer an unallocated port above 10000 when suitable, but validate collisions rather than assuming a high port is free.
+- Use `127.0.0.1` by default; do not expose diagnostics on the LAN. Document any intentional remote access separately.
+- Keep each listener independent of unrelated subsystem enablement. The network diagnostics listener uses `127.0.0.1:18766` and must remain available while the Companion host service runs, regardless of sensor/navigation state. The sensor bridge retains port `8766`.
+- Update listener constants, clients, CLI wrappers, docs, and the registry together. CI runs `development/release/check_ports.py` to reject duplicate registrations and mismatched defaults. Do not bypass this check.
+- Verify an actual bound listener with its `/health` endpoint; a saved enabled preference or visible diagnostics UI is not proof that the socket is listening.
+
 
 ## Codex execution and CI cost policy
 
