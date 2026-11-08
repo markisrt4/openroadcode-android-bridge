@@ -16,7 +16,7 @@ final class NetworkDiagnosticsIconView extends View {
     super(context);
     this.type = type;
     paint.setColor(color);
-    paint.setStrokeWidth(UiTheme.dp(context, 2));
+    paint.setStrokeWidth(1.8f);
     paint.setStyle(Paint.Style.STROKE);
     paint.setStrokeCap(Paint.Cap.ROUND);
     paint.setStrokeJoin(Paint.Join.ROUND);
