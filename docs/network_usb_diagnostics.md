@@ -24,7 +24,7 @@ orc-network-info --json
 curl -fsS http://127.0.0.1:18766/health
 ```
 
-The installer creates a launcher in `$PREFIX/bin` pointing to the repository's Python CLI. The checkout must remain in place.
+The installer copies a standalone Python executable into `$PREFIX/bin/orc-network-info`, so the command works from any directory even if the source checkout is later moved. Re-run the installer after updating the CLI source.
 
 If the CLI reports connection refused, open the Companion app and verify its host service is running. If `/health` succeeds but `/network/diagnostics` fails, check the diagnostics service logs rather than restarting navigation.
 
