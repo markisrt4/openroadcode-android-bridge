@@ -4,6 +4,9 @@ import argparse
 import json
 import sys
 import urllib.request
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 DEFAULT_URL = "http://127.0.0.1:18766/network/diagnostics"
 USB_CLASSES = {
@@ -17,20 +20,53 @@ USB_CLASSES = {
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Show full USB diagnostics as JSON")
+    parser.add_argument("--watch", action="store_true", help="Poll and report inventory changes")
+    parser.add_argument("--interval", type=float, default=2.0, help="Watch polling interval in seconds")
+    parser.add_argument("--export", metavar="PATH", help="Save timestamped full JSON diagnostics")
     parser.add_argument("--verbose", action="store_true", help="Show all available diagnostics and evidence")
     parser.add_argument("--url", default=DEFAULT_URL, help="Override Companion diagnostics URL")
     args = parser.parse_args()
+    if args.interval <= 0:
+        parser.error('--interval must be positive')
+    if args.watch:
+        previous = None
+        try:
+            while True:
+                try:
+                    current = fetch_report(args.url)
+                    fingerprint = json.dumps({key: current.get(key) for key in ('usb_devices', 'system_managed_networks', 'usb_sysfs')}, sort_keys=True)
+                    if fingerprint != previous:
+                        print(f'\n[{datetime.now(timezone.utc).isoformat()}] USB diagnostics changed', flush=True)
+                        display(current, args)
+                        previous = fingerprint
+                except (OSError, ValueError) as error:
+                    print(f'Diagnostics unavailable: {error}', file=sys.stderr, flush=True)
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            return
+    display(fetch_report(args.url), args)
+
+
+def fetch_report(url):
     try:
-        with urllib.request.urlopen(args.url, timeout=5) as response:
+        with urllib.request.urlopen(url, timeout=5) as response:
             report = json.load(response)
     except (OSError, ValueError) as error:
         sys.exit(f"ORC Companion unavailable: {error}\n"
                  "Open the Companion app and check http://127.0.0.1:18766/health")
     if not isinstance(report, dict) or "error" in report:
         sys.exit(f"Companion diagnostics error: {report.get('error', 'invalid response') if isinstance(report, dict) else 'invalid response'}")
+    return report
+
+
+def display(report, args):
     devices = report.get("usb_devices")
     if not isinstance(devices, list):
         sys.exit("Companion response is missing the USB device inventory.")
+    if args.export:
+        target = Path(args.export)
+        target.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(f"Saved diagnostics to {target}", file=sys.stderr)
     if args.json:
         print(json.dumps({key: report.get(key) for key in ("usb_devices", "system_managed_networks", "usb_sysfs")}, indent=2))
         return
@@ -46,6 +82,9 @@ def main():
         print(f"  Class: {device_class} ({USB_CLASSES.get(device_class, 'Other')})")
         print(f"  Subclass: {device.get('device_subclass', 'unknown')}")
         print(f"  Interfaces: {device.get('interface_count', 'unknown')}")
+        if args.verbose:
+            for iface in device.get("interfaces", []):
+                print(f"    Interface {iface.get('id')}: class={iface.get('class')} subclass={iface.get('subclass')} protocol={iface.get('protocol')} endpoints={iface.get('endpoint_count')}")
         print(f"  Android USB permission: {'granted' if device.get('permission_granted') else 'not granted'}")
     managed = report.get("system_managed_networks", [])
     print(f"\nSystem-managed Ethernet indicators: {len(managed)}")
@@ -63,6 +102,7 @@ def main():
               f" ({entry.get('sysfs_name', 'unknown')})")
         if args.verbose:
             print(f"    Driver: {entry.get('driver', 'not exposed')}")
+            print(f"    Speed: {entry.get('speed', 'unavailable')} Mb/s; max power: {entry.get('bMaxPower', 'unavailable')}")
     if not devices and not entries:
         print("Note: System-managed USB hardware may be hidden by Android.")
     if args.verbose:
