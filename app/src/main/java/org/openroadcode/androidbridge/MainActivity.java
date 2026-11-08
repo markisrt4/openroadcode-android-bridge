@@ -262,7 +262,6 @@ public final class MainActivity extends Activity {
       termuxServicesCard = new TermuxServicesCard(this);
       content.addView(termuxServicesCard.view(), cardParams());
     }
-    content.addView(new NetworkDiagnosticsCard(this).view(), cardParams());
     subsystemDashboard = new SubsystemDashboard(this, this::showSubsystem, new SubsystemDashboard.Controls() {
       @Override public SubsystemDashboard.FeatureState state(String route) { return subsystemState(route); }
       @Override public void toggle(String route, boolean enabled) { toggleSubsystem(route, enabled); }
@@ -270,6 +269,7 @@ public final class MainActivity extends Activity {
     content.addView(subsystemDashboard.view());
     subsystemDashboard.refresh();
     if (dashboardActive) startVisibleCards();
+    content.addView(new NetworkDiagnosticsCard(this).view(), cardParams());
     addFooter();
     scrollView.scrollTo(0, 0);
   }
