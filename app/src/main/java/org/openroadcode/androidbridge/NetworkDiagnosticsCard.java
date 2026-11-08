@@ -1,6 +1,9 @@
 package org.openroadcode.androidbridge;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
+import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings.RuntimeDevice;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -24,6 +27,9 @@ import org.openroadcode.androidbridge.ui.UiTheme;
 /** Expandable diagnostics section with individual connection-type subcards. */
 final class NetworkDiagnosticsCard {
   private final Activity activity;
+  private final RuntimeServiceManagerSettings runtimeSettings;
+  private final Button targetButton;
+  private String selectedSource = "phone";
   private final ExpandableCard expandable;
   private final TextView summary;
   private final GridLayout cards;
@@ -35,9 +41,12 @@ final class NetworkDiagnosticsCard {
 
   NetworkDiagnosticsCard(Activity activity) {
     this.activity = activity;
+    runtimeSettings = new RuntimeServiceManagerSettings(activity);
     LinearLayout body = UiTheme.card(activity);
     summary = UiTheme.text(activity, "Tap Refresh to inspect connections.", 12, UiTheme.MUTED);
     body.addView(summary);
+    targetButton = UiTheme.actionButton(activity, "Source: This phone ▾", UiTheme.SURFACE_RAISED, view -> chooseSource());
+    body.addView(targetButton);
     cards = new GridLayout(activity);
     cards.setColumnCount(2);
     cards.setPadding(0, UiTheme.dp(activity, 10), 0, UiTheme.dp(activity, 8));
@@ -151,21 +160,53 @@ final class NetworkDiagnosticsCard {
     return total;
   }
 
+  private void chooseSource() {
+    java.util.List<RuntimeDevice> devices = runtimeSettings.devices();
+    String[] labels = new String[devices.size() + 2];
+    labels[0] = "This phone";
+    labels[1] = "Local Termux";
+    for (int i = 0; i < devices.size(); i++) labels[i + 2] = devices.get(i).name();
+    new AlertDialog.Builder(activity).setTitle("Diagnostics source")
+        .setItems(labels, (dialog, which) -> {
+          selectedSource = which == 0 ? "phone" : which == 1 ? "termux"
+              : devices.get(which - 2).deviceId();
+          targetButton.setText("Source: " + labels[which] + " ▾");
+          lastReport = null;
+          cards.removeAllViews();
+          selectedDetails.setVisibility(View.GONE);
+          refresh();
+        }).show();
+  }
+
+  private JSONObject collectSelectedReport(String source) throws Exception {
+    if ("phone".equals(source)) return NetworkDiagnosticsService.snapshot(activity.getApplicationContext());
+    if ("termux".equals(source))
+      return new RuntimeServiceManagerClient(TermuxServiceManagerClient.BASE_URL, "Local Termux")
+          .getNetworkDiagnostics();
+    for (RuntimeDevice device : runtimeSettings.devices()) {
+      if (device.deviceId().equals(source))
+        return new RuntimeServiceManagerClient(device.baseUrl(), device.name(), device.accessToken())
+            .getNetworkDiagnostics();
+    }
+    throw new IllegalStateException("Selected computing unit is no longer paired");
+  }
+
   private void refresh() {
     if (refreshInProgress) return;
     refreshInProgress = true;
     summary.setText("Collecting diagnostics…");
+    final String source = selectedSource;
     diagnosticsWorker.execute(() -> {
       try {
-        JSONObject report = NetworkDiagnosticsService.snapshot(activity.getApplicationContext());
+        JSONObject report = collectSelectedReport(source);
         mainHandler.post(() -> {
           refreshInProgress = false;
-          if (!activity.isFinishing() && !activity.isDestroyed()) renderReport(report);
+          if (!activity.isFinishing() && !activity.isDestroyed() && source.equals(selectedSource)) renderReport(report);
         });
       } catch (Exception error) {
         mainHandler.post(() -> {
           refreshInProgress = false;
-          if (!activity.isFinishing() && !activity.isDestroyed()) showError(error);
+          if (!activity.isFinishing() && !activity.isDestroyed() && source.equals(selectedSource)) showError(error);
         });
       }
     });
