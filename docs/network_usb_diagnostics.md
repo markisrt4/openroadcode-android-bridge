@@ -22,6 +22,7 @@ bash development/termux/install_network_info.sh
 orc-network-info
 orc-network-info --json
 orc-usb-info
+orc-usb-info --verbose
 orc-usb-info --json
 curl -fsS http://127.0.0.1:18766/health
 ```
@@ -30,7 +31,7 @@ The installer copies standalone Python executables into `$PREFIX/bin/orc-network
 
 If the CLI reports connection refused, open the Companion app and verify its host service is running. If `/health` succeeds but `/network/diagnostics` fails, check the diagnostics service logs rather than restarting navigation.
 
-USB devices already claimed by Android's system drivers might not appear in the USB device inventory; a recognized Ethernet adapter can still appear as a network transport. Neither empty list alone proves the physical adapter is defective.
+The report now also includes `system_managed_networks` (Ethernet transport indicators with USB backing explicitly unconfirmed) and best-effort `usb_sysfs` device metadata. Android may deny access to `/sys/bus/usb/devices`; `unavailable_or_restricted` and `no_readable_device_metadata` do not establish that no hardware is attached. The `--verbose` CLI output shows any exposed driver metadata.
 
 ## Validation
 
