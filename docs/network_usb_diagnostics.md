@@ -36,3 +36,17 @@ The report now also includes `system_managed_networks` (Ethernet transport indic
 ## Validation
 
 The GitHub Actions Android workflow runs `development/release/check_ports.py` before Gradle builds. Verify the exact branch commit's build and install its matching APK before device testing.
+
+
+## Extended USB diagnostics
+
+The Companion reports Android USB host interfaces (class/subclass/protocol/endpoint count), and best-effort sysfs metadata (USB speed in Mb/s, bMaxPower as reported by the kernel, optional driver). Network Ethernet evidence is labeled `possible_usb_backed` and does not prove USB backing; USB host and readable sysfs records are marked confirmed evidence. Reports contain `timestamp_ms`.
+
+```sh
+orc-usb-info --verbose
+orc-usb-info --watch --interval 2
+orc-usb-info --export usb-diagnostics.json
+orc-usb-info --json
+```
+
+Watch mode polls and prints only when inventory changes; it does not require a privileged USB broadcast receiver. Export includes the complete report, which may contain local IP addresses and hardware identifiers: review before sharing. Android UI snapshots run on a background executor. CLI regression tests run on GitHub Actions Ubuntu using `python3 -m unittest discover -s development/tests -p 'test_orc_*.py' -v`.
