@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.GridLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -83,7 +84,13 @@ final class NetworkDiagnosticsCard {
     card.setPadding(UiTheme.dp(activity, 12), UiTheme.dp(activity, 12),
         UiTheme.dp(activity, 8), UiTheme.dp(activity, 12));
     card.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 12));
-    NetworkDiagnosticsIconView icon = new NetworkDiagnosticsIconView(activity, type, accent);
+    ImageView icon = new ImageView(activity);
+    int iconId = "ethernet".equals(type) ? R.drawable.ic_diagnostics_ethernet
+        : "wifi".equals(type) ? R.drawable.ic_diagnostics_wifi
+        : "cellular".equals(type) ? R.drawable.ic_diagnostics_cellular
+        : R.drawable.ic_diagnostics_usb;
+    icon.setImageResource(iconId);
+    icon.setContentDescription(title);
     card.addView(icon, new LinearLayout.LayoutParams(UiTheme.dp(activity, 30), UiTheme.dp(activity, 30)));
     TextView name = UiTheme.text(activity, title, 14, UiTheme.TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
