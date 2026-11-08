@@ -12,6 +12,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import java.util.Map;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.charset.StandardCharsets;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 
 /** Read-only Android network and USB inventory; no privileged shell access required. */
 final class NetworkDiagnosticsService {
@@ -21,6 +26,8 @@ final class NetworkDiagnosticsService {
     JSONObject result = new JSONObject();
     result.put("networks", networks(context));
     result.put("usb_devices", usbDevices(context));
+    result.put("system_managed_networks", systemManagedNetworks(context));
+    result.put("usb_sysfs", usbSysfs());
     return result;
   }
 
@@ -57,6 +64,67 @@ final class NetworkDiagnosticsService {
       out.put(entry);
     }
     return out;
+  }
+
+  /** Network evidence is not proof of USB backing: Android may hide the physical bus. */
+  private static JSONArray systemManagedNetworks(Context context) throws JSONException {
+    JSONArray out = new JSONArray();
+    ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+    if (manager == null) return out;
+    for (Network network : manager.getAllNetworks()) {
+      NetworkCapabilities caps = manager.getNetworkCapabilities(network);
+      if (caps == null || !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) continue;
+      JSONObject entry = new JSONObject();
+      entry.put("transport", "ethernet");
+      entry.put("usb_backing", "unconfirmed");
+      entry.put("active", network.equals(manager.getActiveNetwork()));
+      LinkProperties props = manager.getLinkProperties(network);
+      if (props != null) {
+        entry.put("interface", props.getInterfaceName());
+        JSONArray addresses = new JSONArray();
+        for (LinkAddress address : props.getLinkAddresses()) addresses.put(address.toString());
+        entry.put("addresses", addresses);
+      }
+      out.put(entry);
+    }
+    return out;
+  }
+
+  /** Best-effort sysfs probe; never assume unreadable paths imply absent hardware. */
+  private static JSONObject usbSysfs() throws JSONException {
+    JSONObject result = new JSONObject();
+    JSONArray devices = new JSONArray();
+    File root = new File("/sys/bus/usb/devices");
+    File[] entries = root.listFiles();
+    if (entries == null) {
+      result.put("status", "unavailable_or_restricted");
+      result.put("devices", devices);
+      return result;
+    }
+    int readable = 0;
+    for (File entry : entries) {
+      File vendor = new File(entry, "idVendor");
+      File product = new File(entry, "idProduct");
+      if (!vendor.isFile() || !product.isFile()) continue;
+      try {
+        String vid = Files.readString(vendor.toPath(), StandardCharsets.US_ASCII).trim();
+        String pid = Files.readString(product.toPath(), StandardCharsets.US_ASCII).trim();
+        JSONObject item = new JSONObject();
+        item.put("sysfs_name", entry.getName());
+        item.put("vendor_id_hex", vid);
+        item.put("product_id_hex", pid);
+        File driver = new File(entry, "driver");
+        try {
+          if (driver.getCanonicalPath().contains("/drivers/"))
+            item.put("driver", driver.getCanonicalFile().getName());
+        } catch (Exception ignored) { }
+        devices.put(item);
+        readable++;
+      } catch (Exception ignored) { }
+    }
+    result.put("status", readable > 0 ? "partial_or_available" : "no_readable_device_metadata");
+    result.put("devices", devices);
+    return result;
   }
 
   private static JSONArray usbDevices(Context context) throws JSONException {
