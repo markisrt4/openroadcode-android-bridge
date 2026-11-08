@@ -3,6 +3,7 @@ package org.openroadcode.androidbridge;
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.hardware.usb.UsbInterface;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.io.File;
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.util.Date;
 
 /** Read-only Android network and USB inventory; no privileged shell access required. */
 final class NetworkDiagnosticsService {
@@ -22,6 +24,7 @@ final class NetworkDiagnosticsService {
 
   static JSONObject snapshot(Context context) throws JSONException {
     JSONObject result = new JSONObject();
+    result.put("timestamp_ms", System.currentTimeMillis());
     result.put("networks", networks(context));
     result.put("usb_devices", usbDevices(context));
     result.put("system_managed_networks", systemManagedNetworks(context));
@@ -75,6 +78,7 @@ final class NetworkDiagnosticsService {
       JSONObject entry = new JSONObject();
       entry.put("transport", "ethernet");
       entry.put("usb_backing", "unconfirmed");
+      entry.put("detection", "possible_usb_backed");
       entry.put("active", network.equals(manager.getActiveNetwork()));
       LinkProperties props = manager.getLinkProperties(network);
       if (props != null) {
@@ -82,6 +86,9 @@ final class NetworkDiagnosticsService {
         JSONArray addresses = new JSONArray();
         for (LinkAddress address : props.getLinkAddresses()) addresses.put(address.toString());
         entry.put("addresses", addresses);
+        JSONArray routes = new JSONArray();
+        for (android.net.RouteInfo route : props.getRoutes()) routes.put(route.toString());
+        entry.put("routes", routes);
       }
       out.put(entry);
     }
@@ -119,6 +126,11 @@ final class NetworkDiagnosticsService {
         item.put("sysfs_name", entry.getName());
         item.put("vendor_id_hex", vid);
         item.put("product_id_hex", pid);
+        item.put("detection", "confirmed_usb_sysfs");
+        for (String attribute : new String[] {"speed", "bMaxPower", "manufacturer", "product"}) {
+          try { item.put(attribute, readFirstLine(new File(entry, attribute))); }
+          catch (Exception ignored) { }
+        }
         File driver = new File(entry, "driver");
         try {
           if (driver.getCanonicalPath().contains("/drivers/"))
@@ -146,6 +158,19 @@ final class NetworkDiagnosticsService {
       entry.put("device_class", device.getDeviceClass());
       entry.put("device_subclass", device.getDeviceSubclass());
       entry.put("interface_count", device.getInterfaceCount());
+      entry.put("detection", "confirmed_usb_host");
+      JSONArray interfaces = new JSONArray();
+      for (int i = 0; i < device.getInterfaceCount(); i++) {
+        UsbInterface usbInterface = device.getInterface(i);
+        JSONObject iface = new JSONObject();
+        iface.put("id", usbInterface.getId());
+        iface.put("class", usbInterface.getInterfaceClass());
+        iface.put("subclass", usbInterface.getInterfaceSubclass());
+        iface.put("protocol", usbInterface.getInterfaceProtocol());
+        iface.put("endpoint_count", usbInterface.getEndpointCount());
+        interfaces.put(iface);
+      }
+      entry.put("interfaces", interfaces);
       entry.put("permission_granted", manager.hasPermission(device));
       out.put(entry);
     }
