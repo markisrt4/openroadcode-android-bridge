@@ -41,21 +41,21 @@ def main():
         vendor = int(device.get("vendor_id", 0))
         product = int(device.get("product_id", 0))
         device_class = int(device.get("device_class", 0))
-        print(f"\\n[{index}] {vendor:04x}:{product:04x}")
+        print(f"\n[{index}] {vendor:04x}:{product:04x}")
         print(f"  Path: {device.get('device_name', 'unknown')}")
         print(f"  Class: {device_class} ({USB_CLASSES.get(device_class, 'Other')})")
         print(f"  Subclass: {device.get('device_subclass', 'unknown')}")
         print(f"  Interfaces: {device.get('interface_count', 'unknown')}")
         print(f"  Android USB permission: {'granted' if device.get('permission_granted') else 'not granted'}")
     managed = report.get("system_managed_networks", [])
-    print(f"\\nSystem-managed Ethernet indicators: {len(managed)}")
+    print(f"\nSystem-managed Ethernet indicators: {len(managed)}")
     for entry in managed:
         print(f"  {entry.get('interface') or 'unknown'}"
               f"{' [active]' if entry.get('active') else ''}")
         print(f"    IP: {', '.join(entry.get('addresses', [])) or 'none'}")
         print("    USB backing: unconfirmed")
     sysfs = report.get("usb_sysfs", {})
-    print(f"\\nUSB sysfs: {sysfs.get('status', 'not reported')}")
+    print(f"\nUSB sysfs: {sysfs.get('status', 'not reported')}")
     entries = sysfs.get("devices", [])
     print(f"  Readable devices: {len(entries)}")
     for entry in entries:
@@ -66,7 +66,7 @@ def main():
     if not devices and not entries:
         print("Note: System-managed USB hardware may be hidden by Android.")
     if args.verbose:
-        print("\\nEvidence: Ethernet transport does not prove a USB connection.")
+        print("\nEvidence: Ethernet transport does not prove a USB connection.")
         print("A restricted sysfs inventory does not prove USB hardware is absent.")
 
 
