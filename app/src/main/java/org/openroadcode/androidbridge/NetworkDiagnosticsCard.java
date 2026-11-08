@@ -100,7 +100,7 @@ final class NetworkDiagnosticsCard {
         selectedDetails.setVisibility(View.GONE);
         selectedDetails.setTag(null);
       } else {
-        selectedDetails.setText(title + "\\n" + detail);
+        selectedDetails.setText(title + "\n" + detail);
         selectedDetails.setTag(type);
         selectedDetails.setVisibility(View.VISIBLE);
       }
