@@ -17,7 +17,7 @@ for item in ports:
     owner = ROOT / "app/src/main/java/org/openroadcode/androidbridge" / (item["owner"] + ".java")
     assert owner.exists(), f"Missing listener owner: {owner}"
     source = owner.read_text()
-    assert re.search(r"\b(?:PORT|DEFAULT_PORT)\s*=\s*" + str(port) + r"\b", source), (
+    assert re.search(r"\b(?:PORT|TCP_PORT|DEFAULT_PORT)\s*=\s*" + str(port) + r"\b", source), (
         f"Port {port} not declared in {owner}"
     )
 cli = (ROOT / "development/termux/orc_network_info.py").read_text()
