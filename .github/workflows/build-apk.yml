@@ -27,6 +27,9 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: python3 development/release/check_version_bump.py "$BASE_REF"
 
+      - name: Validate companion port registry
+        run: python3 development/release/check_ports.py
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
