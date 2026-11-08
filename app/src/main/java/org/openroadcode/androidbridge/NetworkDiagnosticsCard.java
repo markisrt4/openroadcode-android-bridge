@@ -12,6 +12,10 @@ import android.widget.LinearLayout;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.os.Handler;
+import android.os.Looper;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.ui.ExpandableCard;
@@ -25,6 +29,9 @@ final class NetworkDiagnosticsCard {
   private final GridLayout cards;
   private final TextView selectedDetails;
   private JSONObject lastReport;
+  private final ExecutorService diagnosticsWorker = Executors.newSingleThreadExecutor();
+  private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  private boolean refreshInProgress;
 
   NetworkDiagnosticsCard(Activity activity) {
     this.activity = activity;
@@ -44,8 +51,7 @@ final class NetworkDiagnosticsCard {
     Button refresh = UiTheme.actionButton(activity, "Refresh", UiTheme.BLUE, view -> refresh());
     body.addView(refresh);
     Button copy = UiTheme.actionButton(activity, "Copy JSON report", UiTheme.SURFACE_RAISED, view -> {
-      if (lastReport == null) refresh();
-      if (lastReport == null) return;
+      if (lastReport == null) { summary.setText("Refresh diagnostics before copying."); return; }
       ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
       if (clipboard != null)
         clipboard.setPrimaryClip(ClipData.newPlainText("ORC network diagnostics", lastReport.toString()));
@@ -146,8 +152,28 @@ final class NetworkDiagnosticsCard {
   }
 
   private void refresh() {
+    if (refreshInProgress) return;
+    refreshInProgress = true;
+    summary.setText("Collecting diagnostics…");
+    diagnosticsWorker.execute(() -> {
+      try {
+        JSONObject report = NetworkDiagnosticsService.snapshot(activity.getApplicationContext());
+        mainHandler.post(() -> {
+          refreshInProgress = false;
+          if (!activity.isFinishing() && !activity.isDestroyed()) renderReport(report);
+        });
+      } catch (Exception error) {
+        mainHandler.post(() -> {
+          refreshInProgress = false;
+          if (!activity.isFinishing() && !activity.isDestroyed()) showError(error);
+        });
+      }
+    });
+  }
+
+  private void renderReport(JSONObject report) {
     try {
-      lastReport = NetworkDiagnosticsService.snapshot(activity);
+      lastReport = report;
       JSONArray networks = lastReport.optJSONArray("networks");
       JSONArray usb = lastReport.optJSONArray("usb_devices");
       cards.removeAllViews();
@@ -205,11 +231,15 @@ final class NetworkDiagnosticsCard {
       addCard("USB Devices", "usb", usbCount > 0 ? UiTheme.GREEN : UiTheme.MUTED,
           usbCount + " host · " + sysfsCount + " sysfs", usbDetails.toString());
     } catch (Exception error) {
-      summary.setText("Diagnostics unavailable");
-      cards.removeAllViews();
-      selectedDetails.setText(error.getClass().getSimpleName());
-      selectedDetails.setVisibility(View.VISIBLE);
-      lastReport = null;
+      showError(error);
     }
+  }
+
+  private void showError(Exception error) {
+    summary.setText("Diagnostics unavailable");
+    cards.removeAllViews();
+    selectedDetails.setText(error.getClass().getSimpleName() + ": " + error.getMessage());
+    selectedDetails.setVisibility(View.VISIBLE);
+    lastReport = null;
   }
 }
