@@ -6,7 +6,7 @@ import sys
 import urllib.error
 import urllib.request
 
-URL = "http://127.0.0.1:8766/network/diagnostics"
+URL = "http://127.0.0.1:18766/network/diagnostics"
 
 
 def main():
@@ -19,7 +19,7 @@ def main():
             report = json.load(response)
     except (OSError, ValueError) as exc:
         sys.exit(f"ORC companion diagnostics unavailable: {exc}\n"
-                 "Start the OpenRoadCode companion sensor bridge service (port 8766).")
+                 "Start the OpenRoadCode companion companion host service (diagnostics port 18766).")
     if "error" in report:
         sys.exit(f"Companion error: {report['error']}")
     if args.json:
