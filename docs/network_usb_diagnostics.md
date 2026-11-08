@@ -21,10 +21,12 @@ From the Android Bridge checkout:
 bash development/termux/install_network_info.sh
 orc-network-info
 orc-network-info --json
+orc-usb-info
+orc-usb-info --json
 curl -fsS http://127.0.0.1:18766/health
 ```
 
-The installer copies a standalone Python executable into `$PREFIX/bin/orc-network-info`, so the command works from any directory even if the source checkout is later moved. Re-run the installer after updating the CLI source.
+The installer copies standalone Python executables into `$PREFIX/bin/orc-network-info` and `$PREFIX/bin/orc-usb-info`. Both commands work from any directory, even if the source checkout is later moved. Re-run the installer after updating either CLI source.
 
 If the CLI reports connection refused, open the Companion app and verify its host service is running. If `/health` succeeds but `/network/diagnostics` fails, check the diagnostics service logs rather than restarting navigation.
 
