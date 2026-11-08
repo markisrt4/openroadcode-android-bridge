@@ -162,14 +162,12 @@ final class NetworkDiagnosticsCard {
 
   private void chooseSource() {
     java.util.List<RuntimeDevice> devices = runtimeSettings.devices();
-    String[] labels = new String[devices.size() + 2];
+    String[] labels = new String[devices.size() + 1];
     labels[0] = "This phone";
-    labels[1] = "Local Termux";
-    for (int i = 0; i < devices.size(); i++) labels[i + 2] = devices.get(i).name();
+    for (int i = 0; i < devices.size(); i++) labels[i + 1] = devices.get(i).name();
     new AlertDialog.Builder(activity).setTitle("Diagnostics source")
         .setItems(labels, (dialog, which) -> {
-          selectedSource = which == 0 ? "phone" : which == 1 ? "termux"
-              : devices.get(which - 2).deviceId();
+          selectedSource = which == 0 ? "phone" : devices.get(which - 1).deviceId();
           targetButton.setText("Source: " + labels[which] + " ▾");
           lastReport = null;
           cards.removeAllViews();
@@ -180,9 +178,6 @@ final class NetworkDiagnosticsCard {
 
   private JSONObject collectSelectedReport(String source) throws Exception {
     if ("phone".equals(source)) return NetworkDiagnosticsService.snapshot(activity.getApplicationContext());
-    if ("termux".equals(source))
-      return new RuntimeServiceManagerClient(TermuxServiceManagerClient.BASE_URL, "Local Termux")
-          .getNetworkDiagnostics();
     for (RuntimeDevice device : runtimeSettings.devices()) {
       if (device.deviceId().equals(source))
         return new RuntimeServiceManagerClient(device.baseUrl(), device.name(), device.accessToken())
