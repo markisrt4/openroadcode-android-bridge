@@ -397,9 +397,8 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         String[] parts = requestLine.split(" ");
         String path = parts.length >= 2 && "GET".equals(parts[0]) ? parts[1] : "";
         if ("/stream/imu".equals(path)) { streamImu(socket); return; }
-        boolean valid = "/network/diagnostics".equals(path) || "/network".equals(path) || "/imu".equals(path) || "/location".equals(path) || "/health".equals(path) || "/injector/environmental".equals(path);
-        String json = "/network/diagnostics".equals(path) ? networkDiagnosticsJson()
-                : "/network".equals(path) ? networkStateMonitor.json()
+        boolean valid = "/network".equals(path) || "/imu".equals(path) || "/location".equals(path) || "/health".equals(path) || "/injector/environmental".equals(path);
+        String json = "/network".equals(path) ? networkStateMonitor.json()
                 : "/imu".equals(path) ? sampleJson()
                 : "/location".equals(path) ? locationJson()
                 : "/health".equals(path) ? healthJson()
@@ -414,11 +413,6 @@ public final class SensorBridgeService extends Service implements SensorEventLis
         output.write(headers.getBytes(StandardCharsets.US_ASCII));
         output.write(body);
         output.flush();
-    }
-
-    private String networkDiagnosticsJson() {
-        try { return NetworkDiagnosticsService.snapshot(this).toString(); }
-        catch (Exception error) { return "{\"error\":\"network diagnostics unavailable\"}"; }
     }
 
     private void streamImu(Socket socket) throws IOException {
