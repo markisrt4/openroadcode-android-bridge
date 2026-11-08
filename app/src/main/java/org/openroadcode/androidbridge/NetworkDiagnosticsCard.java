@@ -180,9 +180,30 @@ final class NetworkDiagnosticsCard {
             .append("\nProduct ID: ").append(device.optInt("product_id"))
             .append("\nInterfaces: ").append(device.optInt("interface_count"));
       }
+      JSONArray managed = lastReport.optJSONArray("system_managed_networks");
+      JSONObject sysfs = lastReport.optJSONObject("usb_sysfs");
+      JSONArray sysfsDevices = sysfs == null ? null : sysfs.optJSONArray("devices");
+      int managedCount = managed == null ? 0 : managed.length();
+      int sysfsCount = sysfsDevices == null ? 0 : sysfsDevices.length();
+      usbDetails.append("\n\nSystem-managed Ethernet indicators: ").append(managedCount);
+      if (managed != null) for (int i = 0; i < managed.length(); i++) {
+        JSONObject entry = managed.optJSONObject(i);
+        if (entry == null) continue;
+        usbDetails.append("\n").append(entry.optString("interface", "Unknown interface"))
+            .append(" (USB backing unconfirmed)");
+      }
+      usbDetails.append("\nUSB sysfs: ")
+          .append(sysfs == null ? "not reported" : sysfs.optString("status", "unknown"))
+          .append("\nReadable USB metadata: ").append(sysfsCount);
+      if (sysfsDevices != null) for (int i = 0; i < sysfsDevices.length(); i++) {
+        JSONObject entry = sysfsDevices.optJSONObject(i);
+        if (entry == null) continue;
+        usbDetails.append("\n").append(entry.optString("vendor_id_hex", "????"))
+            .append(":").append(entry.optString("product_id_hex", "????"));
+      }
+      usbDetails.append("\nSystem-managed devices may be hidden from the Android USB host list.");
       addCard("USB Devices", "usb", usbCount > 0 ? UiTheme.GREEN : UiTheme.MUTED,
-          usbCount + " detected", usbDetails.length() == 0
-              ? "No USB devices reported by Android." : usbDetails.toString());
+          usbCount + " host · " + sysfsCount + " sysfs", usbDetails.toString());
     } catch (Exception error) {
       summary.setText("Diagnostics unavailable");
       cards.removeAllViews();
