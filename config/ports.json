@@ -1,0 +1,9 @@
+{
+  "description": "Companion-owned TCP listener defaults. Project-wide registry: OpenRoadCode/docs/ethernet_idd.md.",
+  "ports": [
+    {"name": "android_sensor_bridge", "port": 8766, "owner": "SensorBridgeService", "scope": "Android local or explicitly enabled remote"},
+    {"name": "android_host_actions", "port": 8772, "owner": "AndroidHostActionService", "scope": "loopback"},
+    {"name": "android_network_diagnostics", "port": 18766, "owner": "NetworkDiagnosticsHttpServer", "scope": "loopback"},
+    {"name": "android_obd_spp", "port": 35000, "owner": "BluetoothSppBridgeService", "scope": "loopback"}
+  ]
+}
