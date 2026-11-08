@@ -13,10 +13,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import java.util.Map;
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.charset.StandardCharsets;
-import java.net.NetworkInterface;
-import java.util.Enumeration;
+import java.io.BufferedReader;
+import java.io.FileReader;
 
 /** Read-only Android network and USB inventory; no privileged shell access required. */
 final class NetworkDiagnosticsService {
@@ -90,6 +88,14 @@ final class NetworkDiagnosticsService {
     return out;
   }
 
+  private static String readFirstLine(File file) throws java.io.IOException {
+    try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+      String line = reader.readLine();
+      if (line == null) throw new java.io.IOException("Empty sysfs attribute");
+      return line.trim();
+    }
+  }
+
   /** Best-effort sysfs probe; never assume unreadable paths imply absent hardware. */
   private static JSONObject usbSysfs() throws JSONException {
     JSONObject result = new JSONObject();
@@ -107,8 +113,8 @@ final class NetworkDiagnosticsService {
       File product = new File(entry, "idProduct");
       if (!vendor.isFile() || !product.isFile()) continue;
       try {
-        String vid = Files.readString(vendor.toPath(), StandardCharsets.US_ASCII).trim();
-        String pid = Files.readString(product.toPath(), StandardCharsets.US_ASCII).trim();
+        String vid = readFirstLine(vendor);
+        String pid = readFirstLine(product);
         JSONObject item = new JSONObject();
         item.put("sysfs_name", entry.getName());
         item.put("vendor_id_hex", vid);
