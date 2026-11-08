@@ -30,6 +30,9 @@ jobs:
       - name: Validate companion port registry
         run: python3 development/release/check_ports.py
 
+      - name: Test Termux diagnostics CLIs on Ubuntu
+        run: python3 -m unittest discover -s development/tests -p "test_orc_*.py" -v
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
