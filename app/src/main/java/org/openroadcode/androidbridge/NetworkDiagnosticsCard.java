@@ -39,7 +39,7 @@ final class NetworkDiagnosticsCard {
       if (lastReport == null) refresh();
       if (lastReport == null) return;
       ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
-      if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("ORC network diagnostics", lastReport.toString(2)));
+      if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("ORC network diagnostics", lastReport.toString()));
     });
     root.addView(copy);
   }
