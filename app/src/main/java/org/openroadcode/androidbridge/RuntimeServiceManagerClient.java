@@ -89,6 +89,11 @@ public final class RuntimeServiceManagerClient {
     return request("GET", "/performance");
   }
 
+  /** Read-only network and USB inventory from the selected paired runtime. */
+  public JSONObject getNetworkDiagnostics() throws Exception {
+    return request("GET", "/network/diagnostics");
+  }
+
   /** Register this Android Bridge as the selected runtime's shared bridge endpoint. */
   public JSONObject registerAndroidBridge() throws Exception {
     return request("POST", "/runtime/android-bridge");
