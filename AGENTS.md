@@ -1,5 +1,14 @@
 # Agent instructions
 
+## Mandatory Android app versioning
+
+- For every pull request that changes Android application code, resources, manifest, or packaged behavior, increment `versionCode` in `app/build.gradle` above the target branch's value. Android requires monotonically increasing version codes for APK upgrades.
+- For every user-visible feature, bug fix, or behavior change, also update `baseVersion` in `app/build.gradle` using semantic versioning: PATCH for fixes, MINOR for backward-compatible features, MAJOR for breaking changes. Do not rely on the Git SHA suffix as a replacement for the base version.
+- Documentation-only, CI-only, or agent-instruction-only pull requests may retain the version values. If a PR contains both app changes and documentation changes, the bump is mandatory.
+- Before opening or updating a PR, compare both values against the intended base branch. Multiple commits in one PR need one appropriate bump; do not increment on every commit. Reconcile concurrent PRs so each merged version remains higher than the current base.
+- Do not reset or decrease either version, reuse a published versionCode for a different release, or change the debug/release versioning convention without explicitly updating release tooling.
+- The GitHub Actions version gate is authoritative. If it fails, update the Gradle version values and push; do not bypass the gate or merge with a failed check.
+
 ## Android APK build and local development workflow
 
 - **Do not instruct the user to run `./gradlew`, `gradlew assembleDebug`, or `gradlew testDebugUnitTest` on the Termux host.** Android APK compilation and automated tests run in **GitHub Actions** using the **Build Android APK** workflow.
