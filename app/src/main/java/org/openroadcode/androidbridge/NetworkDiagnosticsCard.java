@@ -9,6 +9,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.GridLayout;
 import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -20,7 +21,8 @@ final class NetworkDiagnosticsCard {
   private final Activity activity;
   private final ExpandableCard expandable;
   private final TextView summary;
-  private final LinearLayout cards;
+  private final GridLayout cards;
+  private final TextView selectedDetails;
   private JSONObject lastReport;
 
   NetworkDiagnosticsCard(Activity activity) {
@@ -28,10 +30,16 @@ final class NetworkDiagnosticsCard {
     LinearLayout body = UiTheme.card(activity);
     summary = UiTheme.text(activity, "Tap Refresh to inspect connections.", 12, UiTheme.MUTED);
     body.addView(summary);
-    cards = new LinearLayout(activity);
-    cards.setOrientation(LinearLayout.VERTICAL);
+    cards = new GridLayout(activity);
+    cards.setColumnCount(2);
     cards.setPadding(0, UiTheme.dp(activity, 10), 0, UiTheme.dp(activity, 8));
     body.addView(cards);
+    selectedDetails = UiTheme.text(activity, "", 12, UiTheme.MUTED);
+    selectedDetails.setPadding(UiTheme.dp(activity, 10), UiTheme.dp(activity, 12),
+        UiTheme.dp(activity, 10), UiTheme.dp(activity, 12));
+    selectedDetails.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 12));
+    selectedDetails.setVisibility(View.GONE);
+    body.addView(selectedDetails);
     Button refresh = UiTheme.actionButton(activity, "Refresh", UiTheme.BLUE, view -> refresh());
     body.addView(refresh);
     Button copy = UiTheme.actionButton(activity, "Copy JSON report", UiTheme.SURFACE_RAISED, view -> {
@@ -71,36 +79,38 @@ final class NetworkDiagnosticsCard {
   private void addCard(String title, String type, int accent, String status, String detail) {
     LinearLayout card = new LinearLayout(activity);
     card.setOrientation(LinearLayout.VERTICAL);
+    card.setGravity(Gravity.CENTER_VERTICAL);
     card.setPadding(UiTheme.dp(activity, 12), UiTheme.dp(activity, 12),
-        UiTheme.dp(activity, 12), UiTheme.dp(activity, 12));
+        UiTheme.dp(activity, 8), UiTheme.dp(activity, 12));
     card.setBackground(UiTheme.rounded(activity, UiTheme.SURFACE_RAISED, UiTheme.BORDER, 12));
-    LinearLayout heading = new LinearLayout(activity);
-    heading.setOrientation(LinearLayout.HORIZONTAL);
-    heading.setGravity(Gravity.CENTER_VERTICAL);
     NetworkDiagnosticsIconView icon = new NetworkDiagnosticsIconView(activity, type, accent);
-    heading.addView(icon, new LinearLayout.LayoutParams(UiTheme.dp(activity, 32), UiTheme.dp(activity, 32)));
-    LinearLayout labels = new LinearLayout(activity);
-    labels.setPadding(UiTheme.dp(activity, 10), 0, 0, 0);
-    labels.setOrientation(LinearLayout.VERTICAL);
-    TextView name = UiTheme.text(activity, title, 15, UiTheme.TEXT);
+    card.addView(icon, new LinearLayout.LayoutParams(UiTheme.dp(activity, 30), UiTheme.dp(activity, 30)));
+    TextView name = UiTheme.text(activity, title, 14, UiTheme.TEXT);
     name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-    labels.addView(name);
-    labels.addView(UiTheme.text(activity, status, 12, accent));
-    heading.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-    TextView chevron = UiTheme.text(activity, "›", 24, UiTheme.MUTED);
-    heading.addView(chevron);
-    card.addView(heading);
-    TextView details = UiTheme.text(activity, detail, 12, UiTheme.MUTED);
-    details.setPadding(0, UiTheme.dp(activity, 12), 0, 0);
-    details.setVisibility(View.GONE);
-    card.addView(details);
-    heading.setOnClickListener(view -> {
-      boolean open = details.getVisibility() != View.VISIBLE;
-      details.setVisibility(open ? View.VISIBLE : View.GONE);
-      chevron.setText(open ? "⌄" : "›");
+    LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(-1, -2);
+    nameParams.topMargin = UiTheme.dp(activity, 8);
+    card.addView(name, nameParams);
+    card.addView(UiTheme.text(activity, status, 11, accent));
+    card.setClickable(true);
+    card.setFocusable(true);
+    card.setContentDescription(title + ", " + status + ". Tap for details.");
+    card.setOnClickListener(view -> {
+      if (selectedDetails.getVisibility() == View.VISIBLE
+          && selectedDetails.getTag() != null && selectedDetails.getTag().equals(type)) {
+        selectedDetails.setVisibility(View.GONE);
+        selectedDetails.setTag(null);
+      } else {
+        selectedDetails.setText(title + "\\n" + detail);
+        selectedDetails.setTag(type);
+        selectedDetails.setVisibility(View.VISIBLE);
+      }
     });
-    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-    params.bottomMargin = UiTheme.dp(activity, 9);
+    GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+    params.width = 0;
+    params.height = UiTheme.dp(activity, 126);
+    params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+    params.setMargins(UiTheme.dp(activity, 3), UiTheme.dp(activity, 3),
+        UiTheme.dp(activity, 3), UiTheme.dp(activity, 3));
     cards.addView(card, params);
   }
 
@@ -134,6 +144,8 @@ final class NetworkDiagnosticsCard {
       JSONArray networks = lastReport.optJSONArray("networks");
       JSONArray usb = lastReport.optJSONArray("usb_devices");
       cards.removeAllViews();
+      selectedDetails.setVisibility(View.GONE);
+      selectedDetails.setTag(null);
       int ethernet = count(networks, "ethernet");
       int wifi = count(networks, "wifi");
       int cellular = count(networks, "cellular");
@@ -167,7 +179,8 @@ final class NetworkDiagnosticsCard {
     } catch (Exception error) {
       summary.setText("Diagnostics unavailable");
       cards.removeAllViews();
-      cards.addView(UiTheme.text(activity, error.getClass().getSimpleName(), 12, UiTheme.MUTED));
+      selectedDetails.setText(error.getClass().getSimpleName());
+      selectedDetails.setVisibility(View.VISIBLE);
       lastReport = null;
     }
   }
