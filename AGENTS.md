@@ -64,3 +64,10 @@ During an in-progress merge, do not suggest switching branches, resetting, or co
 - Do not install dependencies in the Codex VM solely to run checks, tests, builds, or other validation. Dependency installation needed for actual implementation must be justified separately.
 - Prefer concise CI failure summaries, JUnit XML artifacts, and the failing job's relevant log excerpt over reading entire workflow logs repeatedly.
 - Request or inspect the GitHub Actions result for the exact commit before declaring verification complete. Use the workflow's manually dispatched full gate before merge where configured; do not claim the full gate ran just because fast CI passed.
+
+## Asynchronous GitHub Actions policy
+
+- Open a draft PR early for ongoing work when useful. Push incremental commits without waiting for each CI run.
+- Automated builds, dependency installs, lint, and unit tests belong in GitHub Actions rather than the Codex execution environment, unless explicitly requested. Hardware/device tests belong on the user's own devices.
+- Do not poll CI after routine commits. Inspect checks when diagnosing failures, marking a PR ready for review, or preparing to merge.
+- Do not claim merge readiness until the latest commit has passed all required checks. Never merge failing checks or without explicit user authorization.
