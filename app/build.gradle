@@ -22,7 +22,7 @@ if (!gitSha) {
     }
 }
 def shortGitSha = gitSha ? gitSha.take(7) : 'unknown'
-def baseVersion = '1.0.2'
+def baseVersion = '1.0.3'
 def isTagBuild = System.getenv('GITHUB_REF_TYPE') == 'tag'
 
 // Private release credentials are supplied by the protected CI environment.
