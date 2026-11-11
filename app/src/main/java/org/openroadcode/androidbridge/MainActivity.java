@@ -303,15 +303,11 @@ public final class MainActivity extends Activity {
             ? "Connection failed. Open Vehicle for help." : "Off";
       }
       case SubsystemDashboard.RADIO -> {
-        source = "USB receiver";
-        RtlSdrUsbManager.State state = ((OpenRoadCodeBridgeApplication) getApplication()).radioState();
-        boolean attached = state != null && ((OpenRoadCodeBridgeApplication) getApplication()).getRtlSdrUsbManager().isAttached(state.device);
-        running = RtlSdrUsbProxyService.isListening() && attached && state.status == RtlSdrUsbManager.Status.OPEN;
-        if (!attached) request(route).fail("Attach a USB receiver");
-        else if (state.status == RtlSdrUsbManager.Status.PERMISSION_PENDING) request(route).waitingForPermission();
-        if (state != null && state.status == RtlSdrUsbManager.Status.ERROR) request(route).fail(state.message);
-        status = running ? "Connected to " + state.friendlyName() : !attached
-            ? "Attach a USB receiver" : "Off";
+        RtlSdrUsbManager.State state = ((OpenRoadCodeBridgeApplication) getApplication())
+            .getRtlSdrUsbManager().refresh();
+        source = "Termux / libSDRForge";
+        running = false;
+        status = state.device == null ? "Attach a USB receiver" : "USB detected; managed by Termux";
       }
       case SubsystemDashboard.MEDIA -> {
         running = PcmAudioOutputService.isRunning();
@@ -359,12 +355,7 @@ public final class MainActivity extends Activity {
           } else serviceManager.startRequestedVehicle();
         }
         case SubsystemDashboard.RADIO -> {
-          OpenRoadCodeBridgeApplication application = (OpenRoadCodeBridgeApplication) getApplication();
-          if (enabled) {
-            RtlSdrUsbManager.State state = application.getRtlSdrUsbManager().refresh();
-            if (state.device == null) { request(route).fail("Attach a USB receiver first."); break; }
-            application.startRadioBridge();
-          } else application.stopRadioBridge();
+          request(route).fail("SDR is managed by Termux/libSDRForge. Open Radio for USB status.");
         }
         case SubsystemDashboard.MEDIA -> {
           if (enabled) startForegroundService(new Intent(this, PcmAudioOutputService.class).setAction(PcmAudioOutputService.START));
@@ -537,7 +528,7 @@ public final class MainActivity extends Activity {
   private void showRadio() {
     addSubsystemHeader("◉", "Radio", "Radio hardware and aircraft reception", UiTheme.VIOLET);
     radioCard = new RadioCard(this);
-    addServiceCard(content, "RTL-SDR", "USB receiver and local radio bridge", UiTheme.VIOLET,
+    addServiceCard(content, "RTL-SDR", "USB detection; SDR managed by Termux", UiTheme.VIOLET,
         radioCard.view(), true, false);
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-adsb");
     addServiceCard(content, "ADS-B", "Aircraft receiver service on your selected runtime", BLUE,
