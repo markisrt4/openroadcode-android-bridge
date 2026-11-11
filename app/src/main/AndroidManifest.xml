@@ -22,15 +22,8 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
-    <!-- Android 11+ package visibility: the bridge intentionally integrates
-         with the installed RTL-SDR driver through its iqsrc activity. -->
     <queries>
-        <package android:name="marto.rtl_tcp_andro" />
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="iqsrc" />
-        </intent>
-        <package android:name="com.panera.bread" />
+<package android:name="com.panera.bread" />
         <package android:name="com.mcdonalds.app" />
     </queries>
 
@@ -66,7 +59,7 @@
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Local ORC host and SDR provider controls." />
+                android:value="Local ORC host provider controls." />
         </service>
 
         <service android:name=".EnvironmentSensorService" android:exported="false"
@@ -98,12 +91,7 @@
                 android:value="Provides a localhost-only simulated OBD vehicle data source for OpenRoadCode development and testing." />
         </service>
 
-        <service
-            android:name=".RtlSdrUsbProxyService"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
-
-        <service
+<service
             android:name=".CameraStreamService"
             android:exported="false"
             android:foregroundServiceType="camera" />
