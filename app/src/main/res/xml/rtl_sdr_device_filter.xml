@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common Realtek RTL2832U USB IDs, including NESDR SMArt variants. -->
+    <usb-device vendor-id="3034" product-id="10296" />
+    <usb-device vendor-id="3034" product-id="10290" />
+</resources>
