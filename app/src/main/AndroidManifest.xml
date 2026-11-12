@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
@@ -22,15 +23,9 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
-    <!-- Android 11+ package visibility: the bridge intentionally integrates
-         with the installed RTL-SDR driver through its iqsrc activity. -->
     <queries>
-        <package android:name="marto.rtl_tcp_andro" />
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="iqsrc" />
-        </intent>
-        <package android:name="com.panera.bread" />
+        <package android:name="com.termux" />
+<package android:name="com.panera.bread" />
         <package android:name="com.mcdonalds.app" />
     </queries>
 
@@ -56,6 +51,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="orcbridge" android:host="launch" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/rtl_sdr_device_filter" />
         </activity>
 
         <service android:name=".MediaSessionBridge" android:label="ORC media controls" android:exported="false" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>\n        </service>\n\n        <service android:name=".SmsGatewayService" android:exported="false" />
@@ -66,7 +67,7 @@
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Local ORC host and SDR provider controls." />
+                android:value="Local ORC host provider controls." />
         </service>
 
         <service android:name=".EnvironmentSensorService" android:exported="false"
@@ -98,12 +99,7 @@
                 android:value="Provides a localhost-only simulated OBD vehicle data source for OpenRoadCode development and testing." />
         </service>
 
-        <service
-            android:name=".RtlSdrUsbProxyService"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
-
-        <service
+<service
             android:name=".CameraStreamService"
             android:exported="false"
             android:foregroundServiceType="camera" />

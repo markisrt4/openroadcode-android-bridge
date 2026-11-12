@@ -149,12 +149,54 @@ public final class MainActivity extends Activity {
 
     showDashboard();
     handleHostActionIntent(getIntent());
+    handleSdrAttachment(getIntent());
   }
 
   @Override protected void onNewIntent(Intent intent) {
     super.onNewIntent(intent);
     setIntent(intent);
     handleHostActionIntent(intent);
+    handleSdrAttachment(intent);
+  }
+
+  private void handleSdrAttachment(Intent intent) {
+    if (intent == null || !android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+      return;
+    }
+    android.hardware.usb.UsbDevice device = intent.getParcelableExtra(
+        android.hardware.usb.UsbManager.EXTRA_DEVICE);
+    if (device == null || device.getVendorId() != 0x0bda
+        || (device.getProductId() != 0x2838 && device.getProductId() != 0x2832)) {
+      return;
+    }
+    if (checkSelfPermission("com.termux.permission.RUN_COMMAND")
+        != PackageManager.PERMISSION_GRANTED) {
+      requestPermissions(new String[]{"com.termux.permission.RUN_COMMAND"}, 1092);
+      android.widget.Toast.makeText(this,
+          "Allow ORC Companion to run Termux commands, then reconnect the SDR.",
+          android.widget.Toast.LENGTH_LONG).show();
+      return;
+    }
+    try {
+      Intent command = new Intent("com.termux.RUN_COMMAND");
+      command.setClassName("com.termux", "com.termux.app.RunCommandService");
+      command.putExtra("com.termux.RUN_COMMAND_PATH",
+          "/data/data/com.termux/files/usr/bin/bash");
+      command.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{
+          "/data/data/com.termux/files/home/.termux/tasker/orc-sdr-attach"
+      });
+      command.putExtra("com.termux.RUN_COMMAND_WORKDIR",
+          "/data/data/com.termux/files/home");
+      command.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false);
+      startService(command);
+      android.widget.Toast.makeText(this, "RTL-SDR handoff requested in Termux",
+          android.widget.Toast.LENGTH_LONG).show();
+    } catch (RuntimeException error) {
+      Log.e("ORCSDR", "Termux handoff failed", error);
+      android.widget.Toast.makeText(this,
+          "Termux handoff unavailable. Check Termux installation and permissions.",
+          android.widget.Toast.LENGTH_LONG).show();
+    }
   }
 
   private void handleHostActionIntent(Intent hostIntent) {
@@ -303,15 +345,11 @@ public final class MainActivity extends Activity {
             ? "Connection failed. Open Vehicle for help." : "Off";
       }
       case SubsystemDashboard.RADIO -> {
-        source = "USB receiver";
-        RtlSdrUsbManager.State state = ((OpenRoadCodeBridgeApplication) getApplication()).radioState();
-        boolean attached = state != null && ((OpenRoadCodeBridgeApplication) getApplication()).getRtlSdrUsbManager().isAttached(state.device);
-        running = RtlSdrUsbProxyService.isListening() && attached && state.status == RtlSdrUsbManager.Status.OPEN;
-        if (!attached) request(route).fail("Attach a USB receiver");
-        else if (state.status == RtlSdrUsbManager.Status.PERMISSION_PENDING) request(route).waitingForPermission();
-        if (state != null && state.status == RtlSdrUsbManager.Status.ERROR) request(route).fail(state.message);
-        status = running ? "Connected to " + state.friendlyName() : !attached
-            ? "Attach a USB receiver" : "Off";
+        RtlSdrUsbManager.State state = ((OpenRoadCodeBridgeApplication) getApplication())
+            .getRtlSdrUsbManager().refresh();
+        source = "Termux / libSDRForge";
+        running = false;
+        status = state.device == null ? "Attach a USB receiver" : "USB detected; managed by Termux";
       }
       case SubsystemDashboard.MEDIA -> {
         running = PcmAudioOutputService.isRunning();
@@ -359,12 +397,7 @@ public final class MainActivity extends Activity {
           } else serviceManager.startRequestedVehicle();
         }
         case SubsystemDashboard.RADIO -> {
-          OpenRoadCodeBridgeApplication application = (OpenRoadCodeBridgeApplication) getApplication();
-          if (enabled) {
-            RtlSdrUsbManager.State state = application.getRtlSdrUsbManager().refresh();
-            if (state.device == null) { request(route).fail("Attach a USB receiver first."); break; }
-            application.startRadioBridge();
-          } else application.stopRadioBridge();
+          request(route).fail("SDR is managed by Termux/libSDRForge. Open Radio for USB status.");
         }
         case SubsystemDashboard.MEDIA -> {
           if (enabled) startForegroundService(new Intent(this, PcmAudioOutputService.class).setAction(PcmAudioOutputService.START));
@@ -537,7 +570,7 @@ public final class MainActivity extends Activity {
   private void showRadio() {
     addSubsystemHeader("◉", "Radio", "Radio hardware and aircraft reception", UiTheme.VIOLET);
     radioCard = new RadioCard(this);
-    addServiceCard(content, "RTL-SDR", "USB receiver and local radio bridge", UiTheme.VIOLET,
+    addServiceCard(content, "RTL-SDR", "USB detection; SDR managed by Termux", UiTheme.VIOLET,
         radioCard.view(), true, false);
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-adsb");
     addServiceCard(content, "ADS-B", "Aircraft receiver service on your selected runtime", BLUE,
