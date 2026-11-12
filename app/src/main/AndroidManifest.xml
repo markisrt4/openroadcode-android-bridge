@@ -49,6 +49,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="orcbridge" android:host="launch" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/rtl_sdr_device_filter" />
         </activity>
 
         <service android:name=".MediaSessionBridge" android:label="ORC media controls" android:exported="false" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>\n        </service>\n\n        <service android:name=".SmsGatewayService" android:exported="false" />
