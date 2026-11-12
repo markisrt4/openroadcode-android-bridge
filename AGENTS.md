@@ -71,3 +71,11 @@ During an in-progress merge, do not suggest switching branches, resetting, or co
 - Automated builds, dependency installs, lint, and unit tests belong in GitHub Actions rather than the Codex execution environment, unless explicitly requested. Hardware/device tests belong on the user's own devices.
 - Do not poll CI after routine commits. Inspect checks when diagnosing failures, marking a PR ready for review, or preparing to merge.
 - Do not claim merge readiness until the latest commit has passed all required checks. Never merge failing checks or without explicit user authorization.
+
+## Termux diagnostic output and clipboard
+
+- When providing Termux shell commands whose output the user will paste back into chat, keep stdout and stderr visible in the Termux terminal **and** copy the resulting output to the Android clipboard using `2>&1 | tee >(termux-clipboard-set)`.
+- Example: `PYTHONPATH="$PWD:$PWD/src" python -u examples/diagnostic.py 2>&1 | tee >(termux-clipboard-set)` (adapt the actual command and paths to the repository).
+- Pipe the **output**, not the command string, to `termux-clipboard-set`. Do not use `printf 'command' | termux-clipboard-set`, `termux_terminal_set`, or `> /dev/tty` as substitutes for output capture.
+- For multi-command diagnostics, group commands and redirect the group's combined output: `{ command_one; command_two; } 2>&1 | tee >(termux-clipboard-set)`.
+- On Termux, RTL-SDR hardware acquisition must use **async** mode; never recommend sync acquisition as a fallback.
