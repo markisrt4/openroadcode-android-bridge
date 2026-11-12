@@ -169,9 +169,34 @@ public final class MainActivity extends Activity {
         || (device.getProductId() != 0x2838 && device.getProductId() != 0x2832)) {
       return;
     }
-    android.widget.Toast.makeText(this,
-        "RTL-SDR connected. USB access must be authorized before Termux can use it.",
-        android.widget.Toast.LENGTH_LONG).show();
+    if (checkSelfPermission("com.termux.permission.RUN_COMMAND")
+        != PackageManager.PERMISSION_GRANTED) {
+      requestPermissions(new String[]{"com.termux.permission.RUN_COMMAND"}, 1092);
+      android.widget.Toast.makeText(this,
+          "Allow ORC Companion to run Termux commands, then reconnect the SDR.",
+          android.widget.Toast.LENGTH_LONG).show();
+      return;
+    }
+    try {
+      Intent command = new Intent("com.termux.RUN_COMMAND");
+      command.setClassName("com.termux", "com.termux.app.RunCommandService");
+      command.putExtra("com.termux.RUN_COMMAND_PATH",
+          "/data/data/com.termux/files/usr/bin/bash");
+      command.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{
+          "/data/data/com.termux/files/home/.termux/tasker/orc-sdr-attach"
+      });
+      command.putExtra("com.termux.RUN_COMMAND_WORKDIR",
+          "/data/data/com.termux/files/home");
+      command.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false);
+      startService(command);
+      android.widget.Toast.makeText(this, "RTL-SDR handoff requested in Termux",
+          android.widget.Toast.LENGTH_LONG).show();
+    } catch (RuntimeException error) {
+      Log.e("ORCSDR", "Termux handoff failed", error);
+      android.widget.Toast.makeText(this,
+          "Termux handoff unavailable. Check Termux installation and permissions.",
+          android.widget.Toast.LENGTH_LONG).show();
+    }
   }
 
   private void handleHostActionIntent(Intent hostIntent) {
