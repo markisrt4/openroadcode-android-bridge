@@ -149,12 +149,29 @@ public final class MainActivity extends Activity {
 
     showDashboard();
     handleHostActionIntent(getIntent());
+    handleSdrAttachment(getIntent());
   }
 
   @Override protected void onNewIntent(Intent intent) {
     super.onNewIntent(intent);
     setIntent(intent);
     handleHostActionIntent(intent);
+    handleSdrAttachment(intent);
+  }
+
+  private void handleSdrAttachment(Intent intent) {
+    if (intent == null || !android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+      return;
+    }
+    android.hardware.usb.UsbDevice device = intent.getParcelableExtra(
+        android.hardware.usb.UsbManager.EXTRA_DEVICE);
+    if (device == null || device.getVendorId() != 0x0bda
+        || (device.getProductId() != 0x2838 && device.getProductId() != 0x2832)) {
+      return;
+    }
+    android.widget.Toast.makeText(this,
+        "RTL-SDR connected. USB access must be authorized before Termux can use it.",
+        android.widget.Toast.LENGTH_LONG).show();
   }
 
   private void handleHostActionIntent(Intent hostIntent) {
