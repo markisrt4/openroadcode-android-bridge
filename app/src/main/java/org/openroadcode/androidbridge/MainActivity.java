@@ -569,12 +569,12 @@ public final class MainActivity extends Activity {
 
   private void showRadio() {
     addSubsystemHeader("◉", "Radio", "Radio hardware and aircraft reception", UiTheme.VIOLET);
-    radioCard = new RadioCard(this);
-    addServiceCard(content, "RTL-SDR", "USB detection; SDR managed by Termux", UiTheme.VIOLET,
-        radioCard.view(), true, false);
     termuxServicesCard = new TermuxServicesCard(this, "openroadcode-adsb");
     addServiceCard(content, "ADS-B", "Aircraft receiver service on your selected runtime", BLUE,
         termuxServicesCard.view(), true, true);
+    radioCard = new RadioCard(this);
+    addServiceCard(content, "libSDRForge", "FM receiver controls in Termux", UiTheme.VIOLET,
+        radioCard.view(), true, false);
   }
 
   private void showRuntime() {
