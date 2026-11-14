@@ -128,7 +128,6 @@ final class RadioCard {
         if ("start".equals(action)) sdrforge.start();
         else if ("stop".equals(action)) sdrforge.stop();
         else if ("tune".equals(action)) sdrforge.tune(hz);
-        JSONObjectWrapper unused = null;
         org.json.JSONObject health = sdrforge.health();
         org.json.JSONObject receiver = sdrforge.receiver();
         message = "REST: " + health.optString("status", "unknown")
