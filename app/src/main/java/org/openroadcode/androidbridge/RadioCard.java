@@ -159,7 +159,11 @@ final class RadioCard {
         resultMessage = "REST: " + health.optString("status", "unknown")
             + " | " + (receiver.optLong("frequency_hz") / 1000000.0) + " MHz"
             + "\nMode: " + receiver.optString("mode", "?")
-            + " | RDS: " + (receiver.isNull("rds") ? "none" : "available")
+            + " | Signal: " + (receiver.isNull("signal_strength") ? "unavailable"
+                : receiver.optString("signal_strength"))
+            + " | SNR: " + (receiver.isNull("snr") ? "unavailable"
+                : receiver.optString("snr"))
+            + "\nRDS: " + (receiver.isNull("rds") ? "unavailable" : "reported")
             + "\n" + action + " completed";
       } catch (Exception error) {
         resultMessage = "SDRForge: " + error.getMessage();
