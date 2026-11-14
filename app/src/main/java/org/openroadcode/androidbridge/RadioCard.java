@@ -123,21 +123,22 @@ final class RadioCard {
     requestInFlight = true;
     sdrforgeStatus.setText("SDRForge: " + action + "…");
     new Thread(() -> {
-      final String message;
+      String resultMessage;
       try {
         if ("start".equals(action)) sdrforge.start();
         else if ("stop".equals(action)) sdrforge.stop();
         else if ("tune".equals(action)) sdrforge.tune(hz);
         org.json.JSONObject health = sdrforge.health();
         org.json.JSONObject receiver = sdrforge.receiver();
-        message = "REST: " + health.optString("status", "unknown")
+        resultMessage = "REST: " + health.optString("status", "unknown")
             + " | " + (receiver.optLong("frequency_hz") / 1000000.0) + " MHz"
             + "\\nMode: " + receiver.optString("mode", "?")
             + " | RDS: " + (receiver.isNull("rds") ? "none" : "available")
             + "\\n" + action + " completed";
       } catch (Exception error) {
-        message = "SDRForge: " + error.getMessage();
+        resultMessage = "SDRForge: " + error.getMessage();
       }
+      final String message = resultMessage;
       activity.runOnUiThread(() -> {
         requestInFlight = false;
         sdrforgeStatus.setText(message);
