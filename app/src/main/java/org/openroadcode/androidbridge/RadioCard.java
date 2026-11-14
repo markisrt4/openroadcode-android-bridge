@@ -4,6 +4,10 @@ import android.app.Activity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.EditText;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
+import android.text.InputType;
 import android.view.View;
 import org.openroadcode.androidbridge.ui.UiTheme;
 import org.openroadcode.androidbridge.ui.ExpandableCard;
@@ -15,8 +19,15 @@ final class RadioCard {
   private final LinearLayout root;
   private final TextView status, device, diagnostics;
   private final Button connect, disconnect;
+  private final SdrForgeControlClient sdrforge = new SdrForgeControlClient();
+  private final Activity activity;
+  private TextView sdrforgeStatus;
+  private EditText frequencyInput;
+  private Spinner sourceSelector;
+  private boolean requestInFlight;
 
   RadioCard(Activity activity) {
+    this.activity = activity;
     application = (OpenRoadCodeBridgeApplication) activity.getApplication();
     root = UiTheme.card(activity);
     root.addView(UiTheme.text(activity,
@@ -44,9 +55,95 @@ final class RadioCard {
     root.addView(actions);
     diagnostics = UiTheme.text(activity, "", 11, UiTheme.MUTED);
     diagnostics.setPadding(0, UiTheme.dp(activity, 8), 0, 0);
+    addSdrForgeControls(activity);
     root.addView(new ExpandableCard(activity, "Receiver details",
         "USB endpoint and recent stream diagnostics", UiTheme.VIOLET,
         diagnostics, false).view());
+  }
+
+
+  private void addSdrForgeControls(Activity activity) {
+    root.addView(UiTheme.text(activity, "libSDRForge service", 14, UiTheme.TEXT));
+    root.addView(UiTheme.text(activity,
+        "REST diagnostics for the Termux service. Start the SDRForge server in Termux first. "
+        + "Source selection is saved for a future managed launcher; it does not switch a running server.",
+        11, UiTheme.MUTED));
+    sourceSelector = new Spinner(activity);
+    ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
+        android.R.layout.simple_spinner_dropdown_item,
+        new String[] {"Simulated IQ (no USB)", "RTL-SDR USB"});
+    sourceSelector.setAdapter(adapter);
+    String saved = application.getSharedPreferences("sdrforge_radio", Context.MODE_PRIVATE)
+        .getString("source", "simulated");
+    sourceSelector.setSelection("usb".equals(saved) ? 1 : 0);
+    root.addView(sourceSelector);
+    Button saveSource = UiTheme.actionButton(activity, "Save preferred source",
+        UiTheme.SURFACE_RAISED, v -> {
+          String selected = sourceSelector.getSelectedItemPosition() == 0 ? "simulated" : "usb";
+          application.getSharedPreferences("sdrforge_radio", Context.MODE_PRIVATE)
+              .edit().putString("source", selected).apply();
+          sdrforgeStatus.setText("Preference saved: " + selected
+              + ". Launch the matching server mode from Termux.");
+        });
+    root.addView(saveSource);
+    frequencyInput = new EditText(activity);
+    frequencyInput.setSingleLine(true);
+    frequencyInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+    frequencyInput.setText("94.7");
+    frequencyInput.setHint("Frequency (MHz)");
+    root.addView(frequencyInput);
+    sdrforgeStatus = UiTheme.text(activity, "SDRForge: not checked", 11, UiTheme.MUTED);
+    root.addView(sdrforgeStatus);
+    LinearLayout row = new LinearLayout(activity);
+    row.addView(UiTheme.actionButton(activity, "Check", UiTheme.SURFACE_RAISED,
+        v -> performSdrForge("check")), new LinearLayout.LayoutParams(0, -2, 1));
+    row.addView(UiTheme.actionButton(activity, "Start", UiTheme.VIOLET,
+        v -> performSdrForge("start")), new LinearLayout.LayoutParams(0, -2, 1));
+    row.addView(UiTheme.actionButton(activity, "Stop", UiTheme.SURFACE_RAISED,
+        v -> performSdrForge("stop")), new LinearLayout.LayoutParams(0, -2, 1));
+    root.addView(row);
+    root.addView(UiTheme.actionButton(activity, "Tune receiver", UiTheme.SURFACE_RAISED,
+        v -> performSdrForge("tune")));
+  }
+
+  private void performSdrForge(String action) {
+    if (requestInFlight) return;
+    final int hz;
+    if ("tune".equals(action)) {
+      try {
+        hz = Math.round(Float.parseFloat(frequencyInput.getText().toString()) * 1000000);
+        if (hz < 87500000 || hz > 108000000) throw new NumberFormatException();
+      } catch (NumberFormatException error) {
+        sdrforgeStatus.setText("Enter an FM frequency from 87.5 to 108 MHz.");
+        return;
+      }
+    } else {
+      hz = 0;
+    }
+    requestInFlight = true;
+    sdrforgeStatus.setText("SDRForge: " + action + "…");
+    new Thread(() -> {
+      final String message;
+      try {
+        if ("start".equals(action)) sdrforge.start();
+        else if ("stop".equals(action)) sdrforge.stop();
+        else if ("tune".equals(action)) sdrforge.tune(hz);
+        JSONObjectWrapper unused = null;
+        org.json.JSONObject health = sdrforge.health();
+        org.json.JSONObject receiver = sdrforge.receiver();
+        message = "REST: " + health.optString("status", "unknown")
+            + " | " + (receiver.optLong("frequency_hz") / 1000000.0) + " MHz"
+            + "\\nMode: " + receiver.optString("mode", "?")
+            + " | RDS: " + (receiver.isNull("rds") ? "none" : "available")
+            + "\\n" + action + " completed";
+      } catch (Exception error) {
+        message = "SDRForge: " + error.getMessage();
+      }
+      activity.runOnUiThread(() -> {
+        requestInFlight = false;
+        sdrforgeStatus.setText(message);
+      });
+    }, "sdrforge-radio-control").start();
   }
 
   View view() { return root; }
