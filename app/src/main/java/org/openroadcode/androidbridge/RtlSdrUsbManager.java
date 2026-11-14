@@ -1,261 +1,47 @@
 package org.openroadcode.androidbridge;
 
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.hardware.usb.UsbDevice;
-import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
-import android.os.Build;
-
-import java.util.Collection;
 import java.util.Locale;
 
-/**
- * Owns Android USB discovery and permission for RTL-SDR class devices.
- *
- * This class intentionally does not implement any SDR protocol. Its job is to
- * obtain Android's permission to the physical USB device and keep an open
- * UsbDeviceConnection that the Termux transport layer can use next.
- */
-public final class RtlSdrUsbManager implements AutoCloseable {
-    public interface Listener {
-        void onStateChanged(State state);
-    }
-
-    public enum Status {
-        NOT_FOUND,
-        DETECTED,
-        PERMISSION_PENDING,
-        OPEN,
-        ERROR
-    }
-
+/** Read-only discovery. Termux/libSDRForge owns USB permission and I/O. */
+public final class RtlSdrUsbManager {
     public static final class State {
-        public final Status status;
         public final UsbDevice device;
         public final String message;
-        public final int fileDescriptor;
-
-        State(Status status, UsbDevice device, String message, int fileDescriptor) {
-            this.status = status;
+        State(UsbDevice device, String message) {
             this.device = device;
             this.message = message;
-            this.fileDescriptor = fileDescriptor;
         }
-
         public String friendlyName() {
             if (device == null) return "USB receiver";
             try {
-                String manufacturer = device.getManufacturerName();
-                String product = device.getProductName();
-                String name = ((manufacturer == null ? "" : manufacturer + " ")
-                        + (product == null ? "" : product)).trim();
-                if (!name.isEmpty()) return name;
+                String name = device.getProductName();
+                if (name != null && !name.isEmpty()) return name;
             } catch (SecurityException ignored) { }
-            return "USB receiver";
+            return "RTL-SDR receiver";
         }
-
         public String deviceLabel() {
             if (device == null) return "No RTL-SDR detected";
-            String manufacturer = null;
-            String product = null;
-            String serial = null;
-            try {
-                manufacturer = device.getManufacturerName();
-                product = device.getProductName();
-                serial = device.getSerialNumber();
-            } catch (SecurityException ignored) {
-                // Android protects USB string descriptors until this app owns
-                // permission for the device. VID/PID and device name remain
-                // sufficient to identify a newly attached RTL-SDR safely.
-            }
-            String identity = ((manufacturer == null ? "" : manufacturer + " ") +
-                    (product == null ? "" : product)).trim();
-            if (identity.isEmpty()) identity = device.getDeviceName();
-            return String.format(
-                    Locale.US,
-                    "%s • VID 0x%04X PID 0x%04X%s",
-                    identity,
-                    device.getVendorId(),
-                    device.getProductId(),
-                    serial == null || serial.isEmpty() ? "" : " • S/N " + serial);
+            return String.format(Locale.US, "VID 0x%04X PID 0x%04X",
+                device.getVendorId(), device.getProductId());
         }
     }
 
-    private static final String ACTION_USB_PERMISSION =
-            "org.openroadcode.androidbridge.USB_PERMISSION_RTL_SDR";
-
-    // Common RTL2832U / RTL-SDR USB IDs. We primarily match the Realtek
-    // demodulator family while allowing known rebranded devices below.
-    private static final int REALTEK_VENDOR_ID = 0x0BDA;
-    private static final int RTL2832U_PRODUCT_ID = 0x2832;
-    private static final int RTL2838UHIDIR_PRODUCT_ID = 0x2838;
-
-    private final Context context;
     private final UsbManager usbManager;
-    private final Listener listener;
-    private volatile UsbDevice selectedDevice;
-    private volatile UsbDeviceConnection connection;
-    private boolean receiverRegistered;
-    private volatile boolean permissionPending;
-
-    private final BroadcastReceiver permissionReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (!ACTION_USB_PERMISSION.equals(intent.getAction())) return;
-            UsbDevice device;
-            if (Build.VERSION.SDK_INT >= 33) {
-                device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class);
-            } else {
-                @SuppressWarnings("deprecation")
-                UsbDevice oldDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                device = oldDevice;
-            }
-            boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-            permissionPending = false;
-            if (!granted || device == null) {
-                publish(Status.ERROR, selectedDevice, "USB permission denied", -1);
-                return;
-            }
-            selectedDevice = device;
-            openSelectedDevice();
-        }
-    };
-
-    // Android 13+ requires an explicit receiver flag. Older Android versions use
-    // the legacy registration path; this suppression covers only that API guard.
-    @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
-    public RtlSdrUsbManager(Context context, Listener listener) {
-        this.context = context.getApplicationContext();
-        this.listener = listener;
-        this.usbManager = this.context.getSystemService(UsbManager.class);
-        IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
-        if (Build.VERSION.SDK_INT >= 33) {
-            this.context.registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            this.context.registerReceiver(permissionReceiver, filter);
-        }
-        receiverRegistered = true;
+    public RtlSdrUsbManager(Context context) {
+        usbManager = context.getSystemService(UsbManager.class);
     }
-
-    public boolean isAttached(UsbDevice device) {
-        return usbManager != null && device != null
-                && usbManager.getDeviceList().containsKey(device.getDeviceName());
-    }
-
     public State refresh() {
-        selectedDevice = findRtlSdr();
-        if (selectedDevice == null) {
-            closeConnection();
-            return publish(Status.NOT_FOUND, null, "No RTL-SDR USB device detected", -1);
-        }
-        if (connection != null) {
-            return publish(Status.OPEN, selectedDevice, "RTL-SDR USB connection open", connection.getFileDescriptor());
-        }
-        if (permissionPending) {
-            return publish(Status.PERMISSION_PENDING, selectedDevice, "Waiting for Android USB permission", -1);
-        }
-        return publish(Status.DETECTED, selectedDevice, "RTL-SDR detected", -1);
-    }
-
-    public void open() {
-        selectedDevice = findRtlSdr();
-        if (selectedDevice == null) {
-            publish(Status.NOT_FOUND, null, "No RTL-SDR USB device detected", -1);
-            return;
-        }
-        if (connection != null) {
-            publish(Status.OPEN, selectedDevice, "RTL-SDR USB connection already open", connection.getFileDescriptor());
-            return;
-        }
-        if (usbManager.hasPermission(selectedDevice)) {
-            openSelectedDevice();
-            return;
-        }
-        Intent intent = new Intent(ACTION_USB_PERMISSION).setPackage(context.getPackageName());
-        PendingIntent permissionIntent = PendingIntent.getBroadcast(
-                context,
-                0,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-        permissionPending = true;
-        publish(Status.PERMISSION_PENDING, selectedDevice, "Waiting for Android USB permission", -1);
-        usbManager.requestPermission(selectedDevice, permissionIntent);
-    }
-
-    public void disconnect() {
-        permissionPending = false;
-        closeConnection();
-        selectedDevice = findRtlSdr();
-        if (selectedDevice == null) {
-            publish(Status.NOT_FOUND, null, "No RTL-SDR USB device detected", -1);
-        } else {
-            publish(Status.DETECTED, selectedDevice, "RTL-SDR disconnected from bridge", -1);
-        }
-    }
-
-    public UsbDeviceConnection getConnection() {
-        return connection;
-    }
-
-    public UsbDevice getDevice() {
-        return selectedDevice;
-    }
-
-    private void openSelectedDevice() {
-        closeConnection();
-        if (selectedDevice == null) {
-            publish(Status.ERROR, null, "RTL-SDR selection disappeared", -1);
-            return;
-        }
-        connection = usbManager.openDevice(selectedDevice);
-        if (connection == null) {
-            publish(Status.ERROR, selectedDevice, "Android could not open RTL-SDR USB device", -1);
-            return;
-        }
-        publish(Status.OPEN, selectedDevice, "RTL-SDR USB connection open", connection.getFileDescriptor());
-    }
-
-    private UsbDevice findRtlSdr() {
-        if (usbManager == null) return null;
-        Collection<UsbDevice> devices = usbManager.getDeviceList().values();
-        for (UsbDevice device : devices) {
-            if (isRtlSdr(device)) return device;
-        }
-        return null;
-    }
-
-    private static boolean isRtlSdr(UsbDevice device) {
-        if (device.getVendorId() != REALTEK_VENDOR_ID) return false;
-        int product = device.getProductId();
-        return product == RTL2832U_PRODUCT_ID || product == RTL2838UHIDIR_PRODUCT_ID;
-    }
-
-    private State publish(Status status, UsbDevice device, String message, int fd) {
-        State state = new State(status, device, message, fd);
-        if (listener != null) listener.onStateChanged(state);
-        return state;
-    }
-
-    private void closeConnection() {
-        if (connection != null) {
-            connection.close();
-            connection = null;
-        }
-    }
-
-    @Override
-    public void close() {
-        closeConnection();
-        if (receiverRegistered) {
-            try {
-                context.unregisterReceiver(permissionReceiver);
-            } catch (IllegalArgumentException ignored) {
+        if (usbManager != null) {
+            for (UsbDevice device : usbManager.getDeviceList().values()) {
+                if (device.getVendorId() == 0x0BDA
+                    && (device.getProductId() == 0x2832 || device.getProductId() == 0x2838)) {
+                    return new State(device, "RTL-SDR detected; Termux manages USB access");
+                }
             }
-            receiverRegistered = false;
         }
+        return new State(null, "No RTL-SDR USB device detected");
     }
 }

@@ -133,7 +133,7 @@ public final class RuntimeServiceManagerClient {
   }
 
   private static void validateService(String service) {
-    if (!service.matches("openroadcode-(message-broker|navigation|automotive|adsb)")) {
+    if (!service.matches("openroadcode-(message-broker|navigation|automotive|adsb|sdrforge)")) {
       throw new IllegalArgumentException("Unsupported OpenRoadCode service: " + service);
     }
   }

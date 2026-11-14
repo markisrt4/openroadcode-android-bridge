@@ -13,6 +13,10 @@ public final class TermuxServiceManagerClient {
     return delegate.getServices();
   }
 
+  public JSONObject setServiceProfile(String service, String profile) throws Exception {
+    return delegate.setServiceProfile(service, profile);
+  }
+
   public JSONObject startCoreStack() throws Exception {
     return delegate.startCoreStack();
   }
