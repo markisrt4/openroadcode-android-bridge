@@ -10,6 +10,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
+import org.openroadcode.androidbridge.ui.ExpandableCard;
 import org.openroadcode.androidbridge.ui.UiTheme;
 
 /** Read-only USB discovery and Termux-owned libSDRForge service controls. */
@@ -29,22 +30,24 @@ final class RadioCard {
     this.activity = activity;
     application = (OpenRoadCodeBridgeApplication) activity.getApplication();
     root = UiTheme.card(activity);
-    root.addView(UiTheme.text(activity,
-        "USB access and IQ acquisition belong to Termux/libSDRForge. "
-        + "Android detects the receiver without opening or claiming it.", 12, UiTheme.MUTED));
+
     status = UiTheme.text(activity, "", 14, UiTheme.TEXT);
-    root.addView(status);
     device = UiTheme.text(activity, "", 11, UiTheme.MUTED);
-    root.addView(device);
     addSdrForgeControls(activity);
+    LinearLayout details = new LinearLayout(activity);
+    details.setOrientation(LinearLayout.VERTICAL);
+    details.addView(UiTheme.text(activity,
+        "USB acquisition is owned by Termux/libSDRForge, not Android. "
+        + "The source preference does not launch or switch a running server.", 11, UiTheme.MUTED));
+    details.addView(status);
+    details.addView(device);
+    root.addView(new ExpandableCard(activity, "USB and setup details",
+        "Device detection and acquisition ownership", UiTheme.VIOLET,
+        details, false).view());
   }
 
   private void addSdrForgeControls(Activity activity) {
-    root.addView(UiTheme.text(activity, "libSDRForge service", 14, UiTheme.TEXT));
-    root.addView(UiTheme.text(activity,
-        "REST diagnostics for the Termux service. Start the SDRForge server in Termux first. "
-        + "Source selection is saved for a future managed launcher; it does not switch a running server.",
-        11, UiTheme.MUTED));
+
     sourceSelector = new Spinner(activity);
     ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
         android.R.layout.simple_spinner_dropdown_item,
@@ -54,7 +57,7 @@ final class RadioCard {
         .getString("source", "simulated");
     sourceSelector.setSelection("usb".equals(saved) ? 1 : 0);
     root.addView(sourceSelector);
-    Button saveSource = UiTheme.actionButton(activity, "Save preferred source",
+    Button saveSource = UiTheme.actionButton(activity, "Save source",
         UiTheme.SURFACE_RAISED, v -> {
           String selected = sourceSelector.getSelectedItemPosition() == 0 ? "simulated" : "usb";
           application.getSharedPreferences("sdrforge_radio", Context.MODE_PRIVATE)
@@ -67,7 +70,7 @@ final class RadioCard {
     frequencyInput.setSingleLine(true);
     frequencyInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
     frequencyInput.setText("94.7");
-    frequencyInput.setHint("Frequency (MHz)");
+    frequencyInput.setHint("FM MHz");
     root.addView(frequencyInput);
     sdrforgeStatus = UiTheme.text(activity, "SDRForge: not checked", 11, UiTheme.MUTED);
     root.addView(sdrforgeStatus);
@@ -79,7 +82,7 @@ final class RadioCard {
     row.addView(UiTheme.actionButton(activity, "Stop", UiTheme.SURFACE_RAISED,
         v -> performSdrForge("stop")), new LinearLayout.LayoutParams(0, -2, 1));
     root.addView(row);
-    root.addView(UiTheme.actionButton(activity, "Tune receiver", UiTheme.SURFACE_RAISED,
+    root.addView(UiTheme.actionButton(activity, "Tune", UiTheme.SURFACE_RAISED,
         v -> performSdrForge("tune")));
   }
 
