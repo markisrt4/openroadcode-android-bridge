@@ -39,9 +39,20 @@ final class PerformanceServiceStatus {
   }
 
   static String trafficSummary(String state, String protocol, int endpointCount) {
-    if (protocol == null) {
+    if (!hasSocket(protocol)) {
       return "unavailable".equals(state) ? "Traffic unavailable" : "No sockets observed";
     }
     return state.replace('_', ' ') + " · " + protocol + " · " + endpointCount + " endpoint(s)";
+  }
+
+  static boolean hasSocket(String protocol) {
+    return "TCP".equals(protocol) || "UDP".equals(protocol);
+  }
+
+  static String rowKey(JSONObject row, Map<String, String> states) {
+    String name = row.optString("name");
+    String protocol = row.optString("protocol");
+    if (hasSocket(protocol)) return "socket:" + name + ":" + row.optString("pid") + ":" + protocol;
+    return managedState(name, states) == null ? null : "managed:" + name;
   }
 }

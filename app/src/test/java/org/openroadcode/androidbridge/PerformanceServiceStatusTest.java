@@ -4,6 +4,7 @@ package org.openroadcode.androidbridge;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
+import java.util.Collections;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
@@ -20,8 +21,18 @@ public final class PerformanceServiceStatusTest {
     assertEquals("stopped", PerformanceServiceStatus.managedState("Automotive", states));
     assertNull(PerformanceServiceStatus.managedState("Calendar sync", states));
     assertNull(PerformanceServiceStatus.managedState("GPSD", states));
-    assertEquals("Traffic unavailable", PerformanceServiceStatus.trafficSummary("unavailable", null, 1));
+    assertEquals("Traffic unavailable", PerformanceServiceStatus.trafficSummary("unavailable", "--", 1));
     assertEquals("No sockets observed", PerformanceServiceStatus.trafficSummary("not_observed", null, 1));
     assertEquals("listening · TCP · 2 endpoint(s)", PerformanceServiceStatus.trafficSummary("listening", "TCP", 2));
+  }
+
+  @Test public void skipsPlaceholdersWithoutManagedStatusAndKeepsObservedSockets() throws Exception {
+    var states = Collections.singletonMap("openroadcode-navigation", "running");
+    var row = new JSONObject().put("name", "apps.orcUi").put("pid", 11).put("protocol", "--");
+    assertNull(PerformanceServiceStatus.rowKey(row, states));
+    assertEquals("socket:apps.orcUi:11:TCP", PerformanceServiceStatus.rowKey(row.put("protocol", "TCP"), states));
+    row.put("name", "Navigation").put("protocol", "--");
+    assertEquals("managed:Navigation", PerformanceServiceStatus.rowKey(row, states));
+    assertEquals("managed:Navigation", PerformanceServiceStatus.rowKey(row.put("pid", 12), states));
   }
 }

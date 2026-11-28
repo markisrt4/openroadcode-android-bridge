@@ -224,22 +224,25 @@ final class PerformanceMetricsView {
     if (services != null) for (int i = 0; i < services.length(); i++) {
       JSONObject service = services.optJSONObject(i);
       if (service == null) continue;
-      String key = service.optString("name") + ":" + service.optString("pid") + ":" + service.optString("protocol");
-      groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(service);
+      String key = PerformanceServiceStatus.rowKey(service, serviceStates);
+      if (key != null) groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(service);
     }
     List<Item> items = new ArrayList<>();
-    int observed = 0, attention = 0;
+    int socketGroups = 0, attention = 0;
     for (var group : groups.entrySet()) {
       JSONObject first = group.getValue().get(0);
       String state = first.optString("state", "unknown");
       String name = first.optString("name");
+      String protocol = first.optString("protocol");
+      boolean hasSocket = PerformanceServiceStatus.hasSocket(protocol);
       String managedState = PerformanceServiceStatus.managedState(name, serviceStates);
       StringBuilder detail = new StringBuilder(name);
       if (managedState != null) detail.append("\nService manager status: ").append(managedState);
       for (JSONObject endpoint : group.getValue()) {
         String endpointState = endpoint.optString("state", "unknown");
         if (servicePriority(endpointState) > servicePriority(state)) state = endpointState;
-        if (endpoint.isNull("protocol")) {
+        if (!hasSocket) {
+          if ("unavailable".equals(endpointState)) state = endpointState;
           detail.append("\n\n").append(endpoint.optString("detail"));
           continue;
         }
@@ -253,20 +256,21 @@ final class PerformanceMetricsView {
             .append("\nUDP drops ").append(format(endpoint, "udp_drops", 1, "%.0f"))
             .append("\n").append(endpoint.optString("detail"));
       }
-      if (!first.isNull("pid")) observed++;
+      if (hasSocket) socketGroups++;
       if (severity(state) == 2) attention++;
       String badge = managedState == null ? state : managedState;
       String subtitle = PerformanceServiceStatus.trafficSummary(
-          state, first.isNull("protocol") ? null : first.optString("protocol"), group.getValue().size());
+          state, protocol, group.getValue().size());
       int color = managedState == null ? stateColor(state)
           : "running".equals(managedState) ? UiTheme.GREEN : UiTheme.MUTED;
       items.add(new Item(group.getKey(), friendly(name), badge.replace('_', ' ').toUpperCase(Locale.US),
           subtitle + " · details ›", color, detail.toString()));
     }
     ensureTiles(2);
-    metric(0, "Observed groups", String.valueOf(observed), UiTheme.BLUE);
+    metric(0, "Socket groups", String.valueOf(socketGroups), UiTheme.BLUE);
     metric(1, "Warnings", String.valueOf(attention), attention > 0 ? UiTheme.RED : UiTheme.GREEN);
-    note.setText("Service status and socket traffic · tap a service for details");
+    note.setText(items.isEmpty() ? "No sockets or managed service status are visible"
+        : "Service status and socket traffic · tap a service for details");
     updateRows(items);
   }
 
