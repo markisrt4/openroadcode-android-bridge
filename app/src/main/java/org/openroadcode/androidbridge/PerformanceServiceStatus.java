@@ -33,6 +33,7 @@ final class PerformanceServiceStatus {
       case "ADS-B" -> "openroadcode-adsb";
       case "Calendar sync" -> "openroadcode-calendar-sync";
       case "Carbonate bridge" -> "openroadcode-carbonate";
+      case "SDRForge", "libsdrforge", "libsdrforge-service" -> "openroadcode-sdrforge";
       default -> "";
     };
     return id.isEmpty() ? null : states.get(id);
@@ -53,6 +54,18 @@ final class PerformanceServiceStatus {
     String name = row.optString("name");
     String protocol = row.optString("protocol");
     if (hasSocket(protocol)) return "socket:" + name + ":" + row.optString("pid") + ":" + protocol;
+    if ("Calendar sync".equals(name) || "Carbonate bridge".equals(name)) return "managed:" + name;
     return managedState(name, states) == null ? null : "managed:" + name;
+  }
+
+  static String calendarSyncSummary(JSONObject health) {
+    if (health == null) return "Sync health unavailable";
+    if (health.optBoolean("syncing")) return "Sync in progress";
+    return switch (health.optString("status")) {
+      case "ok" -> health.optBoolean("stale") ? "Last sync is stale" : "Last sync OK";
+      case "degraded" -> "Last sync degraded";
+      case "failed" -> "Last sync failed";
+      default -> "Sync health unavailable";
+    };
   }
 }

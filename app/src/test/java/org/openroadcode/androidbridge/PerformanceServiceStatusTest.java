@@ -35,4 +35,14 @@ public final class PerformanceServiceStatusTest {
     assertEquals("managed:Navigation", PerformanceServiceStatus.rowKey(row, states));
     assertEquals("managed:Navigation", PerformanceServiceStatus.rowKey(row.put("pid", 12), states));
   }
+
+  @Test public void calendarIntegrationsStayVisibleWithoutSocketOrServiceStatus() throws Exception {
+    var row = new JSONObject().put("protocol", "--").put("name", "Calendar sync");
+    assertEquals("managed:Calendar sync", PerformanceServiceStatus.rowKey(row, Collections.emptyMap()));
+    assertEquals("managed:Carbonate bridge", PerformanceServiceStatus.rowKey(
+        row.put("name", "Carbonate bridge"), Collections.emptyMap()));
+    assertEquals("Last sync is stale", PerformanceServiceStatus.calendarSyncSummary(
+        new JSONObject().put("status", "ok").put("stale", true)));
+    assertEquals("Sync health unavailable", PerformanceServiceStatus.calendarSyncSummary(null));
+  }
 }

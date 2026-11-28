@@ -261,10 +261,25 @@ final class PerformanceMetricsView {
       String badge = managedState == null ? state : managedState;
       String subtitle = PerformanceServiceStatus.trafficSummary(
           state, protocol, group.getValue().size());
+      if ("Calendar sync".equals(name)) {
+        String health = PerformanceServiceStatus.calendarSyncSummary(sample.optJSONObject("calendar_health"));
+        subtitle = health + " · " + subtitle;
+        detail.append("\n\n").append(health);
+      }
       int color = managedState == null ? stateColor(state)
           : "running".equals(managedState) ? UiTheme.GREEN : UiTheme.MUTED;
       items.add(new Item(group.getKey(), friendly(name), badge.replace('_', ' ').toUpperCase(Locale.US),
           subtitle + " · details ›", color, detail.toString()));
+    }
+    String sdrHealth = sample.optString("sdr_rest_health", "");
+    if ("healthy".equals(sdrHealth) || "unhealthy".equals(sdrHealth) || "unreachable".equals(sdrHealth)) {
+      if ("unhealthy".equals(sdrHealth)) attention++;
+      items.add(new Item("health:sdr-rest", "SDRForge REST API", sdrHealth.toUpperCase(Locale.US),
+          "Local HTTP health check · details ›",
+          "healthy".equals(sdrHealth) ? UiTheme.GREEN
+              : "unhealthy".equals(sdrHealth) ? UiTheme.RED : UiTheme.MUTED,
+          "Read-only GET /v1/health on the selected computing unit. "
+              + "A healthy response confirms the API is responding. Receiver and USB status are separate."));
     }
     ensureTiles(2);
     metric(0, "Socket groups", String.valueOf(socketGroups), UiTheme.BLUE);

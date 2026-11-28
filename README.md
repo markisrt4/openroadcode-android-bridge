@@ -301,8 +301,11 @@ The **Services** tab shows the service manager's running or stopped status
 when available. The traffic line shows socket information separately. A
 running service can show **Traffic unavailable** when Linux restricts
 cross-user socket inspection.
-The tab omits process placeholders that have neither an observed socket nor a
-reported service status. Per-process workload remains available under **Workload**.
+Calendar sync and Carbonate Bridge stay visible when socket access is restricted,
+and Calendar sync shows the last sync result when reported. With an updated
+service manager, the SDRForge REST API row reflects the host's loopback health
+check. Other process placeholders without sockets or managed status are omitted.
+Per-process workload remains available under **Workload**.
 
 If Local Termux reports that performance monitoring is unavailable, update the
 main OpenRoadCode checkout to `computing-unit-performance` and restart its Python
