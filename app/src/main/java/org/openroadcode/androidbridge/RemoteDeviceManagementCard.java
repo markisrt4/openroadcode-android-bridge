@@ -92,28 +92,46 @@ public final class RemoteDeviceManagementCard {
   private void addDevice() {
     LinearLayout fields = fields();
     EditText name = textField("Device name");
-    EditText endpoint = textField("http://device-address:8769");
+    EditText endpoint = textField("Device address or URL");
     endpoint.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
     fields.addView(name);
+    fields.addView(UiTheme.text(activity, "Address or URL", 12, UiTheme.MUTED));
     fields.addView(endpoint);
+    fields.addView(UiTheme.text(activity, "Port", 12, UiTheme.MUTED));
+    EditText port = textField("Port");
+    port.setInputType(InputType.TYPE_CLASS_NUMBER);
+    port.setText(String.valueOf(PairingEndpoint.DEFAULT_PORT));
+    fields.addView(port);
 
     AlertDialog dialog = new AlertDialog.Builder(activity)
         .setTitle("Add OpenRoadCode device")
-        .setMessage("Enter the device name and its ORC connection address. Your browser will open to approve the connection.")
+        .setMessage("Enter the device name, address, and port. Your browser will open to approve the connection.")
         .setView(fields)
         .setNegativeButton("CANCEL", null)
         .setPositiveButton("PAIR IN BROWSER", null)
         .create();
     dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-        .setOnClickListener(v -> pairInBrowser(dialog, name, endpoint)));
+        .setOnClickListener(v -> pairInBrowser(dialog, name, endpoint, port)));
     dialog.show();
   }
 
-  private void pairInBrowser(AlertDialog dialog, EditText name, EditText endpoint) {
+  private void pairInBrowser(AlertDialog dialog, EditText name, EditText endpoint, EditText port) {
     String deviceName = name.getText().toString().trim();
-    String baseUrl = endpoint.getText().toString().trim();
     if (deviceName.isBlank()) { name.setError("Enter a device name"); return; }
-    if (!validEndpoint(baseUrl)) { endpoint.setError("Enter a complete http:// or https:// endpoint"); return; }
+    final int portNumber;
+    try {
+      portNumber = PairingEndpoint.parsePort(port.getText().toString());
+    } catch (IllegalArgumentException error) {
+      port.setError(error.getMessage());
+      return;
+    }
+    final String baseUrl;
+    try {
+      baseUrl = PairingEndpoint.baseUrl(endpoint.getText().toString(), portNumber);
+    } catch (IllegalArgumentException error) {
+      endpoint.setError(error.getMessage());
+      return;
+    }
 
     Button pairButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
     pairButton.setEnabled(false);
