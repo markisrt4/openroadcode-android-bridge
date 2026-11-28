@@ -297,6 +297,10 @@ endpoint. Polling stops when you leave Performance or pause the app; unavailable
 and stale readings are cleared. An older computing unit reports that its
 service manager needs updating.
 
+The **Services** tab shows the service manager's running or stopped status
+when available. The traffic line shows socket information separately. A
+running service can show **Traffic unavailable** when Linux restricts
+cross-user socket inspection.
 
 If Local Termux reports that performance monitoring is unavailable, update the
 main OpenRoadCode checkout to `computing-unit-performance` and restart its Python

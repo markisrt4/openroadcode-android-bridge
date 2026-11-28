@@ -12,10 +12,13 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.util.Collections;
 import java.util.Locale;
+import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.config.RuntimeServiceManagerSettings;
@@ -40,6 +43,8 @@ public final class SystemPerformanceCard {
   private boolean inFlight;
   private int generation;
   private Target lastTarget;
+  private boolean servicesInFlight;
+  private long nextServicePoll;
 
   private final Runnable refresh = new Runnable() {
     @Override public void run() {
@@ -76,6 +81,8 @@ public final class SystemPerformanceCard {
 
   public void start() {
     active = true;
+    nextServicePoll = 0;
+    metrics.setServiceStates(Collections.emptyMap());
     handler.removeCallbacks(refresh);
     handler.post(refresh);
   }
@@ -141,6 +148,14 @@ public final class SystemPerformanceCard {
       lastTarget = target;
       generation++;
       clear("Connecting to " + target.label() + "…");
+      nextServicePoll = 0;
+      metrics.setServiceStates(Collections.emptyMap());
+    }
+    if (metrics.showsServices()) {
+      pollServiceStates(target);
+    } else if (nextServicePoll != 0 && SystemClock.elapsedRealtime() >= nextServicePoll) {
+      nextServicePoll = 0;
+      metrics.setServiceStates(Collections.emptyMap());
     }
     if (inFlight) return;
     inFlight = true;
@@ -168,6 +183,30 @@ public final class SystemPerformanceCard {
         else render(target, result);
       });
     }, "orc-performance-request").start();
+  }
+
+  private void pollServiceStates(Target target) {
+    long now = SystemClock.elapsedRealtime();
+    if (servicesInFlight || now < nextServicePoll) return;
+    servicesInFlight = true;
+    nextServicePoll = now + 5000;
+    final int requestGeneration = generation;
+    new Thread(() -> {
+      Map<String, String> states;
+      try {
+        var client = new RuntimeServiceManagerClient(target.url(), target.label(), target.token());
+        states = PerformanceServiceStatus.readStates(client.getServices());
+      } catch (Exception ignored) {
+        states = Collections.emptyMap();
+      }
+      final Map<String, String> result = states;
+      handler.post(() -> {
+        servicesInFlight = false;
+        if (active && requestGeneration == generation && target.equals(lastTarget)) {
+          metrics.setServiceStates(result);
+        }
+      });
+    }, "orc-performance-service-status").start();
   }
 
   private void clear(String message) {

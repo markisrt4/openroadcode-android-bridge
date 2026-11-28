@@ -11,9 +11,11 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.openroadcode.androidbridge.ui.UiTheme;
@@ -29,6 +31,7 @@ final class PerformanceMetricsView {
   private final List<Row> rowViews = new ArrayList<>();
   private List<String> rowKeys = java.util.Collections.emptyList();
   private JSONObject sample;
+  private Map<String, String> serviceStates = Collections.emptyMap();
   private int page;
 
   PerformanceMetricsView(Activity activity) {
@@ -61,6 +64,13 @@ final class PerformanceMetricsView {
   }
 
   View view() { return root; }
+
+  boolean showsServices() { return page == 3; }
+
+  void setServiceStates(Map<String, String> states) {
+    serviceStates = states;
+    if (showsServices() && sample != null) services();
+  }
 
   void clear() {
     sample = null;
@@ -222,10 +232,17 @@ final class PerformanceMetricsView {
     for (var group : groups.entrySet()) {
       JSONObject first = group.getValue().get(0);
       String state = first.optString("state", "unknown");
-      StringBuilder detail = new StringBuilder(first.optString("name"));
+      String name = first.optString("name");
+      String managedState = PerformanceServiceStatus.managedState(name, serviceStates);
+      StringBuilder detail = new StringBuilder(name);
+      if (managedState != null) detail.append("\nService manager status: ").append(managedState);
       for (JSONObject endpoint : group.getValue()) {
         String endpointState = endpoint.optString("state", "unknown");
         if (servicePriority(endpointState) > servicePriority(state)) state = endpointState;
+        if (endpoint.isNull("protocol")) {
+          detail.append("\n\n").append(endpoint.optString("detail"));
+          continue;
+        }
         detail.append("\n\n").append(endpoint.optString("local_endpoint", "--")).append(" → ")
             .append(endpoint.optString("remote_endpoint", "--"))
             .append("\n").append(endpointState).append(" · PID ").append(endpoint.optString("pid", "--"))
@@ -238,14 +255,18 @@ final class PerformanceMetricsView {
       }
       if (!first.isNull("pid")) observed++;
       if (severity(state) == 2) attention++;
-      items.add(new Item(group.getKey(), friendly(first.optString("name")), state.replace('_', ' ').toUpperCase(Locale.US),
-          first.optString("protocol", "--") + " · " + group.getValue().size() + " endpoint(s) · traffic details ›",
-          stateColor(state), detail.toString()));
+      String badge = managedState == null ? state : managedState;
+      String subtitle = PerformanceServiceStatus.trafficSummary(
+          state, first.isNull("protocol") ? null : first.optString("protocol"), group.getValue().size());
+      int color = managedState == null ? stateColor(state)
+          : "running".equals(managedState) ? UiTheme.GREEN : UiTheme.MUTED;
+      items.add(new Item(group.getKey(), friendly(name), badge.replace('_', ' ').toUpperCase(Locale.US),
+          subtitle + " · details ›", color, detail.toString()));
     }
     ensureTiles(2);
     metric(0, "Observed groups", String.valueOf(observed), UiTheme.BLUE);
     metric(1, "Warnings", String.valueOf(attention), attention > 0 ? UiTheme.RED : UiTheme.GREEN);
-    note.setText("Socket state · tap a service for bandwidth and endpoints");
+    note.setText("Service status and socket traffic · tap a service for details");
     updateRows(items);
   }
 
@@ -326,7 +347,7 @@ final class PerformanceMetricsView {
           + format(sample, "uptime_seconds", 3600, "%.1f hours");
       case 2 -> "Freshness and validity of observed telemetry, not a hardware self-test. Unobserved streams may be disabled.\n"
           + sample.optString("sensor_monitor_status");
-      default -> "Socket state is not an application response check. UDP bandwidth needs service-level counters.\n"
+      default -> "Running or stopped reports the service manager's status. Traffic may be unavailable when the operating system restricts socket inspection. UDP bandwidth needs service-level counters.\n"
           + sample.optString("service_monitor_status");
     };
   }
